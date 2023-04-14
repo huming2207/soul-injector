@@ -153,6 +153,9 @@ private:
 
 private:
     static const constexpr char *TAG = "cdc_acm";
+    static const constexpr char USB_DESC_MANUFACTURER[] = "Jackson M Hu";
+    static const constexpr char USB_DESC_PRODUCT[] = "Soul Injector";
+    static const constexpr char USB_DESC_CDC_NAME[] = "Soul Injector Programmer";
     cdc_def::file_recv_state recv_state = cdc_def::FILE_RECV_NONE;
     EventGroupHandle_t rx_event = nullptr;
     volatile bool busy_decoding = false;

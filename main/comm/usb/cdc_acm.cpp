@@ -13,18 +13,18 @@ esp_err_t cdc_acm::init()
     static char sn_str[32] = {};
     static char lang[2] = {0x09, 0x04};
 
-
     static char *desc_str[5] = {
             lang,                // 0: is supported language is English (0x0409)
-            "Jackson Hu", // 1: Manufacturer
-            "Soul Injector Programmer",      // 2: Product
+            const_cast<char *>(USB_DESC_MANUFACTURER), // 1: Manufacturer
+            const_cast<char *>(USB_DESC_PRODUCT),      // 2: Product
             sn_str,       // 3: Serials, should use chip ID
-            "Soul Injector v1",          // 4: CDC Interface
+            const_cast<char *>(USB_DESC_CDC_NAME),          // 4: CDC Interface
     };
 
     tinyusb_config_t tusb_cfg = {}; // the configuration using default values
     tusb_cfg.string_descriptor = (const char **)desc_str;
     tusb_cfg.device_descriptor = nullptr;
+    tusb_cfg.self_powered = false;
     tusb_cfg.external_phy = false;
 
     uint8_t sn_buf[16] = { 0 };

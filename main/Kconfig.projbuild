@@ -12,4 +12,87 @@ menu "Soul Injector Configuration"
         help
             Device version number
 
+    config SI_DISP_ENABLE
+        bool "Enable display support"
+        default y
+        help
+            Enable LCD display
+
+    choice SI_DISP_PANEL_MODEL
+        prompt "Display panel model"
+        default SI_DISP_PANEL_LHS154KC
+
+        config SI_DISP_PANEL_LHS154KC
+            bool
+            prompt "ZJY LHS154KC 1.54 inch, HannStar LCD + ST7789v3"
+
+    endchoice
+
+    config SI_DISP_PANEL_IO_SCLK
+        int "Display SPI CLK pin"
+        depends on SI_DISP_ENABLE
+        default 6
+        help
+             LCD panel's SPI SCLK pin
+
+    config SI_DISP_PANEL_IO_MOSI
+        int "Display SPI data output (MOSI) pin"
+        depends on SI_DISP_ENABLE
+        default 5
+        help
+             LCD panel's SPI MOSI pin
+
+    config SI_DISP_PANEL_IO_RST
+        int "Display reset pin"
+        depends on SI_DISP_ENABLE
+        default 4
+        help
+             LCD panel's reset pin
+
+    config SI_DISP_PANEL_IO_DC
+        int "Display D/C pin"
+        depends on SI_DISP_ENABLE
+        default 15
+        help
+             LCD panel's Data/Command control pin
+
+    config SI_DISP_PANEL_IO_CS
+        int "Display SPI CS pin"
+        depends on SI_DISP_ENABLE
+        default 7
+        help
+             LCD panel's SPI chip select pin
+
+    config SI_DISP_PANEL_BUFFER_SIZE
+        int "Display buffer size"
+        depends on SI_DISP_ENABLE
+        default 9600
+        help
+             Render/SPI DMA buffer size
+
+    config SI_DISP_SLOW_CLK
+        bool "Slow down LCD display's SPI Clock"
+        default n
+        help
+            Slow down the SPI clock for debugging
+
+    config SI_LED_SIGNAL_PIN
+        int "LED indicator pin"
+        default 10
+        help
+            RGB LED pin
+
+    choice SI_LED_MODEL
+        prompt "LED indicator model"
+        default SI_LED_WS2812B
+
+        config SI_LED_WS2812B
+            bool
+            prompt "WS2812B-B"
+
+        config SI_LED_SK6812RGB
+            bool
+            prompt "SK6812 (RGB, no white)"
+    endchoice
+
 endmenu

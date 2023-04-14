@@ -9,8 +9,12 @@ idf_component_register(
             "comm/usb/cdc_acm.cpp" "comm/usb/includes/cdc_acm.hpp"
             "misc/includes/soul_nvs.hpp"
             "driver/includes/button_monitor.hpp"
+            "driver/lcd/lhs154kc.c" "driver/lcd/lhs154kc.h"
+            "driver/lcd/lvgl_wrapper.c" "driver/lcd/lvgl_wrapper.h"
+            "driver/lcd/lcd_manager.cpp" "driver/lcd/lcd_manager.hpp"
+
         INCLUDE_DIRS
-            "." "misc/includes" "prog/includes" "external/includes" "comm/usb/includes" "driver/includes"
+            "." "misc/includes" "prog/includes" "external/includes" "comm/usb/includes" "driver/includes" "driver"
         PRIV_REQUIRES
             "daplink-esp"
             "mbedtls"
@@ -21,4 +25,6 @@ idf_component_register(
             "nvs_flash"
             "driver"
             "esp_timer"
+            "lvgl"
+            "led_strip"
 )

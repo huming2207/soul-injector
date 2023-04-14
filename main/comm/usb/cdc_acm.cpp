@@ -597,7 +597,7 @@ esp_err_t cdc_acm::unpause_usb()
 esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks)
 {
     const uint8_t slip_esc_start[] = { SLIP_ESC, SLIP_ESC_START };
-    const uint8_t slip_esc_end[] = { SLIP_ESC, SLIP_ESC_START };
+    const uint8_t slip_esc_end[] = { SLIP_ESC, SLIP_ESC_END };
     const uint8_t slip_esc_esc[] = { SLIP_ESC, SLIP_ESC_ESC };
 
     if (buf == nullptr || len < 1) {
@@ -618,7 +618,7 @@ esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_
     while (idx < len) {
         switch (buf[idx]) {
             case SLIP_START: {
-                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_end, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
+                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_start, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
                     ESP_LOGE(TAG, "Failed to encode and tx SLIP_START");
                     return ESP_ERR_NOT_FINISHED;
                 }

@@ -80,7 +80,7 @@ esp_err_t cdc_acm::init()
 
 void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 {
-    auto &ctx = cdc_acm::instance();
+    auto *ctx = cdc_acm::instance();
 
     uint8_t rx_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE] = { 0 };
     size_t rx_size = 0;
@@ -93,39 +93,39 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
     if (rx_size < 1) {
         return;
     } else {
-        memcpy(ctx.raw_buf + ctx.raw_len, rx_buf, rx_size);
-        ctx.raw_len = ctx.raw_len + rx_size;
+        memcpy(ctx->raw_buf + ctx->raw_len, rx_buf, rx_size);
+        ctx->raw_len = ctx->raw_len + rx_size;
     }
 
     // Start to decode if this is the last packet, otherwise continue to cache
     if (rx_buf[rx_size - 1] == SLIP_END) {
         size_t idx = 0;
-        while (idx < ctx.raw_len && ctx.decoded_len < CONFIG_TINYUSB_CDC_RX_BUFSIZE) {
-            if (ctx.raw_buf[idx] == SLIP_END) {
-                if (ctx.decoded_len > 0) {
-                    ESP_LOGI(TAG, "Before SLIP, size %u:", ctx.raw_len);
-                    xEventGroupSetBits(ctx.rx_event, cdc_def::EVT_NEW_PACKET);
-                    ctx.raw_len = 0;
-                    memset(ctx.raw_buf, 0, CONFIG_TINYUSB_CDC_RX_BUFSIZE);
+        while (idx < ctx->raw_len && ctx->decoded_len < CONFIG_TINYUSB_CDC_RX_BUFSIZE) {
+            if (ctx->raw_buf[idx] == SLIP_END) {
+                if (ctx->decoded_len > 0) {
+                    ESP_LOGI(TAG, "Before SLIP, size %u:", ctx->raw_len);
+                    xEventGroupSetBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
+                    ctx->raw_len = 0;
+                    memset(ctx->raw_buf, 0, CONFIG_TINYUSB_CDC_RX_BUFSIZE);
                 } else {
-                    xEventGroupClearBits(ctx.rx_event, cdc_def::EVT_NEW_PACKET);
+                    xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
                 }
-            } else if (ctx.raw_buf[idx] == SLIP_ESC) {
+            } else if (ctx->raw_buf[idx] == SLIP_ESC) {
                 idx += 1;
-                if (ctx.raw_buf[idx] == SLIP_ESC_END) {
-                    ctx.decoded_buf[ctx.decoded_len] = SLIP_END;
-                } else if (ctx.raw_buf[idx] == SLIP_ESC_ESC) {
-                    ctx.decoded_buf[ctx.decoded_len] = SLIP_ESC;
+                if (ctx->raw_buf[idx] == SLIP_ESC_END) {
+                    ctx->decoded_buf[ctx->decoded_len] = SLIP_END;
+                } else if (ctx->raw_buf[idx] == SLIP_ESC_ESC) {
+                    ctx->decoded_buf[ctx->decoded_len] = SLIP_ESC;
                 } else {
-                    xEventGroupSetBits(ctx.rx_event, cdc_def::EVT_SLIP_ERROR);
+                    xEventGroupSetBits(ctx->rx_event, cdc_def::EVT_SLIP_ERROR);
                     ESP_LOGE(TAG, "SLIP decoding detected a corrupted packet");
                     return;
                 }
 
-                ctx.decoded_len = ctx.decoded_len + 1;
+                ctx->decoded_len = ctx->decoded_len + 1;
             } else {
-                ctx.decoded_buf[ctx.decoded_len] = ctx.raw_buf[idx];
-                ctx.decoded_len = ctx.decoded_len + 1;
+                ctx->decoded_buf[ctx->decoded_len] = ctx->raw_buf[idx];
+                ctx->decoded_len = ctx->decoded_len + 1;
             }
 
             idx += 1;
@@ -136,21 +136,21 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 [[noreturn]] void cdc_acm::rx_handler_task(void *_ctx)
 {
     ESP_LOGI(TAG, "Rx handler task started");
-    auto &ctx = cdc_acm::instance();
+    auto *ctx = cdc_acm::instance();
     while(true) {
-        if (xEventGroupWaitBits(ctx.rx_event, cdc_def::EVT_NEW_PACKET, pdTRUE, pdFALSE, portMAX_DELAY) == pdTRUE) {
+        if (xEventGroupWaitBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET, pdTRUE, pdFALSE, portMAX_DELAY) == pdTRUE) {
             // Pause Rx
             tinyusb_cdcacm_unregister_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX);
 
-            ESP_LOGI(TAG, "Now in buffer, len: %u :", ctx.decoded_len);
+            ESP_LOGI(TAG, "Now in buffer, len: %u :", ctx->decoded_len);
             // ESP_LOG_BUFFER_HEX(TAG, ctx.decoded_buf, ctx.decoded_len);
 
             // Now do parsing
-            ctx.parse_pkt();
+            ctx->parse_pkt();
 
             // Clear up the mess
-            ctx.decoded_len = 0;
-            memset(ctx.decoded_buf, 0, CONFIG_TINYUSB_CDC_RX_BUFSIZE);
+            ctx->decoded_len = 0;
+            memset(ctx->decoded_buf, 0, CONFIG_TINYUSB_CDC_RX_BUFSIZE);
 
             // Restart Rx
             tinyusb_cdcacm_register_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX, serial_rx_cb);

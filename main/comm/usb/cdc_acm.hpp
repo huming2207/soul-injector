@@ -96,11 +96,6 @@ namespace cdc_def
         char dev_build[32];
     };
 
-    struct __attribute__((packed)) algo_info {
-        uint32_t crc; // 4
-        uint32_t len; // 4
-    }; // 8 bytes
-
     struct __attribute__((packed)) fw_info {
         uint32_t crc; // 4
         uint32_t len; // 4
@@ -166,7 +161,6 @@ private:
     size_t file_expect_len = 0;
     size_t file_curr_offset = 0;
     uint32_t file_crc = 0;
-    uint8_t *algo_buf = nullptr;
     FILE *file_handle = nullptr;
 };
 

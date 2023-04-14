@@ -396,10 +396,7 @@ void cdc_acm::parse_chunk()
         file_expect_len = 0;
         file_curr_offset = 0;
         file_crc = 0;
-        if (algo_buf != nullptr) {
-            free(algo_buf);
-            algo_buf = nullptr;
-        }
+
         recv_state = cdc_def::FILE_RECV_NONE;
         send_chunk_ack(cdc_def::CHUNK_ERR_ABORT_REQUESTED, 0);
         rx_buf_bb.ReadRelease(buf_len);
@@ -412,10 +409,6 @@ void cdc_acm::parse_chunk()
         file_expect_len = 0;
         file_curr_offset = 0;
         file_crc = 0;
-        if (algo_buf != nullptr) {
-            free(algo_buf);
-            algo_buf = nullptr;
-        }
 
         if (file_handle != nullptr) {
             fclose(file_handle);
@@ -429,64 +422,25 @@ void cdc_acm::parse_chunk()
     }
 
     // Scenario 2: Normal recv
-    if (recv_state == cdc_def::FILE_RECV_ALGO) {
-        ESP_LOGD(TAG, "Copy to: %p; len: %u, off: %u, base: %p", algo_buf + file_curr_offset, chunk->len, file_curr_offset, algo_buf);
-        memcpy(algo_buf + file_curr_offset, chunk->buf, chunk->len);
-        file_curr_offset += chunk->len; // Add offset
-    } else if(recv_state == cdc_def::FILE_RECV_FW) {
-        if (fwrite(chunk->buf, 1, chunk->len, file_handle) < chunk->len) {
-            ESP_LOGE(TAG, "Error occur when processing recv buffer - write failed");
-            send_chunk_ack(cdc_def::CHUNK_ERR_INTERNAL, ESP_ERR_NO_MEM);
-            rx_buf_bb.ReadRelease(buf_len);
-            return;
-        }
-
-        fflush(file_handle);
-        file_curr_offset += chunk->len; // Add offset
+    if (fwrite(chunk->buf, 1, chunk->len, file_handle) < chunk->len) {
+        ESP_LOGE(TAG, "Error occur when processing recv buffer - write failed");
+        send_chunk_ack(cdc_def::CHUNK_ERR_INTERNAL, ESP_ERR_NO_MEM);
+        rx_buf_bb.ReadRelease(buf_len);
+        return;
     }
 
+    file_curr_offset += chunk->len; // Add offset
+
+    // When file write finishes, check CRC, and clean up
     if (file_curr_offset == file_expect_len) {
-        bool crc_match = false;
-        if (recv_state == cdc_def::FILE_RECV_ALGO) {
-            crc_match = (esp_crc32_le(0, algo_buf, file_expect_len) == file_crc);
-        } else if(recv_state == cdc_def::FILE_RECV_FW) {
-            if (file_handle != nullptr) {
-                fflush(file_handle);
-                fclose(file_handle);
-                file_handle = nullptr;
-            }
-
-            crc_match = (file_utils::validate_firmware_file(config_manager::FIRMWARE_PATH, file_crc) == ESP_OK);
-        }
-
-        if (crc_match) {
+        if (file_utils::validate_file_crc32(config_manager::FIRMWARE_PATH, file_crc) == ESP_OK) {
             ESP_LOGI(TAG, "Chunk recv successful, got %u bytes", file_expect_len);
-
-            auto ret = ESP_OK;
-            auto &cfg_mgr = config_manager::instance();
-            if (recv_state == cdc_def::FILE_RECV_ALGO) {
-                ret = cfg_mgr.save_algo(algo_buf, file_expect_len);
-
-                if (algo_buf != nullptr) {
-                    free(algo_buf);
-                    algo_buf = nullptr;
-                }
-            } else if(recv_state == cdc_def::FILE_RECV_FW) {
-                ret = cfg_mgr.set_fw_crc(file_crc);
-            }
 
             file_expect_len = 0;
             file_curr_offset = 0;
             file_crc = 0;
             recv_state = cdc_def::FILE_RECV_NONE;
-
-            if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "Error occur when processing recv buffer, returned 0x%x: %s", ret, esp_err_to_name(ret));
-                send_chunk_ack(cdc_def::CHUNK_ERR_INTERNAL, ret);
-            } else {
-                ESP_LOGI(TAG, "Chunk transfer done!");
-                send_chunk_ack(cdc_def::CHUNK_XFER_DONE, file_curr_offset);
-            }
+            send_chunk_ack(cdc_def::CHUNK_XFER_DONE, file_curr_offset);
         } else {
             ESP_LOGE(TAG, "Chunk recv CRC mismatched!");
             send_chunk_ack(cdc_def::CHUNK_ERR_CRC32_FAIL, 0);
@@ -588,7 +542,3 @@ esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_
 
     return tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, timeout_ticks);
 }
-
-
-
-

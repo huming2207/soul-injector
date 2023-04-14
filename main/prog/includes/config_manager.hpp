@@ -20,6 +20,7 @@ namespace cfg_def
         uint32_t pc_program_page;
         uint32_t pc_erase_sector;
         uint32_t pc_erase_all;
+        uint32_t pc_verify;
         uint32_t data_section_offset;
         uint32_t flash_start_addr;
         uint32_t flash_end_addr;
@@ -64,6 +65,7 @@ public:
     esp_err_t get_pc_program_page(uint32_t &out) const;
     esp_err_t get_pc_erase_sector(uint32_t &out) const;
     esp_err_t get_pc_erase_all(uint32_t &out) const;
+    esp_err_t get_pc_verify(uint32_t &out) const;
     esp_err_t get_data_section_offset(uint32_t &out) const;
     esp_err_t get_flash_start_addr(uint32_t &out) const;
     esp_err_t get_flash_end_addr(uint32_t &out) const;
@@ -86,6 +88,7 @@ public:
     esp_err_t set_pc_program_page(uint32_t value);
     esp_err_t set_pc_erase_sector(uint32_t value);
     esp_err_t set_pc_erase_all(uint32_t value);
+    esp_err_t set_pc_verify(uint32_t value);
     esp_err_t set_data_section_offset(uint32_t value);
     esp_err_t set_flash_start_addr(uint32_t value);
     esp_err_t set_flash_end_addr(uint32_t value);

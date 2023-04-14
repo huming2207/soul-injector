@@ -2,7 +2,8 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <driver/rmt.h>
+#include <driver/gpio.h>
+#include <led_strip.h>
 
 class led_ctrl
 {
@@ -19,42 +20,38 @@ public:
 private:
     led_ctrl() = default;
 
-public:
-    esp_err_t init(gpio_num_t pin = GPIO_NUM_48) const
-    {
-        rmt_config_t config;
-        config.rmt_mode = RMT_MODE_TX;
-        config.channel = RMT_CHANNEL_0;
-        config.gpio_num = pin;
-        config.mem_block_num = 3;
-        config.tx_config.loop_en = false;
-        config.tx_config.carrier_en = false;
-        config.tx_config.idle_output_en = true;
-        config.tx_config.idle_level = RMT_IDLE_LEVEL_LOW;
-        config.clk_div = 2;
+private:
+    led_strip_handle_t led = {};
 
-        auto ret = rmt_config(&config);
-        ret = ret ?: rmt_driver_install(config.channel, 0, 0);
-        return ret;
+public:
+    esp_err_t init(gpio_num_t pin = (gpio_num_t)(CONFIG_SI_LED_SIGNAL_PIN))
+    {
+        led_strip_config_t led_config = {};
+        led_config.strip_gpio_num = pin;
+        led_config.max_leds = 1;
+        led_config.led_pixel_format = LED_PIXEL_FORMAT_GRB;
+
+#if defined(CONFIG_SI_LED_WS2812B)
+        led_config.led_model = LED_MODEL_WS2812;
+#elif defined(CONFIG_SI_LED_SK6812RGB)
+        strip_config.led_model = LED_MODEL_SK6812;
+#endif
+        led_config.flags.invert_out = false;
+
+        led_strip_rmt_config_t rmt_config = {};
+        rmt_config.clk_src = RMT_CLK_SRC_DEFAULT;
+        rmt_config.resolution_hz = 10 * 1000 * 1000;
+        rmt_config.flags.with_dma = false; // We only have one LED so no DMA needed I guess?
+
+        return led_strip_new_rmt_device((const led_strip_config_t *)&led_config, (const led_strip_rmt_config_t *)&rmt_config, &led);
     }
 
-    void set_color(uint8_t r, uint8_t g, uint8_t b, uint32_t wait_ms)
+    esp_err_t set_color(uint8_t r, uint8_t g, uint8_t b, uint32_t wait_ms)
     {
-        rmt_item32_t led_data_buffer[24] = {};
-        uint32_t bits_to_send = ((g << 16u) | (r << 8u) | b);
-        uint32_t mask = 1 << (24 - 1);
-        for (uint32_t bit = 0; bit < 24; bit++) {
-            uint32_t bit_is_set = bits_to_send & mask;
-            led_data_buffer[bit] = bit_is_set ?
-                    (rmt_item32_t){{{52, 1, 52, 0}}} :
-                    (rmt_item32_t){{{14, 1, 52, 0}}};
-            mask >>= 1;
-        }
+        auto ret = led_strip_set_pixel(led, 0, r, g, b);
+        ret = ret ?: led_strip_refresh(led);
 
-        ESP_ERROR_CHECK(rmt_write_items(RMT_CHANNEL_0, led_data_buffer, 24, false));
-        if (wait_ms > 0) {
-            ESP_ERROR_CHECK(rmt_wait_tx_done(RMT_CHANNEL_0, pdMS_TO_TICKS(wait_ms)));
-        }
+        return ret;
     }
 };
 

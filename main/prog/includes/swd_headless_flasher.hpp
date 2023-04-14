@@ -8,6 +8,7 @@
 #include <esp_err.h>
 #include "swd_prog.hpp"
 #include "cdc_acm.hpp"
+#include "lcd/lcd_manager.hpp"
 
 namespace flasher
 {
@@ -18,7 +19,8 @@ namespace flasher
         PROGRAM = 2,
         ERROR = 3,
         VERIFY = 4,
-        DONE = 5,
+        SELF_TEST = 5,
+        DONE = 6,
     };
 
     enum event_bit : uint32_t {
@@ -45,6 +47,7 @@ private:
     cdc_acm &cdc = cdc_acm::instance();
     led_ctrl &led = led_ctrl::instance();
     swd_prog &swd = swd_prog::instance();
+    lcd_manager *lcd = lcd_manager::instance();
     EventGroupHandle_t flasher_evt = {};
     volatile flasher::pg_state state = flasher::DETECT;
 
@@ -59,6 +62,7 @@ private:
     void on_erase();
     void on_program();
     void on_verify();
+    void on_self_test();
     void on_done();
 
     static void button_isr(void *_ctx);

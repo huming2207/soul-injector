@@ -104,6 +104,11 @@ esp_err_t config_manager::get_pc_erase_all(uint32_t &out) const
     return nvs->get_item("pc_erase_all", out);
 }
 
+esp_err_t config_manager::get_pc_verify(uint32_t &out) const
+{
+    return nvs->get_item("pc_verify", out);
+}
+
 esp_err_t config_manager::get_data_section_offset(uint32_t &out) const
 {
     return nvs->get_item("data_sc_offset", out);
@@ -214,6 +219,12 @@ esp_err_t config_manager::set_pc_erase_all(uint32_t value)
     return nvs->set_item("pc_erase_all", value);
 }
 
+esp_err_t config_manager::set_pc_verify(uint32_t value)
+{
+    ESP_LOGI(TAG, "New pc_verify value: 0x%08lx", value);
+    return nvs->set_item("pc_verify", value);
+}
+
 esp_err_t config_manager::set_data_section_offset(uint32_t value)
 {
     ESP_LOGI(TAG, "New data section offset value: 0x%lx", value);
@@ -289,6 +300,7 @@ esp_err_t config_manager::save_cfg(const uint8_t *buf, size_t len)
     ret = ret ?: set_pc_program_page(algo_cfg->pc_program_page);
     ret = ret ?: set_pc_erase_sector(algo_cfg->pc_erase_sector);
     ret = ret ?: set_pc_erase_all(algo_cfg->pc_erase_all);
+    ret = ret ?: set_pc_verify(algo_cfg->pc_verify);
     ret = ret ?: set_data_section_offset(algo_cfg->data_section_offset);
     ret = ret ?: set_flash_start_addr(algo_cfg->flash_start_addr);
     ret = ret ?: set_flash_end_addr(algo_cfg->flash_end_addr);

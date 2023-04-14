@@ -13,18 +13,18 @@ esp_err_t cdc_acm::init()
     static char sn_str[32] = {};
     static char lang[2] = {0x09, 0x04};
 
-
     static char *desc_str[5] = {
             lang,                // 0: is supported language is English (0x0409)
-            "Jackson Hu", // 1: Manufacturer
-            "Soul Injector Programmer",      // 2: Product
+            const_cast<char *>(USB_DESC_MANUFACTURER), // 1: Manufacturer
+            const_cast<char *>(USB_DESC_PRODUCT),      // 2: Product
             sn_str,       // 3: Serials, should use chip ID
-            "Soul Injector v1",          // 4: CDC Interface
+            const_cast<char *>(USB_DESC_CDC_NAME),          // 4: CDC Interface
     };
 
     tinyusb_config_t tusb_cfg = {}; // the configuration using default values
     tusb_cfg.string_descriptor = (const char **)desc_str;
     tusb_cfg.device_descriptor = nullptr;
+    tusb_cfg.self_powered = false;
     tusb_cfg.external_phy = false;
 
     uint8_t sn_buf[16] = { 0 };
@@ -62,73 +62,104 @@ esp_err_t cdc_acm::init()
 
     xTaskCreatePinnedToCore(rx_handler_task, "cdc_rx", 16384, this, tskIDLE_PRIORITY + 1, nullptr, 0);
 
-    decoded_buf = static_cast<uint8_t *>(heap_caps_malloc(CONFIG_TINYUSB_CDC_RX_BUFSIZE, MALLOC_CAP_INTERNAL));
-    if (decoded_buf == nullptr) {
-        ESP_LOGE(TAG, "Failed to allocate SLIP decode buf");
-        return ESP_ERR_NO_MEM;
-    }
-
-    raw_buf = static_cast<uint8_t *>(heap_caps_malloc(CONFIG_TINYUSB_CDC_RX_BUFSIZE, MALLOC_CAP_INTERNAL));
-    if (raw_buf == nullptr) {
-        ESP_LOGE(TAG, "Failed to allocate SLIP raw buf");
-        free(decoded_buf);
-        return ESP_ERR_NO_MEM;
-    }
-
     return ret;
 }
 
 void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 {
-    auto &ctx = cdc_acm::instance();
+    auto *ctx = cdc_acm::instance();
 
     uint8_t rx_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE] = { 0 };
     size_t rx_size = 0;
     auto ret = tinyusb_cdcacm_read(static_cast<tinyusb_cdcacm_itf_t>(itf), rx_buf, CONFIG_TINYUSB_CDC_RX_BUFSIZE, &rx_size);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "TinyUSB read fail!");
+        ESP_LOGE(TAG, "TinyUSB read fail: 0x%x", ret);
         return;
     }
 
     if (rx_size < 1) {
         return;
-    } else {
-        memcpy(ctx.raw_buf + ctx.raw_len, rx_buf, rx_size);
-        ctx.raw_len = ctx.raw_len + rx_size;
     }
 
-    // Start to decode if this is the last packet, otherwise continue to cache
-    if (rx_buf[rx_size - 1] == SLIP_END) {
-        size_t idx = 0;
-        while (idx < ctx.raw_len && ctx.decoded_len < CONFIG_TINYUSB_CDC_RX_BUFSIZE) {
-            if (ctx.raw_buf[idx] == SLIP_END) {
-                if (ctx.decoded_len > 0) {
-                    ESP_LOGI(TAG, "Before SLIP, size %u:", ctx.raw_len);
-                    xEventGroupSetBits(ctx.rx_event, cdc_def::EVT_NEW_PACKET);
-                    ctx.raw_len = 0;
-                    memset(ctx.raw_buf, 0, CONFIG_TINYUSB_CDC_RX_BUFSIZE);
-                } else {
-                    xEventGroupClearBits(ctx.rx_event, cdc_def::EVT_NEW_PACKET);
-                }
-            } else if (ctx.raw_buf[idx] == SLIP_ESC) {
-                idx += 1;
-                if (ctx.raw_buf[idx] == SLIP_ESC_END) {
-                    ctx.decoded_buf[ctx.decoded_len] = SLIP_END;
-                } else if (ctx.raw_buf[idx] == SLIP_ESC_ESC) {
-                    ctx.decoded_buf[ctx.decoded_len] = SLIP_ESC;
-                } else {
-                    xEventGroupSetBits(ctx.rx_event, cdc_def::EVT_SLIP_ERROR);
-                    ESP_LOGE(TAG, "SLIP decoding detected a corrupted packet");
-                    return;
-                }
+    // Start parsing
+    size_t idx = 0;
+    while (idx < std::min(rx_size, (size_t)CONFIG_TINYUSB_CDC_RX_BUFSIZE)) {
+        switch (rx_buf[idx]) {
+            case SLIP_START: {
+                xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
+                xEventGroupSetBits(ctx->rx_event, cdc_def::EVT_READING_PKT);
 
-                ctx.decoded_len = ctx.decoded_len + 1;
-            } else {
-                ctx.decoded_buf[ctx.decoded_len] = ctx.raw_buf[idx];
-                ctx.decoded_len = ctx.decoded_len + 1;
+                idx += 1;
+                break;
             }
 
-            idx += 1;
+            case SLIP_ESC: {
+                // During receive: if it's not started, just ignore it
+                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_PKT) == 0) {
+                    break;
+                }
+
+                // Skip the ESC byte
+                idx += 1;
+
+                // Handle the second bytes
+                switch (rx_buf[idx]) {
+                    case SLIP_ESC_START: {
+                        uint8_t *buf = ctx->rx_buf_bb.WriteAcquire(1);
+                        *buf = SLIP_START;
+                        ctx->rx_buf_bb.WriteRelease(1);
+                        break;
+                    }
+
+                    case SLIP_ESC_END: {
+                        uint8_t *buf = ctx->rx_buf_bb.WriteAcquire(1);
+                        *buf = SLIP_END;
+                        ctx->rx_buf_bb.WriteRelease(1);
+                        break;
+                    }
+
+                    case SLIP_ESC_ESC: {
+                        uint8_t *buf = ctx->rx_buf_bb.WriteAcquire(1);
+                        *buf = SLIP_ESC;
+                        ctx->rx_buf_bb.WriteRelease(1);
+                        break;
+                    }
+
+                    default: {
+                        xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_READING_PKT);
+                        xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
+                        ESP_LOGE(TAG, "Unexpected SLIP ESC: 0x%02x", rx_buf[idx]);
+                        return;
+                    }
+                }
+
+                idx += 1;
+                break;
+            }
+
+            case SLIP_END: {
+                // During receive: if it's not started, just ignore it
+                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_PKT) == 0) {
+                    break;
+                }
+
+                xEventGroupSetBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
+                xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_READING_PKT);
+
+                break;
+            }
+
+            default: {
+                // During receive: if it's not started, just ignore it
+                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_PKT) == 0) {
+                    break;
+                }
+
+                uint8_t *buf = ctx->rx_buf_bb.WriteAcquire(1);
+                *buf = rx_buf[idx];
+                ctx->rx_buf_bb.WriteRelease(1);
+                break;
+            }
         }
     }
 }
@@ -136,21 +167,18 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 [[noreturn]] void cdc_acm::rx_handler_task(void *_ctx)
 {
     ESP_LOGI(TAG, "Rx handler task started");
-    auto &ctx = cdc_acm::instance();
+    auto *ctx = cdc_acm::instance();
     while(true) {
-        if (xEventGroupWaitBits(ctx.rx_event, cdc_def::EVT_NEW_PACKET, pdTRUE, pdFALSE, portMAX_DELAY) == pdTRUE) {
+        if (xEventGroupWaitBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET, pdTRUE, pdFALSE, portMAX_DELAY) == pdTRUE) {
             // Pause Rx
             tinyusb_cdcacm_unregister_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX);
 
-            ESP_LOGI(TAG, "Now in buffer, len: %u :", ctx.decoded_len);
-            // ESP_LOG_BUFFER_HEX(TAG, ctx.decoded_buf, ctx.decoded_len);
+            auto len = ctx->rx_buf_bb.ReadAcquire().second;
+            ctx->rx_buf_bb.ReadRelease(0);
+            ESP_LOGI(TAG, "Now in buffer, len: %u", len);
 
             // Now do parsing
-            ctx.parse_pkt();
-
-            // Clear up the mess
-            ctx.decoded_len = 0;
-            memset(ctx.decoded_buf, 0, CONFIG_TINYUSB_CDC_RX_BUFSIZE);
+            ctx->parse_pkt();
 
             // Restart Rx
             tinyusb_cdcacm_register_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX, serial_rx_cb);
@@ -195,7 +223,7 @@ esp_err_t cdc_acm::send_chunk_ack(cdc_def::chunk_ack state, uint32_t aux, uint32
     return send_pkt(cdc_def::PKT_CHUNK_ACK, (uint8_t *)&pkt, sizeof(pkt), timeout_ms);
 }
 
-esp_err_t cdc_acm::send_pkt(cdc_def::pkt_type type, const uint8_t *buf, size_t len, uint32_t timeout_ms)
+esp_err_t cdc_acm::send_pkt(cdc_def::pkt_type type, const uint8_t *buf, size_t len, uint32_t timeout_tick)
 {
     if (buf == nullptr && len > 0) return ESP_ERR_INVALID_ARG;
 
@@ -208,83 +236,25 @@ esp_err_t cdc_acm::send_pkt(cdc_def::pkt_type type, const uint8_t *buf, size_t l
     // When packet has no data body, just send header (e.g. ACK)
     if (buf == nullptr || len < 1) {
         header.crc = crc;
-        return encode_and_tx((uint8_t *)&header, sizeof(header), nullptr, 0, timeout_ms);
+        return send_buf_with_header((uint8_t *) &header, sizeof(header), nullptr, 0, timeout_tick);
     } else {
         crc = get_crc16(buf, len, crc);
         header.crc = crc;
-        return encode_and_tx((uint8_t *)&header, sizeof(header), buf, len, timeout_ms);
+        return send_buf_with_header((uint8_t *) &header, sizeof(header), buf, len, timeout_tick);
     }
 }
 
-esp_err_t cdc_acm::encode_and_tx(const uint8_t *header_buf, size_t header_len,
-                                 const uint8_t *buf, size_t len, uint32_t timeout_ms)
+esp_err_t cdc_acm::send_buf_with_header(const uint8_t *header_buf, size_t header_len,
+                                        const uint8_t *buf, size_t len, uint32_t timeout_tick)
 {
-    const uint8_t slip_esc_end[] = { SLIP_ESC, SLIP_ESC_END };
-    const uint8_t slip_esc_esc[] = { SLIP_ESC, SLIP_ESC_ESC };
-
     if (header_buf == nullptr || header_len < 1) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    const uint8_t end = SLIP_END;
+    auto ret = encode_slip_and_tx(header_buf, header_len, true, false, timeout_tick);
+    ret = ret ?: encode_slip_and_tx(buf, len, false, true, timeout_tick);
 
-    if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &end, 1) < 1) {
-        ESP_LOGE(TAG, "Failed to encode and tx end char");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    size_t header_idx = 0;
-    while (header_idx < header_len) {
-        if (header_buf[header_idx] == SLIP_END) {
-            if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_end, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
-                ESP_LOGE(TAG, "Failed to encode and tx SLIP_END");
-                return ESP_ERR_INVALID_STATE;
-            }
-        } else if (header_buf[header_idx] == SLIP_ESC) {
-            if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_esc, sizeof(slip_esc_esc)) < sizeof(slip_esc_esc)) {
-                ESP_LOGE(TAG, "Failed to encode and tx SLIP_ESC");
-                return ESP_ERR_INVALID_STATE;
-            }
-        } else {
-            if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &header_buf[header_idx], 1) < 1) {
-                ESP_LOGE(TAG, "Failed to encode and tx data");
-                return ESP_ERR_INVALID_STATE;
-            }
-        }
-
-        header_idx += 1;
-    }
-
-    if (buf != nullptr && len > 1) {
-        size_t payload_idx = 0;
-        while (payload_idx < len) {
-            if (buf[payload_idx] == SLIP_END) {
-                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_end, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
-                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_END");
-                    return ESP_ERR_INVALID_STATE;
-                }
-            } else if (buf[payload_idx] == SLIP_ESC) {
-                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_esc, sizeof(slip_esc_esc)) < sizeof(slip_esc_esc)) {
-                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_ESC");
-                    return ESP_ERR_INVALID_STATE;
-                }
-            } else {
-                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &buf[payload_idx], 1) < 1) {
-                    ESP_LOGE(TAG, "Failed to encode and tx data");
-                    return ESP_ERR_INVALID_STATE;
-                }
-            }
-
-            payload_idx += 1;
-        }
-    }
-
-    if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &end, 1) < 1) {
-        ESP_LOGE(TAG, "Failed to encode and tx end char");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    return tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(timeout_ms));
+    return ret;
 }
 
 uint16_t cdc_acm::get_crc16(const uint8_t *buf, size_t len, uint16_t init)
@@ -300,30 +270,39 @@ uint16_t cdc_acm::get_crc16(const uint8_t *buf, size_t len, uint16_t init)
 
 void cdc_acm::parse_pkt()
 {
+    auto queue_ptr = rx_buf_bb.ReadAcquire();
+    size_t decoded_len = queue_ptr.second;
+
     if (decoded_len < sizeof(cdc_def::header)) {
         ESP_LOGW(TAG, "Packet too short, failed to decode header: %u", decoded_len);
         recv_state = cdc_def::FILE_RECV_NONE;
         send_nack();
+
+        rx_buf_bb.ReadRelease(decoded_len);
         return;
     }
 
-    auto *header = (cdc_def::header *)decoded_buf;
+    auto *header = (cdc_def::header *)queue_ptr.first;
 
     uint16_t expected_crc = header->crc;
     header->crc = 0;
 
-    uint16_t actual_crc = get_crc16(decoded_buf, decoded_len);
+    uint16_t actual_crc = get_crc16(queue_ptr.first, decoded_len);
     if (actual_crc != expected_crc) {
         ESP_LOGW(TAG, "Incoming packet CRC corrupted, expect 0x%x, actual 0x%x", expected_crc, actual_crc);
         send_nack();
+        rx_buf_bb.ReadRelease(decoded_len);
         return;
     }
 
     if (recv_state != cdc_def::FILE_RECV_NONE && header->type != cdc_def::PKT_DATA_CHUNK) {
         ESP_LOGW(TAG, "Invalid state - data chunk expected while received type 0x%x", header->type);
         send_nack();
+        rx_buf_bb.ReadRelease(decoded_len);
         return;
     }
+
+    rx_buf_bb.ReadRelease(sizeof(cdc_def::header));
 
     switch (header->type) {
         case cdc_def::PKT_PING: {
@@ -336,33 +315,13 @@ void cdc_acm::parse_pkt()
             break;
         }
 
-        case cdc_def::PKT_CURR_CONFIG: {
-            send_curr_config();
+        case cdc_def::PKT_SEND_FILE: {
+            handle_send_file_req();
             break;
         }
 
-        case cdc_def::PKT_SET_CONFIG: {
-            parse_set_config();
-            break;
-        }
-
-        case cdc_def::PKT_SET_ALGO_METADATA: {
-            parse_set_algo_metadata();
-            break;
-        }
-
-        case cdc_def::PKT_GET_ALGO_METADATA: {
-            parse_get_algo_info();
-            break;
-        }
-
-        case cdc_def::PKT_SET_FW_METADATA: {
-            parse_set_fw_metadata();
-            break;
-        }
-
-        case cdc_def::PKT_GET_FW_METADATA:{
-            parse_get_fw_info();
+        case cdc_def::PKT_FETCH_FILE:{
+            handle_fetch_file_req();
             break;
         }
 
@@ -384,89 +343,52 @@ void cdc_acm::parse_pkt()
     }
 }
 
-void cdc_acm::send_curr_config()
-{
-    auto &cfg_mgr = config_manager::instance();
-
-    if (!cfg_mgr.has_valid_cfg()) {
-        if(cfg_mgr.load_default_cfg() != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to load default config");
-            send_nack();
-            return;
-        }
-    }
-
-    uint8_t buf[sizeof(cfg_def::config_pkt)] = { 0 };
-    cfg_mgr.read_cfg(buf, sizeof(cfg_def::config_pkt));
-    send_pkt(cdc_def::PKT_CURR_CONFIG, buf, sizeof(cfg_def::config_pkt));
-}
-
-void cdc_acm::parse_set_config()
-{
-    auto *buf = (uint8_t *)(decoded_buf + sizeof(cdc_def::header));
-
-    auto &cfg_mgr = config_manager::instance();
-    auto ret = cfg_mgr.save_cfg(buf, decoded_len - sizeof(cdc_def::header));
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Set config failed, returned 0x%x: %s", ret, esp_err_to_name(ret));
-        send_nack();
-    } else {
-        send_ack();
-    }
-}
-
-void cdc_acm::parse_get_algo_info()
+void cdc_acm::handle_fetch_file_req()
 {
 
 }
 
-void cdc_acm::parse_set_algo_metadata()
+void cdc_acm::handle_send_file_req()
 {
-    auto *algo_info = (cdc_def::algo_info *)(decoded_buf + sizeof(cdc_def::header));
-    if (algo_info->len > CFG_MGR_FLASH_ALGO_MAX_SIZE || heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < algo_info->len) {
-        ESP_LOGE(TAG, "Flash algo metadata len too long: %lu, free block: %u", algo_info->len, heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-        send_nack();
-        return;
-    }
+    auto queue_ptr = rx_buf_bb.ReadAcquire();
+    uint8_t *buf = queue_ptr.first;
+    size_t buf_len = queue_ptr.second;
 
-    file_expect_len = algo_info->len;
-    file_crc = algo_info->crc;
-    algo_buf = static_cast<uint8_t *>(heap_caps_malloc(algo_info->len, MALLOC_CAP_INTERNAL));
-    memset(algo_buf, 0, algo_info->len);
-    recv_state = cdc_def::FILE_RECV_ALGO;
-    send_chunk_ack(cdc_def::CHUNK_XFER_NEXT, 0);
-}
-
-void cdc_acm::parse_get_fw_info()
-{
-
-}
-
-void cdc_acm::parse_set_fw_metadata()
-{
-    auto *fw_info = (cdc_def::fw_info *)(decoded_buf + sizeof(cdc_def::header));
+    auto *fw_info = (cdc_def::fw_info *)(buf);
     if (fw_info->len > CFG_MGR_FW_MAX_SIZE || heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < fw_info->len) {
         ESP_LOGE(TAG, "Firmware metadata len too long: %lu, free heap: %u", fw_info->len, heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         heap_caps_dump(MALLOC_CAP_INTERNAL);
         send_nack();
+        rx_buf_bb.ReadRelease(buf_len);
         return;
     }
 
     file_expect_len = fw_info->len;
     file_crc = fw_info->crc;
-    file_handle = fopen(config_manager::FIRMWARE_PATH, "wb");
+
+    char file_name[sizeof(cdc_def::fw_info::name) + 1] = { 0 };
+    strncpy(file_name, fw_info->name, fw_info->name_len);
+    file_name[sizeof(file_name) - 1] = '\0';
+
+    file_handle = fopen(file_name, "wb");
     if (file_handle == nullptr) {
         ESP_LOGE(TAG, "Failed to open firmware path");
+        rx_buf_bb.ReadRelease(buf_len);
         return;
     }
 
     recv_state = cdc_def::FILE_RECV_FW;
     send_chunk_ack(cdc_def::CHUNK_XFER_NEXT, 0);
+    rx_buf_bb.ReadRelease(buf_len);
 }
 
 void cdc_acm::parse_chunk()
 {
-    auto *chunk = (cdc_def::chunk_pkt *)(decoded_buf + sizeof(cdc_def::header));
+    auto queue_ptr = rx_buf_bb.ReadAcquire();
+    uint8_t *buf = queue_ptr.first;
+    size_t buf_len = queue_ptr.second;
+
+    auto *chunk = (cdc_def::chunk_pkt *)(buf);
 
     // Scenario 0: if len == 0 then that's force abort, discard the buffer and set back the states
     if (chunk->len == 0) {
@@ -480,6 +402,7 @@ void cdc_acm::parse_chunk()
         }
         recv_state = cdc_def::FILE_RECV_NONE;
         send_chunk_ack(cdc_def::CHUNK_ERR_ABORT_REQUESTED, 0);
+        rx_buf_bb.ReadRelease(buf_len);
         return;
     }
 
@@ -501,6 +424,7 @@ void cdc_acm::parse_chunk()
 
         recv_state = cdc_def::FILE_RECV_NONE;
         send_chunk_ack(cdc_def::CHUNK_ERR_NAME_TOO_LONG, chunk->len + file_curr_offset);
+        rx_buf_bb.ReadRelease(buf_len);
         return;
     }
 
@@ -513,6 +437,7 @@ void cdc_acm::parse_chunk()
         if (fwrite(chunk->buf, 1, chunk->len, file_handle) < chunk->len) {
             ESP_LOGE(TAG, "Error occur when processing recv buffer - write failed");
             send_chunk_ack(cdc_def::CHUNK_ERR_INTERNAL, ESP_ERR_NO_MEM);
+            rx_buf_bb.ReadRelease(buf_len);
             return;
         }
 
@@ -570,6 +495,8 @@ void cdc_acm::parse_chunk()
         ESP_LOGI(TAG, "Chunk recv - await next @ %u, total %u", file_curr_offset, file_expect_len);
         send_chunk_ack(cdc_def::CHUNK_XFER_NEXT, file_curr_offset);
     }
+
+    rx_buf_bb.ReadRelease(buf_len);
 }
 
 esp_err_t cdc_acm::pause_usb()
@@ -584,11 +511,82 @@ esp_err_t cdc_acm::pause_usb()
 esp_err_t cdc_acm::unpause_usb()
 {
     if (!tusb_inited() || !paused) return ESP_ERR_INVALID_STATE;
-    decoded_len = 0;
-    memset(decoded_buf, 0, CONFIG_TINYUSB_CDC_RX_BUFSIZE);
-
+    rx_buf_bb.ReadRelease(rx_buf_bb.ReadAcquire().second);
     paused = false;
     return tinyusb_cdcacm_register_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX, serial_rx_cb);
+}
+
+esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks)
+{
+    const uint8_t slip_esc_start[] = { SLIP_ESC, SLIP_ESC_START };
+    const uint8_t slip_esc_end[] = { SLIP_ESC, SLIP_ESC_END };
+    const uint8_t slip_esc_esc[] = { SLIP_ESC, SLIP_ESC_ESC };
+
+    if (buf == nullptr || len < 1) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const uint8_t start = SLIP_START;
+    const uint8_t end = SLIP_END;
+
+    if (send_start) {
+        if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &start, 1) < 1) {
+            ESP_LOGE(TAG, "Failed to encode and tx start char");
+            return ESP_ERR_NOT_FINISHED;
+        }
+    }
+
+    size_t idx = 0;
+    while (idx < len) {
+        switch (buf[idx]) {
+            case SLIP_START: {
+                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_start, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
+                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_START");
+                    return ESP_ERR_NOT_FINISHED;
+                }
+
+                break;
+            }
+
+            case SLIP_ESC: {
+                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_esc, sizeof(slip_esc_esc)) < sizeof(slip_esc_esc)) {
+                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_ESC");
+                    return ESP_ERR_NOT_FINISHED;
+                }
+
+                break;
+            }
+
+            case SLIP_END: {
+                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_end, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
+                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_END");
+                    return ESP_ERR_NOT_FINISHED;
+                }
+
+                break;
+            }
+
+            default: {
+                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &buf[idx], 1) < 1) {
+                    ESP_LOGE(TAG, "Failed to encode and tx data");
+                    return ESP_ERR_NOT_FINISHED;
+                }
+
+                break;
+            }
+        }
+
+        idx += 1;
+    }
+
+    if (send_end) {
+        if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &end, 1) < 1) {
+            ESP_LOGE(TAG, "Failed to encode and tx end char");
+            return ESP_ERR_NOT_FINISHED;
+        }
+    }
+
+    return tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, timeout_ticks);
 }
 
 

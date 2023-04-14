@@ -7,10 +7,14 @@
 #include <tusb_cdc_acm.h>
 #include <esp_err.h>
 
-#define SLIP_END            0xc0
-#define SLIP_ESC            0xdb
-#define SLIP_ESC_END        0xdc
-#define SLIP_ESC_ESC        0xdd
+#include "lfbb.hpp"
+
+#define SLIP_START              0xa5
+#define SLIP_END                0xc0
+#define SLIP_ESC                0xdb
+#define SLIP_ESC_START          0xdc
+#define SLIP_ESC_ESC            0xdd
+#define SLIP_ESC_END            0xde
 
 #ifndef CONFIG_SI_DEVICE_MODEL
 #define SI_DEVICE_MODEL "Soul Injector"
@@ -35,21 +39,20 @@ namespace cdc_def
     enum event : uint32_t {
         EVT_NEW_PACKET = BIT(0),
         EVT_READING_PKT = BIT(1),
-        EVT_SLIP_ERROR = BIT(2),
+        EVT_READING_FILE = BIT(2),
     };
 
     enum pkt_type : uint8_t {
         PKT_ACK = 0,
-        PKT_DEVICE_INFO = 1,
-        PKT_CURR_CONFIG = 2,
-        PKT_SET_CONFIG = 3,
-        PKT_GET_ALGO_METADATA = 4,
-        PKT_SET_ALGO_METADATA = 5,
-        PKT_GET_FW_METADATA = 6,
-        PKT_SET_FW_METADATA = 7,
-        PKT_PING = 8,
-        PKT_DATA_CHUNK = 9,
-        PKT_CHUNK_ACK = 10,
+        PKT_DEVICE_INFO = 0x01,
+        PKT_PING = 0x02,
+        PKT_FETCH_FILE = 0x10,
+        PKT_SEND_FILE = 0x11,
+        PKT_DELETE_FILE = 0x12,
+        PKT_DATA_CHUNK = 0x13,
+        PKT_CHUNK_ACK = 0x14,
+        PKT_GET_FILE_INFO = 0x15,
+        PKT_NUKE_STORAGE = 0x16,
         PKT_NACK = 0xff,
     };
 
@@ -101,22 +104,23 @@ namespace cdc_def
     struct __attribute__((packed)) fw_info {
         uint32_t crc; // 4
         uint32_t len; // 4
-        char name[32]; // 32
-    }; // 40 bytes
+        uint8_t name_len; // 1
+        char name[UINT8_MAX - 9];
+    }; // 255 bytes
 
     struct __attribute__((packed)) chunk_pkt {
         uint8_t len;
         uint8_t buf[UINT8_MAX];
-    };
+    }; // 256 bytes
 }
 
 class cdc_acm
 {
 public:
-    static cdc_acm& instance()
+    static cdc_acm *instance()
     {
-        static cdc_acm instance;
-        return instance;
+        static cdc_acm _instance;
+        return &_instance;
     }
 
     cdc_acm(cdc_acm const &) = delete;
@@ -126,8 +130,8 @@ private:
     cdc_acm() = default;
     static void serial_rx_cb(int itf, cdcacm_event_t *event);
     [[noreturn]] static void rx_handler_task(void *ctx);
-    static esp_err_t send_pkt(cdc_def::pkt_type type, const uint8_t *buf, size_t len, uint32_t timeout_ms = portMAX_DELAY);
-    static esp_err_t encode_and_tx(const uint8_t *header_buf, size_t header_len, const uint8_t *buf, size_t len, uint32_t timeout_ms = portMAX_DELAY);
+    static esp_err_t send_pkt(cdc_def::pkt_type type, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
+    static esp_err_t send_buf_with_header(const uint8_t *header_buf, size_t header_len, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
     static inline uint16_t get_crc16(const uint8_t *buf, size_t len, uint16_t init = 0x0000);
 
 public:
@@ -137,12 +141,8 @@ public:
 
 private:
     void parse_pkt();
-    static void send_curr_config();
-    void parse_set_config();
-    void parse_get_algo_info();
-    void parse_set_algo_metadata();
-    void parse_get_fw_info();
-    void parse_set_fw_metadata();
+    void handle_fetch_file_req();
+    void handle_send_file_req();
     void parse_chunk();
 
 private:
@@ -150,20 +150,22 @@ private:
     static esp_err_t send_nack(uint32_t timeout_ms = portMAX_DELAY);
     static esp_err_t send_dev_info(uint32_t timeout_ms = portMAX_DELAY);
     static esp_err_t send_chunk_ack(cdc_def::chunk_ack state, uint32_t aux = 0, uint32_t timeout_ms = portMAX_DELAY);
+    static esp_err_t encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks = portMAX_DELAY);
 
 private:
     static const constexpr char *TAG = "cdc_acm";
+    static const constexpr char USB_DESC_MANUFACTURER[] = "Jackson M Hu";
+    static const constexpr char USB_DESC_PRODUCT[] = "Soul Injector";
+    static const constexpr char USB_DESC_CDC_NAME[] = "Soul Injector Programmer";
+
+private:
+    LfBb<uint8_t, 32768> rx_buf_bb {};
     cdc_def::file_recv_state recv_state = cdc_def::FILE_RECV_NONE;
     EventGroupHandle_t rx_event = nullptr;
-    volatile bool busy_decoding = false;
     volatile bool paused = false;
-    volatile size_t decoded_len = 0;
-    volatile size_t raw_len = 0;
     size_t file_expect_len = 0;
     size_t file_curr_offset = 0;
     uint32_t file_crc = 0;
-    uint8_t *raw_buf = nullptr;
-    uint8_t *decoded_buf = nullptr;
     uint8_t *algo_buf = nullptr;
     FILE *file_handle = nullptr;
 };

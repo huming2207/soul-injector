@@ -7,10 +7,14 @@
 #include <tusb_cdc_acm.h>
 #include <esp_err.h>
 
-#define SLIP_END            0xc0
-#define SLIP_ESC            0xdb
-#define SLIP_ESC_END        0xdc
-#define SLIP_ESC_ESC        0xdd
+#include "lfbb.hpp"
+
+#define SLIP_START              0xa5
+#define SLIP_END                0xc0
+#define SLIP_ESC                0xdb
+#define SLIP_ESC_START          0xdc
+#define SLIP_ESC_ESC            0xdd
+#define SLIP_ESC_END            0xde
 
 #ifndef CONFIG_SI_DEVICE_MODEL
 #define SI_DEVICE_MODEL "Soul Injector"
@@ -113,10 +117,10 @@ namespace cdc_def
 class cdc_acm
 {
 public:
-    static cdc_acm& instance()
+    static cdc_acm *instance()
     {
-        static cdc_acm instance;
-        return instance;
+        static cdc_acm _instance;
+        return &_instance;
     }
 
     cdc_acm(cdc_acm const &) = delete;
@@ -126,8 +130,8 @@ private:
     cdc_acm() = default;
     static void serial_rx_cb(int itf, cdcacm_event_t *event);
     [[noreturn]] static void rx_handler_task(void *ctx);
-    static esp_err_t send_pkt(cdc_def::pkt_type type, const uint8_t *buf, size_t len, uint32_t timeout_ms = portMAX_DELAY);
-    static esp_err_t encode_and_tx(const uint8_t *header_buf, size_t header_len, const uint8_t *buf, size_t len, uint32_t timeout_ms = portMAX_DELAY);
+    static esp_err_t send_pkt(cdc_def::pkt_type type, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
+    static esp_err_t send_buf_with_header(const uint8_t *header_buf, size_t header_len, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
     static inline uint16_t get_crc16(const uint8_t *buf, size_t len, uint16_t init = 0x0000);
 
 public:
@@ -150,23 +154,22 @@ private:
     static esp_err_t send_nack(uint32_t timeout_ms = portMAX_DELAY);
     static esp_err_t send_dev_info(uint32_t timeout_ms = portMAX_DELAY);
     static esp_err_t send_chunk_ack(cdc_def::chunk_ack state, uint32_t aux = 0, uint32_t timeout_ms = portMAX_DELAY);
+    static esp_err_t encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks = portMAX_DELAY);
 
 private:
     static const constexpr char *TAG = "cdc_acm";
     static const constexpr char USB_DESC_MANUFACTURER[] = "Jackson M Hu";
     static const constexpr char USB_DESC_PRODUCT[] = "Soul Injector";
     static const constexpr char USB_DESC_CDC_NAME[] = "Soul Injector Programmer";
+
+private:
+    LfBb<uint8_t, 32768> rx_buf_bb {};
     cdc_def::file_recv_state recv_state = cdc_def::FILE_RECV_NONE;
     EventGroupHandle_t rx_event = nullptr;
-    volatile bool busy_decoding = false;
     volatile bool paused = false;
-    volatile size_t decoded_len = 0;
-    volatile size_t raw_len = 0;
     size_t file_expect_len = 0;
     size_t file_curr_offset = 0;
     uint32_t file_crc = 0;
-    uint8_t *raw_buf = nullptr;
-    uint8_t *decoded_buf = nullptr;
     uint8_t *algo_buf = nullptr;
     FILE *file_handle = nullptr;
 };

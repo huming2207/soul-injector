@@ -39,21 +39,20 @@ namespace cdc_def
     enum event : uint32_t {
         EVT_NEW_PACKET = BIT(0),
         EVT_READING_PKT = BIT(1),
-        EVT_SLIP_ERROR = BIT(2),
+        EVT_READING_FILE = BIT(2),
     };
 
     enum pkt_type : uint8_t {
         PKT_ACK = 0,
-        PKT_DEVICE_INFO = 1,
-        PKT_CURR_CONFIG = 2,
-        PKT_SET_CONFIG = 3,
-        PKT_GET_ALGO_METADATA = 4,
-        PKT_SET_ALGO_METADATA = 5,
-        PKT_GET_FW_METADATA = 6,
-        PKT_SET_FW_METADATA = 7,
-        PKT_PING = 8,
-        PKT_DATA_CHUNK = 9,
-        PKT_CHUNK_ACK = 10,
+        PKT_DEVICE_INFO = 0x01,
+        PKT_PING = 0x02,
+        PKT_FETCH_FILE = 0x10,
+        PKT_SEND_FILE = 0x11,
+        PKT_DELETE_FILE = 0x12,
+        PKT_DATA_CHUNK = 0x13,
+        PKT_CHUNK_ACK = 0x14,
+        PKT_GET_FILE_INFO = 0x15,
+        PKT_NUKE_STORAGE = 0x16,
         PKT_NACK = 0xff,
     };
 
@@ -105,13 +104,14 @@ namespace cdc_def
     struct __attribute__((packed)) fw_info {
         uint32_t crc; // 4
         uint32_t len; // 4
-        char name[32]; // 32
-    }; // 40 bytes
+        uint8_t name_len; // 1
+        char name[UINT8_MAX - 9];
+    }; // 255 bytes
 
     struct __attribute__((packed)) chunk_pkt {
         uint8_t len;
         uint8_t buf[UINT8_MAX];
-    };
+    }; // 256 bytes
 }
 
 class cdc_acm
@@ -141,12 +141,8 @@ public:
 
 private:
     void parse_pkt();
-    static void send_curr_config();
-    void parse_set_config();
-    void parse_get_algo_info();
-    void parse_set_algo_metadata();
-    void parse_get_fw_info();
-    void parse_set_fw_metadata();
+    void handle_fetch_file_req();
+    void handle_send_file_req();
     void parse_chunk();
 
 private:

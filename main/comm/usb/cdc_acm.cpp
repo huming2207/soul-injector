@@ -315,33 +315,13 @@ void cdc_acm::parse_pkt()
             break;
         }
 
-        case cdc_def::PKT_CURR_CONFIG: {
-            send_curr_config();
+        case cdc_def::PKT_SEND_FILE: {
+            handle_send_file_req();
             break;
         }
 
-        case cdc_def::PKT_SET_CONFIG: {
-            parse_set_config();
-            break;
-        }
-
-        case cdc_def::PKT_SET_ALGO_METADATA: {
-            parse_set_algo_metadata();
-            break;
-        }
-
-        case cdc_def::PKT_GET_ALGO_METADATA: {
-            parse_get_algo_info();
-            break;
-        }
-
-        case cdc_def::PKT_SET_FW_METADATA: {
-            parse_set_fw_metadata();
-            break;
-        }
-
-        case cdc_def::PKT_GET_FW_METADATA:{
-            parse_get_fw_info();
+        case cdc_def::PKT_FETCH_FILE:{
+            handle_fetch_file_req();
             break;
         }
 
@@ -363,75 +343,12 @@ void cdc_acm::parse_pkt()
     }
 }
 
-void cdc_acm::send_curr_config()
-{
-    auto &cfg_mgr = config_manager::instance();
-
-    if (!cfg_mgr.has_valid_cfg()) {
-        if(cfg_mgr.load_default_cfg() != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to load default config");
-            send_nack();
-            return;
-        }
-    }
-
-    uint8_t buf[sizeof(cfg_def::config_pkt)] = { 0 };
-    cfg_mgr.read_cfg(buf, sizeof(cfg_def::config_pkt));
-    send_pkt(cdc_def::PKT_CURR_CONFIG, buf, sizeof(cfg_def::config_pkt));
-}
-
-void cdc_acm::parse_set_config()
-{
-    auto queue_ptr = rx_buf_bb.ReadAcquire();
-    uint8_t *buf = queue_ptr.first;
-    size_t buf_len = queue_ptr.second;
-
-    auto &cfg_mgr = config_manager::instance();
-    auto ret = cfg_mgr.save_cfg(buf, buf_len);
-
-    rx_buf_bb.ReadRelease(buf_len);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Set config failed, returned 0x%x: %s", ret, esp_err_to_name(ret));
-        send_nack();
-    } else {
-        send_ack();
-    }
-}
-
-void cdc_acm::parse_get_algo_info()
+void cdc_acm::handle_fetch_file_req()
 {
 
 }
 
-void cdc_acm::parse_set_algo_metadata()
-{
-    auto queue_ptr = rx_buf_bb.ReadAcquire();
-    uint8_t *buf = queue_ptr.first;
-    size_t buf_len = queue_ptr.second;
-
-    auto *algo_info = (cdc_def::algo_info *)(buf);
-    if (algo_info->len > CFG_MGR_FLASH_ALGO_MAX_SIZE || heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < algo_info->len) {
-        ESP_LOGE(TAG, "Flash algo metadata len too long: %lu, free block: %u", algo_info->len, heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-        send_nack();
-        return;
-    }
-
-    file_expect_len = algo_info->len;
-    file_crc = algo_info->crc;
-    algo_buf = static_cast<uint8_t *>(heap_caps_malloc(algo_info->len, MALLOC_CAP_INTERNAL));
-    memset(algo_buf, 0, algo_info->len);
-    recv_state = cdc_def::FILE_RECV_ALGO;
-    send_chunk_ack(cdc_def::CHUNK_XFER_NEXT, 0);
-
-    rx_buf_bb.ReadRelease(buf_len);
-}
-
-void cdc_acm::parse_get_fw_info()
-{
-
-}
-
-void cdc_acm::parse_set_fw_metadata()
+void cdc_acm::handle_send_file_req()
 {
     auto queue_ptr = rx_buf_bb.ReadAcquire();
     uint8_t *buf = queue_ptr.first;
@@ -448,7 +365,12 @@ void cdc_acm::parse_set_fw_metadata()
 
     file_expect_len = fw_info->len;
     file_crc = fw_info->crc;
-    file_handle = fopen(config_manager::FIRMWARE_PATH, "wb");
+
+    char file_name[sizeof(cdc_def::fw_info::name) + 1] = { 0 };
+    strncpy(file_name, fw_info->name, fw_info->name_len);
+    file_name[sizeof(file_name) - 1] = '\0';
+
+    file_handle = fopen(file_name, "wb");
     if (file_handle == nullptr) {
         ESP_LOGE(TAG, "Failed to open firmware path");
         rx_buf_bb.ReadRelease(buf_len);

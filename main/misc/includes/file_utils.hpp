@@ -9,7 +9,7 @@ private:
     static const constexpr char *TAG = "file_utils";
 
 public:
-    static esp_err_t validate_firmware_file(const char *path, uint32_t crc, size_t len = 0)
+    static esp_err_t validate_file_crc32(const char *path, uint32_t crc, size_t len = 0)
     {
         if (path == nullptr) {
             ESP_LOGE(TAG, "Path is null!");

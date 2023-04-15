@@ -527,7 +527,7 @@ esp_err_t config_manager::save_firmware(const uint8_t *buf, size_t len, uint32_t
     fflush(file);
     fclose(file);
 
-    if (file_utils::validate_firmware_file(FIRMWARE_PATH, crc_expect) != ESP_OK) {
+    if (file_utils::validate_file_crc32(FIRMWARE_PATH, crc_expect) != ESP_OK) {
         ESP_LOGE(TAG, "Saved file CRC didn't match!");
         remove(FIRMWARE_PATH);
         return ESP_ERR_INVALID_CRC;

@@ -126,7 +126,7 @@ void swd_headless_flasher::on_program()
         state = flasher::VERIFY;
     }
 
-    cdc.unpause_usb();
+    cdc.resume_recv();
 }
 
 void swd_headless_flasher::on_detect()
@@ -139,7 +139,7 @@ void swd_headless_flasher::on_detect()
         ret = swd.init(&cfg_manager);
     }
 
-    cdc.pause_usb();
+    cdc.pause_recv();
     state = flasher::ERASE; // To erase
 }
 

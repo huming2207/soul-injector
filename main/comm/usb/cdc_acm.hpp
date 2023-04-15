@@ -38,8 +38,9 @@ namespace cdc_def
 
     enum event : uint32_t {
         EVT_NEW_PACKET = BIT(0),
-        EVT_READING_PKT = BIT(1),
-        EVT_READING_FILE = BIT(2),
+        EVT_READING_SLIP_FRAME = BIT(1),
+        EVT_CONSUMING_PKT = BIT(2),
+        EVT_READING_FILE = BIT(3),
     };
 
     enum pkt_type : uint8_t {
@@ -47,7 +48,7 @@ namespace cdc_def
         PKT_DEVICE_INFO = 0x01,
         PKT_PING = 0x02,
         PKT_FETCH_FILE = 0x10,
-        PKT_SEND_FILE = 0x11,
+        PKT_STORE_FILE = 0x11,
         PKT_DELETE_FILE = 0x12,
         PKT_DATA_CHUNK = 0x13,
         PKT_CHUNK_ACK = 0x14,
@@ -105,8 +106,8 @@ namespace cdc_def
 
     struct __attribute__((packed)) chunk_pkt {
         uint8_t len;
-        uint8_t buf[UINT8_MAX];
-    }; // 256 bytes
+        uint8_t buf[UINT8_MAX - 1];
+    }; // 255 bytes
 }
 
 class cdc_acm
@@ -125,27 +126,29 @@ private:
     cdc_acm() = default;
     static void serial_rx_cb(int itf, cdcacm_event_t *event);
     [[noreturn]] static void rx_handler_task(void *ctx);
-    static esp_err_t send_pkt(cdc_def::pkt_type type, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
-    static esp_err_t send_buf_with_header(const uint8_t *header_buf, size_t header_len, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
+    esp_err_t send_pkt(cdc_def::pkt_type type, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
+    esp_err_t send_buf_with_header(const uint8_t *header_buf, size_t header_len, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
     static inline uint16_t get_crc16(const uint8_t *buf, size_t len, uint16_t init = 0x0000);
 
 public:
-    esp_err_t init();
-    esp_err_t pause_usb();
-    esp_err_t unpause_usb();
+    esp_err_t init(tinyusb_cdcacm_itf_t channel = TINYUSB_CDC_ACM_0);
+    esp_err_t decode_and_recv(uint8_t *buf, size_t buf_len, size_t *len_decoded, uint32_t timeout_ticks = portMAX_DELAY);
+    esp_err_t encode_and_send(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks = portMAX_DELAY);
+    esp_err_t pause_recv();
+    esp_err_t resume_recv();
 
 private:
     void parse_pkt();
     void handle_fetch_file_req();
-    void handle_send_file_req();
+    void handle_store_file_req();
     void parse_chunk();
 
 private:
-    static esp_err_t send_ack(uint16_t crc = 0, uint32_t timeout_ms = portMAX_DELAY);
-    static esp_err_t send_nack(uint32_t timeout_ms = portMAX_DELAY);
-    static esp_err_t send_dev_info(uint32_t timeout_ms = portMAX_DELAY);
-    static esp_err_t send_chunk_ack(cdc_def::chunk_ack state, uint32_t aux = 0, uint32_t timeout_ms = portMAX_DELAY);
-    static esp_err_t encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks = portMAX_DELAY);
+    esp_err_t send_ack(uint16_t crc = 0, uint32_t timeout_ms = portMAX_DELAY);
+    esp_err_t send_nack(uint32_t timeout_ms = portMAX_DELAY);
+    esp_err_t send_dev_info(uint32_t timeout_ms = portMAX_DELAY);
+    esp_err_t send_chunk_ack(cdc_def::chunk_ack state, uint32_t aux = 0, uint32_t timeout_ms = portMAX_DELAY);
+    esp_err_t write_to_rx_buf(uint8_t data);
 
 private:
     static const constexpr char *TAG = "cdc_acm";
@@ -154,7 +157,11 @@ private:
     static const constexpr char USB_DESC_CDC_NAME[] = "Soul Injector Programmer";
 
 private:
-    LfBb<uint8_t, 32768> rx_buf_bb {};
+    static uint8_t rx_raw_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE];
+    LfBb<uint8_t, 512> rx_buf_bb {};
+
+private:
+    tinyusb_cdcacm_itf_t cdc_channel = TINYUSB_CDC_ACM_0;
     cdc_def::file_recv_state recv_state = cdc_def::FILE_RECV_NONE;
     EventGroupHandle_t rx_event = nullptr;
     volatile bool paused = false;
@@ -162,5 +169,6 @@ private:
     size_t file_curr_offset = 0;
     uint32_t file_crc = 0;
     FILE *file_handle = nullptr;
+    char file_name[sizeof(cdc_def::fw_info::name) + 1] = { 0 };
 };
 

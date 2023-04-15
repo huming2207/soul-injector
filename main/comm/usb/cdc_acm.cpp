@@ -7,9 +7,11 @@
 #include "config_manager.hpp"
 #include "file_utils.hpp"
 
+uint8_t cdc_acm::rx_raw_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE] = {};
 
-esp_err_t cdc_acm::init()
+esp_err_t cdc_acm::init(tinyusb_cdcacm_itf_t channel)
 {
+    cdc_channel = channel;
     static char sn_str[32] = {};
     static char lang[2] = {0x09, 0x04};
 
@@ -45,7 +47,7 @@ esp_err_t cdc_acm::init()
 
     tinyusb_config_cdcacm_t acm_cfg = {};
     acm_cfg.usb_dev = TINYUSB_USBDEV_0;
-    acm_cfg.cdc_port = TINYUSB_CDC_ACM_0;
+    acm_cfg.cdc_port = cdc_channel;
     acm_cfg.rx_unread_buf_sz = 512;
     acm_cfg.callback_rx = &serial_rx_cb;
     acm_cfg.callback_rx_wanted_char = nullptr;
@@ -68,26 +70,35 @@ esp_err_t cdc_acm::init()
 void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 {
     auto *ctx = cdc_acm::instance();
+    if (ctx->cdc_channel != itf) {
+        return;
+    }
 
-    uint8_t rx_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE] = { 0 };
     size_t rx_size = 0;
-    auto ret = tinyusb_cdcacm_read(static_cast<tinyusb_cdcacm_itf_t>(itf), rx_buf, CONFIG_TINYUSB_CDC_RX_BUFSIZE, &rx_size);
+    auto ret = tinyusb_cdcacm_read(static_cast<tinyusb_cdcacm_itf_t>(itf), rx_raw_buf, CONFIG_TINYUSB_CDC_RX_BUFSIZE, &rx_size);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "TinyUSB read fail: 0x%x", ret);
+        memset(rx_raw_buf, 0, sizeof(rx_raw_buf));
         return;
     }
 
     if (rx_size < 1) {
+        memset(rx_raw_buf, 0, sizeof(rx_raw_buf));
         return;
     }
 
-    // Start parsing
+    // Start de-SLIP
     size_t idx = 0;
     while (idx < std::min(rx_size, (size_t)CONFIG_TINYUSB_CDC_RX_BUFSIZE)) {
-        switch (rx_buf[idx]) {
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed when de-SLIP: 0x%x", ret);
+            return;
+        }
+
+        switch (rx_raw_buf[idx]) {
             case SLIP_START: {
                 xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
-                xEventGroupSetBits(ctx->rx_event, cdc_def::EVT_READING_PKT);
+                xEventGroupSetBits(ctx->rx_event, cdc_def::EVT_READING_SLIP_FRAME);
 
                 idx += 1;
                 break;
@@ -95,7 +106,7 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 
             case SLIP_ESC: {
                 // During receive: if it's not started, just ignore it
-                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_PKT) == 0) {
+                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_SLIP_FRAME) == 0) {
                     break;
                 }
 
@@ -103,32 +114,26 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
                 idx += 1;
 
                 // Handle the second bytes
-                switch (rx_buf[idx]) {
+                switch (rx_raw_buf[idx]) {
                     case SLIP_ESC_START: {
-                        uint8_t *buf = ctx->rx_buf_bb.WriteAcquire(1);
-                        *buf = SLIP_START;
-                        ctx->rx_buf_bb.WriteRelease(1);
+                        ret = ctx->write_to_rx_buf(SLIP_START);
                         break;
                     }
 
                     case SLIP_ESC_END: {
-                        uint8_t *buf = ctx->rx_buf_bb.WriteAcquire(1);
-                        *buf = SLIP_END;
-                        ctx->rx_buf_bb.WriteRelease(1);
+                        ret = ctx->write_to_rx_buf(SLIP_END);
                         break;
                     }
 
                     case SLIP_ESC_ESC: {
-                        uint8_t *buf = ctx->rx_buf_bb.WriteAcquire(1);
-                        *buf = SLIP_ESC;
-                        ctx->rx_buf_bb.WriteRelease(1);
+                        ret = ctx->write_to_rx_buf(SLIP_ESC);
                         break;
                     }
 
                     default: {
-                        xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_READING_PKT);
+                        xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_READING_SLIP_FRAME);
                         xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
-                        ESP_LOGE(TAG, "Unexpected SLIP ESC: 0x%02x", rx_buf[idx]);
+                        ESP_LOGE(TAG, "Unexpected SLIP ESC: 0x%02x", rx_raw_buf[idx]);
                         return;
                     }
                 }
@@ -139,29 +144,29 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 
             case SLIP_END: {
                 // During receive: if it's not started, just ignore it
-                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_PKT) == 0) {
+                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_SLIP_FRAME) == 0) {
                     break;
                 }
 
                 xEventGroupSetBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
-                xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_READING_PKT);
+                xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_READING_SLIP_FRAME);
 
                 break;
             }
 
             default: {
                 // During receive: if it's not started, just ignore it
-                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_PKT) == 0) {
+                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_SLIP_FRAME) == 0) {
                     break;
                 }
 
-                uint8_t *buf = ctx->rx_buf_bb.WriteAcquire(1);
-                *buf = rx_buf[idx];
-                ctx->rx_buf_bb.WriteRelease(1);
+                ret = ctx->write_to_rx_buf(rx_raw_buf[idx]);
                 break;
             }
         }
     }
+
+    memset(rx_raw_buf, 0, sizeof(rx_raw_buf));
 }
 
 [[noreturn]] void cdc_acm::rx_handler_task(void *_ctx)
@@ -171,7 +176,7 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
     while(true) {
         if (xEventGroupWaitBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET, pdTRUE, pdFALSE, portMAX_DELAY) == pdTRUE) {
             // Pause Rx
-            tinyusb_cdcacm_unregister_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX);
+            tinyusb_cdcacm_unregister_callback(ctx->cdc_channel, CDC_EVENT_RX);
 
             auto len = ctx->rx_buf_bb.ReadAcquire().second;
             ctx->rx_buf_bb.ReadRelease(0);
@@ -181,7 +186,7 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
             ctx->parse_pkt();
 
             // Restart Rx
-            tinyusb_cdcacm_register_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX, serial_rx_cb);
+            tinyusb_cdcacm_register_callback(ctx->cdc_channel, CDC_EVENT_RX, serial_rx_cb);
         }
     }
 }
@@ -251,8 +256,8 @@ esp_err_t cdc_acm::send_buf_with_header(const uint8_t *header_buf, size_t header
         return ESP_ERR_INVALID_ARG;
     }
 
-    auto ret = encode_slip_and_tx(header_buf, header_len, true, false, timeout_tick);
-    ret = ret ?: encode_slip_and_tx(buf, len, false, true, timeout_tick);
+    auto ret = encode_and_send(header_buf, header_len, true, false, timeout_tick);
+    ret = ret ?: encode_and_send(buf, len, false, true, timeout_tick);
 
     return ret;
 }
@@ -315,8 +320,8 @@ void cdc_acm::parse_pkt()
             break;
         }
 
-        case cdc_def::PKT_SEND_FILE: {
-            handle_send_file_req();
+        case cdc_def::PKT_STORE_FILE: {
+            handle_store_file_req();
             break;
         }
 
@@ -348,7 +353,7 @@ void cdc_acm::handle_fetch_file_req()
 
 }
 
-void cdc_acm::handle_send_file_req()
+void cdc_acm::handle_store_file_req()
 {
     auto queue_ptr = rx_buf_bb.ReadAcquire();
     uint8_t *buf = queue_ptr.first;
@@ -366,17 +371,17 @@ void cdc_acm::handle_send_file_req()
     file_expect_len = fw_info->len;
     file_crc = fw_info->crc;
 
-    char file_name[sizeof(cdc_def::fw_info::name) + 1] = { 0 };
+    memset(file_name, 0, sizeof(file_name));
     strncpy(file_name, fw_info->name, fw_info->name_len);
     file_name[sizeof(file_name) - 1] = '\0';
 
     file_handle = fopen(file_name, "wb");
     if (file_handle == nullptr) {
         ESP_LOGE(TAG, "Failed to open firmware path");
+        memset(file_name, 0, sizeof(file_name));
         rx_buf_bb.ReadRelease(buf_len);
         return;
     }
-
     recv_state = cdc_def::FILE_RECV_FW;
     send_chunk_ack(cdc_def::CHUNK_XFER_NEXT, 0);
     rx_buf_bb.ReadRelease(buf_len);
@@ -433,13 +438,14 @@ void cdc_acm::parse_chunk()
 
     // When file write finishes, check CRC, and clean up
     if (file_curr_offset == file_expect_len) {
-        if (file_utils::validate_file_crc32(config_manager::FIRMWARE_PATH, file_crc) == ESP_OK) {
+        if (file_utils::validate_file_crc32(file_name, file_crc) == ESP_OK) {
             ESP_LOGI(TAG, "Chunk recv successful, got %u bytes", file_expect_len);
 
             file_expect_len = 0;
             file_curr_offset = 0;
             file_crc = 0;
             recv_state = cdc_def::FILE_RECV_NONE;
+            memset(file_name, 0, sizeof(file_name));
             send_chunk_ack(cdc_def::CHUNK_XFER_DONE, file_curr_offset);
         } else {
             ESP_LOGE(TAG, "Chunk recv CRC mismatched!");
@@ -453,24 +459,24 @@ void cdc_acm::parse_chunk()
     rx_buf_bb.ReadRelease(buf_len);
 }
 
-esp_err_t cdc_acm::pause_usb()
+esp_err_t cdc_acm::pause_recv()
 {
     if (!tusb_inited() || paused) return ESP_ERR_INVALID_STATE;
     xEventGroupClearBits(rx_event, cdc_def::EVT_NEW_PACKET);
 
     paused = true;
-    return tinyusb_cdcacm_unregister_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX);
+    return tinyusb_cdcacm_unregister_callback(cdc_channel, CDC_EVENT_RX);
 }
 
-esp_err_t cdc_acm::unpause_usb()
+esp_err_t cdc_acm::resume_recv()
 {
     if (!tusb_inited() || !paused) return ESP_ERR_INVALID_STATE;
     rx_buf_bb.ReadRelease(rx_buf_bb.ReadAcquire().second);
     paused = false;
-    return tinyusb_cdcacm_register_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX, serial_rx_cb);
+    return tinyusb_cdcacm_register_callback(cdc_channel, CDC_EVENT_RX, serial_rx_cb);
 }
 
-esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks)
+esp_err_t cdc_acm::encode_and_send(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks)
 {
     const uint8_t slip_esc_start[] = { SLIP_ESC, SLIP_ESC_START };
     const uint8_t slip_esc_end[] = { SLIP_ESC, SLIP_ESC_END };
@@ -484,7 +490,7 @@ esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_
     const uint8_t end = SLIP_END;
 
     if (send_start) {
-        if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &start, 1) < 1) {
+        if (tinyusb_cdcacm_write_queue(cdc_channel, &start, 1) < 1) {
             ESP_LOGE(TAG, "Failed to encode and tx start char");
             return ESP_ERR_NOT_FINISHED;
         }
@@ -494,7 +500,7 @@ esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_
     while (idx < len) {
         switch (buf[idx]) {
             case SLIP_START: {
-                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_start, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
+                if (tinyusb_cdcacm_write_queue(cdc_channel, slip_esc_start, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
                     ESP_LOGE(TAG, "Failed to encode and tx SLIP_START");
                     return ESP_ERR_NOT_FINISHED;
                 }
@@ -503,7 +509,7 @@ esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_
             }
 
             case SLIP_ESC: {
-                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_esc, sizeof(slip_esc_esc)) < sizeof(slip_esc_esc)) {
+                if (tinyusb_cdcacm_write_queue(cdc_channel, slip_esc_esc, sizeof(slip_esc_esc)) < sizeof(slip_esc_esc)) {
                     ESP_LOGE(TAG, "Failed to encode and tx SLIP_ESC");
                     return ESP_ERR_NOT_FINISHED;
                 }
@@ -512,7 +518,7 @@ esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_
             }
 
             case SLIP_END: {
-                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, slip_esc_end, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
+                if (tinyusb_cdcacm_write_queue(cdc_channel, slip_esc_end, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
                     ESP_LOGE(TAG, "Failed to encode and tx SLIP_END");
                     return ESP_ERR_NOT_FINISHED;
                 }
@@ -521,7 +527,7 @@ esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_
             }
 
             default: {
-                if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &buf[idx], 1) < 1) {
+                if (tinyusb_cdcacm_write_queue(cdc_channel, &buf[idx], 1) < 1) {
                     ESP_LOGE(TAG, "Failed to encode and tx data");
                     return ESP_ERR_NOT_FINISHED;
                 }
@@ -534,11 +540,48 @@ esp_err_t cdc_acm::encode_slip_and_tx(const uint8_t *buf, size_t len, bool send_
     }
 
     if (send_end) {
-        if (tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &end, 1) < 1) {
+        if (tinyusb_cdcacm_write_queue(cdc_channel, &end, 1) < 1) {
             ESP_LOGE(TAG, "Failed to encode and tx end char");
             return ESP_ERR_NOT_FINISHED;
         }
     }
 
-    return tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, timeout_ticks);
+    return tinyusb_cdcacm_write_flush(cdc_channel, timeout_ticks);
+}
+
+esp_err_t cdc_acm::write_to_rx_buf(uint8_t data)
+{
+    uint8_t *buf = rx_buf_bb.WriteAcquire(1);
+    if (buf == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    *buf = data;
+    rx_buf_bb.WriteRelease(1);
+    return ESP_OK;
+}
+
+esp_err_t cdc_acm::decode_and_recv(uint8_t *buf, size_t buf_len, size_t *len_decoded, uint32_t timeout_ticks)
+{
+    if (buf == nullptr || buf_len < 1 || len_decoded == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    auto ret = xEventGroupWaitBits(rx_event, cdc_def::EVT_NEW_PACKET, pdTRUE, pdFALSE, timeout_ticks);
+    if ((ret & cdc_def::EVT_NEW_PACKET) == 0) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    auto queue_ptr = rx_buf_bb.ReadAcquire();
+    size_t actual_len = std::min(buf_len, queue_ptr.second);
+
+    if (queue_ptr.first == nullptr) {
+        return ESP_ERR_NO_MEM; // Do we need this??
+    }
+
+    memcpy(buf, queue_ptr.first, actual_len);
+    *len_decoded = actual_len;
+
+    rx_buf_bb.WriteRelease(actual_len);
+    return ESP_OK;
 }

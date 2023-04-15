@@ -8,7 +8,9 @@ idf_component_register(
             "external/includes/lfbb.hpp" "external/includes/lfbb_impl.hpp"
             "prog/includes/led_ctrl.hpp"
             "misc/includes/file_utils.hpp"
-            "comm/usb/cdc_acm.cpp" "comm/usb/includes/cdc_acm.hpp"
+            "comm/usb/cdc_acm.cpp" "comm/usb/cdc_acm.hpp"
+            "comm/comm_fsm.cpp" "comm/comm_fsm.hpp"
+            "comm/comm_interface.hpp"
             "misc/includes/soul_nvs.hpp"
             "driver/includes/button_monitor.hpp"
             "driver/lcd/lhs154kc.c" "driver/lcd/lhs154kc.h"
@@ -16,7 +18,7 @@ idf_component_register(
             "driver/lcd/lcd_manager.cpp" "driver/lcd/lcd_manager.hpp"
 
         INCLUDE_DIRS
-            "." "misc/includes" "prog/includes" "external/includes" "comm/usb/includes" "driver/includes" "driver"
+            "." "misc/includes" "prog/includes" "external/includes" "comm" "comm/usb" "driver/includes" "driver"
         PRIV_REQUIRES
             "daplink-esp"
             "mbedtls"

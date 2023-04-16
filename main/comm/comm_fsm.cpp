@@ -123,6 +123,8 @@ void comm_fsm::rx_handler_task(void *_ctx)
             ctx->comm_if->release_read_buf(ctx->rx_buf_len);
             ctx->comm_if->resume_recv();
             return;
+        } else {
+            ctx->parse_pkt();
         }
 
         ctx->comm_if->release_read_buf(ctx->rx_buf_len);
@@ -186,11 +188,26 @@ void comm_fsm::parse_pkt()
 
         case comm_def::PKT_DATA_CHUNK: {
             if (expect_file_chunk) {
-                parse_chunk();
+                handle_file_chunk();
             } else {
                 ESP_LOGW(TAG, "Invalid state - no chunk expected to come or should have EOL'ed??");
                 send_chunk_ack(comm_def::CHUNK_ERR_INTERNAL, 0);
             }
+            break;
+        }
+
+        case comm_def::PKT_DELETE_FILE: {
+            handle_delete_file();
+            break;
+        }
+
+        case comm_def::PKT_GET_FILE_INFO: {
+            handle_get_file_info();
+            break;
+        }
+
+        case comm_def::PKT_NUKE_STORAGE: {
+            handle_nuke_storage();
             break;
         }
 
@@ -210,7 +227,7 @@ void comm_fsm::handle_fetch_file_req()
 void comm_fsm::handle_store_file_req()
 {
     uint8_t *buf = (rx_buf_ptr + sizeof(comm_def::header));
-    auto *fw_info = (comm_def::fw_info *)(buf);
+    auto *fw_info = (comm_def::file_attr_info *)(buf);
 
     file_handle = fopen(fw_info->name, "wb");
     if (file_handle == nullptr) {
@@ -231,7 +248,7 @@ void comm_fsm::handle_store_file_req()
     send_chunk_ack(comm_def::CHUNK_XFER_NEXT, 0);
 }
 
-void comm_fsm::parse_chunk()
+void comm_fsm::handle_file_chunk()
 {
     uint8_t *buf = (rx_buf_ptr + sizeof(comm_def::header));
 
@@ -294,4 +311,19 @@ void comm_fsm::parse_chunk()
         ESP_LOGI(TAG, "Chunk recv - await next @ %u, total %u", file_curr_offset, file_expect_len);
         send_chunk_ack(comm_def::CHUNK_XFER_NEXT, file_curr_offset);
     }
+}
+
+void comm_fsm::handle_get_file_info()
+{
+
+}
+
+void comm_fsm::handle_delete_file()
+{
+
+}
+
+void comm_fsm::handle_nuke_storage()
+{
+
 }

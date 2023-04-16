@@ -80,12 +80,17 @@ namespace comm_def
         char dev_build[32];
     };
 
-    struct __attribute__((packed)) fw_info {
+    struct __attribute__((packed)) file_attr_info {
         uint32_t crc; // 4
         uint32_t len; // 4
         uint8_t name_len; // 1
         char name[UINT8_MAX - 9];
     }; // 255 bytes
+
+    struct __attribute__((packed)) file_op_req {
+        uint8_t name_len; // 1
+        char name[UINT8_MAX - 9];
+    };
 
     struct __attribute__((packed)) chunk_pkt {
         uint8_t len;
@@ -128,7 +133,10 @@ private:
     void parse_pkt();
     void handle_fetch_file_req();
     void handle_store_file_req();
-    void parse_chunk();
+    void handle_file_chunk();
+    void handle_get_file_info();
+    void handle_delete_file();
+    void handle_nuke_storage();
 
 private:
     static const constexpr char TAG[] = "comm_fsm";
@@ -142,5 +150,5 @@ private:
     size_t file_curr_offset = 0;
     uint32_t file_crc = 0;
     FILE *file_handle = nullptr;
-    char file_name[sizeof(comm_def::fw_info::name) + 1] = { 0 };
+    char file_name[sizeof(comm_def::file_attr_info::name) + 1] = {0 };
 };

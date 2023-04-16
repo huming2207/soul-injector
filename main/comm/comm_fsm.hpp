@@ -116,7 +116,7 @@ private:
 private:
     esp_err_t send_pkt(comm_def::pkt_type type, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
     esp_err_t send_buf_with_header(const uint8_t *header_buf, size_t header_len, const uint8_t *buf, size_t len, uint32_t timeout_tick = portMAX_DELAY);
-    static inline uint16_t get_crc16(const uint8_t *buf, size_t len, uint16_t init);
+    static inline uint16_t get_crc16(const uint8_t *buf, size_t len, uint16_t init = 0x0000);
     static void rx_handler_task(void *ctx);
 
 private:
@@ -134,12 +134,13 @@ private:
     static const constexpr char TAG[] = "comm_fsm";
 
 private:
+    volatile bool expect_file_chunk = false;
+    uint8_t *rx_buf_ptr = nullptr;
+    size_t rx_buf_len = 0;
     comm_interface *comm_if = nullptr;
     size_t file_expect_len = 0;
     size_t file_curr_offset = 0;
     uint32_t file_crc = 0;
     FILE *file_handle = nullptr;
     char file_name[sizeof(comm_def::fw_info::name) + 1] = { 0 };
-    static uint8_t rx_raw_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE];
-    LfBb<uint8_t, 512> rx_buf_bb {};
 };

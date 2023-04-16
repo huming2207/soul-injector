@@ -8,9 +8,6 @@
 #include "comm_fsm.hpp"
 #include "file_utils.hpp"
 
-
-uint8_t comm_fsm::rx_raw_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE] = {};
-
 esp_err_t comm_fsm::init(comm_interface *_interface)
 {
     if (_interface == nullptr) {
@@ -113,46 +110,58 @@ void comm_fsm::rx_handler_task(void *_ctx)
     ESP_LOGI(TAG, "Rx handler task started");
     auto *ctx = comm_fsm::instance();
     while(true) {
-        ctx->comm_if->decode_and_recv(comm_fsm::rx_raw_buf, sizeof(comm_fsm::rx_raw_buf))
+        if (ctx->comm_if == nullptr) {
+            vTaskDelay(1);
+            return;
+        }
+
+        auto ret = ctx->comm_if->wait_for_recv(portMAX_DELAY);
+        ret = ret ?: ctx->comm_if->pause_recv();
+        ret = ret ?: ctx->comm_if->acquire_read_buf(&ctx->rx_buf_ptr, &ctx->rx_buf_len);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Read comm if failed: 0x%x", ret);
+            ctx->comm_if->release_read_buf(ctx->rx_buf_len);
+            ctx->comm_if->resume_recv();
+            return;
+        }
+
+        ctx->comm_if->release_read_buf(ctx->rx_buf_len);
+        ctx->comm_if->resume_recv();
+        ctx->rx_buf_len = 0;
+        ctx->rx_buf_ptr = nullptr;
     }
 }
 
 
 void comm_fsm::parse_pkt()
 {
-    auto queue_ptr = rx_buf_bb.ReadAcquire();
-    size_t decoded_len = queue_ptr.second;
-
-    if (decoded_len < sizeof(comm_def::header)) {
-        ESP_LOGW(TAG, "Packet too short, failed to decode header: %u", decoded_len);
-        recv_state = comm_def::FILE_RECV_NONE;
-        send_nack();
-
-        rx_buf_bb.ReadRelease(decoded_len);
+    if (comm_if == nullptr) {
         return;
     }
 
-    auto *header = (comm_def::header *)queue_ptr.first;
+    if (rx_buf_len < sizeof(comm_def::header)) {
+        ESP_LOGW(TAG, "Packet too short, failed to decode header: %u", rx_buf_len);
+        send_nack();
+        return;
+    }
+
+    auto *header = (comm_def::header *)rx_buf_ptr;
 
     uint16_t expected_crc = header->crc;
     header->crc = 0;
 
-    uint16_t actual_crc = get_crc16(queue_ptr.first, decoded_len);
+    uint16_t actual_crc = get_crc16(rx_buf_ptr, rx_buf_len);
     if (actual_crc != expected_crc) {
         ESP_LOGW(TAG, "Incoming packet CRC corrupted, expect 0x%x, actual 0x%x", expected_crc, actual_crc);
         send_nack();
-        rx_buf_bb.ReadRelease(decoded_len);
         return;
     }
 
-    if (recv_state != comm_def::FILE_RECV_NONE && header->type != comm_def::PKT_DATA_CHUNK) {
+    if (expect_file_chunk && header->type != comm_def::PKT_DATA_CHUNK) {
         ESP_LOGW(TAG, "Invalid state - data chunk expected while received type 0x%x", header->type);
         send_nack();
-        rx_buf_bb.ReadRelease(decoded_len);
         return;
     }
-
-    rx_buf_bb.ReadRelease(sizeof(comm_def::header));
 
     switch (header->type) {
         case comm_def::PKT_PING: {
@@ -176,7 +185,7 @@ void comm_fsm::parse_pkt()
         }
 
         case comm_def::PKT_DATA_CHUNK: {
-            if (recv_state != comm_def::FILE_RECV_NONE) {
+            if (expect_file_chunk) {
                 parse_chunk();
             } else {
                 ESP_LOGW(TAG, "Invalid state - no chunk expected to come or should have EOL'ed??");
@@ -200,36 +209,31 @@ void comm_fsm::handle_fetch_file_req()
 
 void comm_fsm::handle_store_file_req()
 {
-    auto queue_ptr = rx_buf_bb.ReadAcquire();
-    uint8_t *buf = queue_ptr.first;
-    size_t buf_len = queue_ptr.second;
-
+    uint8_t *buf = (rx_buf_ptr + sizeof(comm_def::header));
     auto *fw_info = (comm_def::fw_info *)(buf);
 
-    file_expect_len = fw_info->len;
-    file_crc = fw_info->crc;
+    file_handle = fopen(fw_info->name, "wb");
+    if (file_handle == nullptr) {
+        ESP_LOGE(TAG, "Failed to open firmware path");
+        memset(file_name, 0, sizeof(file_name));
+        return;
+    }
 
     memset(file_name, 0, sizeof(file_name));
     strncpy(file_name, fw_info->name, fw_info->name_len);
     file_name[sizeof(file_name) - 1] = '\0';
 
-    file_handle = fopen(file_name, "wb");
-    if (file_handle == nullptr) {
-        ESP_LOGE(TAG, "Failed to open firmware path");
-        memset(file_name, 0, sizeof(file_name));
-        rx_buf_bb.ReadRelease(buf_len);
-        return;
-    }
-    recv_state = comm_def::FILE_RECV_FW;
+    file_expect_len = fw_info->len;
+    file_crc = fw_info->crc;
+    file_curr_offset = 0;
+
+    expect_file_chunk = true;
     send_chunk_ack(comm_def::CHUNK_XFER_NEXT, 0);
-    rx_buf_bb.ReadRelease(buf_len);
 }
 
 void comm_fsm::parse_chunk()
 {
-    auto queue_ptr = rx_buf_bb.ReadAcquire();
-    uint8_t *buf = queue_ptr.first;
-    size_t buf_len = queue_ptr.second;
+    uint8_t *buf = (rx_buf_ptr + sizeof(comm_def::header));
 
     auto *chunk = (comm_def::chunk_pkt *)(buf);
 
@@ -240,9 +244,8 @@ void comm_fsm::parse_chunk()
         file_curr_offset = 0;
         file_crc = 0;
 
-        recv_state = comm_def::FILE_RECV_NONE;
+        expect_file_chunk = false;
         send_chunk_ack(comm_def::CHUNK_ERR_ABORT_REQUESTED, 0);
-        rx_buf_bb.ReadRelease(buf_len);
         return;
     }
 
@@ -258,9 +261,8 @@ void comm_fsm::parse_chunk()
             file_handle = nullptr;
         }
 
-        recv_state = comm_def::FILE_RECV_NONE;
+        expect_file_chunk = false;
         send_chunk_ack(comm_def::CHUNK_ERR_NAME_TOO_LONG, chunk->len + file_curr_offset);
-        rx_buf_bb.ReadRelease(buf_len);
         return;
     }
 
@@ -268,7 +270,6 @@ void comm_fsm::parse_chunk()
     if (fwrite(chunk->buf, 1, chunk->len, file_handle) < chunk->len) {
         ESP_LOGE(TAG, "Error occur when processing recv buffer - write failed");
         send_chunk_ack(comm_def::CHUNK_ERR_INTERNAL, ESP_ERR_NO_MEM);
-        rx_buf_bb.ReadRelease(buf_len);
         return;
     }
 
@@ -282,7 +283,7 @@ void comm_fsm::parse_chunk()
             file_expect_len = 0;
             file_curr_offset = 0;
             file_crc = 0;
-            recv_state = comm_def::FILE_RECV_NONE;
+            expect_file_chunk = false;
             memset(file_name, 0, sizeof(file_name));
             send_chunk_ack(comm_def::CHUNK_XFER_DONE, file_curr_offset);
         } else {
@@ -293,6 +294,4 @@ void comm_fsm::parse_chunk()
         ESP_LOGI(TAG, "Chunk recv - await next @ %u, total %u", file_curr_offset, file_expect_len);
         send_chunk_ack(comm_def::CHUNK_XFER_NEXT, file_curr_offset);
     }
-
-    rx_buf_bb.ReadRelease(buf_len);
 }

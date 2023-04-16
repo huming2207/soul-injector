@@ -267,28 +267,13 @@ esp_err_t cdc_acm::write_to_rx_buf(uint8_t data)
     return ESP_OK;
 }
 
-esp_err_t cdc_acm::decode_and_recv(uint8_t *buf, size_t buf_len, size_t *len_decoded, uint32_t timeout_ticks)
+esp_err_t cdc_acm::wait_for_recv(uint32_t timeout_ticks)
 {
-    if (buf == nullptr || buf_len < 1 || len_decoded == nullptr) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
     auto ret = xEventGroupWaitBits(rx_event, cdc_def::EVT_NEW_PACKET, pdTRUE, pdFALSE, timeout_ticks);
     if ((ret & cdc_def::EVT_NEW_PACKET) == 0) {
         return ESP_ERR_TIMEOUT;
     }
 
-    auto queue_ptr = rx_buf_bb.ReadAcquire();
-    size_t actual_len = std::min(buf_len, queue_ptr.second);
-
-    if (queue_ptr.first == nullptr) {
-        return ESP_ERR_NO_MEM; // Do we need this??
-    }
-
-    memcpy(buf, queue_ptr.first, actual_len);
-    *len_decoded = actual_len;
-
-    rx_buf_bb.WriteRelease(actual_len);
     return ESP_OK;
 }
 

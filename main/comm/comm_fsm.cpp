@@ -348,7 +348,16 @@ void comm_fsm::handle_get_file_info()
 
 void comm_fsm::handle_delete_file()
 {
+    uint8_t *buf = (rx_buf_ptr + sizeof(comm_def::header));
+    auto *file_op = (comm_def::file_op_req *)(buf);
 
+    if (unlink(file_op->path) < 0) {
+        ESP_LOGE(TAG, "Failed to delete file: %s", file_op->path);
+        send_error(ESP_FAIL);
+    } else {
+        ESP_LOGI(TAG, "File deleted: %s", file_op->path);
+        send_ack();
+    }
 }
 
 void comm_fsm::handle_nuke_storage()

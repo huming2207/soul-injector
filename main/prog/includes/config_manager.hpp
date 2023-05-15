@@ -114,7 +114,7 @@ public:
 
 private:
     static const constexpr char *TAG = "cfg_mgr";
-    static const constexpr char *SPIFFS_PART_LABEL = "storage";
+    static const constexpr char *STORAGE_PARTITION_LABEL = "storage";
     config_manager() = default;
     std::shared_ptr<nvs::NVSHandle> nvs;
 };

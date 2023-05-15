@@ -22,7 +22,7 @@ idf_component_register(
         PRIV_REQUIRES
             "daplink-esp"
             "mbedtls"
-            "spiffs"
+            "esp_littlefs"
             "usb"
             "spi_flash"
             "efuse"

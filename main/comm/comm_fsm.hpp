@@ -37,7 +37,7 @@ namespace comm_def
         PKT_DATA_CHUNK = 0x13,
         PKT_CHUNK_ACK = 0x14,
         PKT_GET_FILE_INFO = 0x15,
-        PKT_NUKE_STORAGE = 0x16,
+        PKT_FORMAT_PARTITION = 0x16,
         PKT_ERROR = 0xfe,
         PKT_NACK = 0xff,
     };
@@ -92,6 +92,10 @@ namespace comm_def
         char path[max_path_len + 1];
     };
 
+    struct __attribute__((packed)) part_format_req {
+        char partition_label[max_path_len + 1];
+    };
+
     struct __attribute__((packed)) chunk_pkt {
         uint8_t len;
         uint8_t buf[max_path_len + 1];
@@ -137,7 +141,7 @@ private:
     void handle_file_chunk();
     void handle_get_file_info();
     void handle_delete_file();
-    void handle_nuke_storage();
+    void handle_format_partition();
 
 private:
     static const constexpr char TAG[] = "comm_fsm";

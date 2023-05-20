@@ -1,27 +1,26 @@
 #include <cstring>
 #include <esp_log.h>
 #include <esp_crc.h>
-#include <driver/spi_master.h>
-#include <esp_spiffs.h>
+#include <esp_littlefs.h>
 
 #include "config_manager.hpp"
 #include "file_utils.hpp"
 
 esp_err_t config_manager::init()
 {
-    esp_vfs_spiffs_conf_t spiffs_config = {};
+    esp_vfs_littlefs_conf_t spiffs_config = {};
     spiffs_config.base_path = BASE_PATH;
     spiffs_config.format_if_mount_failed = false;
-    spiffs_config.max_files = 10;
-    spiffs_config.partition_label = SPIFFS_PART_LABEL;
+    spiffs_config.dont_mount = false;
+    spiffs_config.partition_label = STORAGE_PARTITION_LABEL;
 
-    auto ret = esp_vfs_spiffs_register(&spiffs_config);
+    auto ret = esp_vfs_littlefs_register(&spiffs_config);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Storage partition is corrupted or unformatted, formatting now...");
-        ret = esp_spiffs_format(SPIFFS_PART_LABEL);
-        ret = ret ?: esp_vfs_spiffs_register(&spiffs_config);
+        ret = esp_littlefs_format(STORAGE_PARTITION_LABEL);
+        ret = ret ?: esp_vfs_littlefs_register(&spiffs_config);
         if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to initialize SPIFFS: %s", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "Failed to initialize LittleFS: %s", esp_err_to_name(ret));
             return ret;
         } else {
             ESP_LOGI(TAG, "Storage filesystem formatted & mounted to %s", BASE_PATH);

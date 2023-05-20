@@ -20,6 +20,7 @@
 
 namespace comm_def
 {
+    static const constexpr size_t max_path_len = 220;
     enum file_recv_state : uint8_t {
         FILE_RECV_NONE = 0,
         FILE_RECV_FW = 1,
@@ -36,7 +37,8 @@ namespace comm_def
         PKT_DATA_CHUNK = 0x13,
         PKT_CHUNK_ACK = 0x14,
         PKT_GET_FILE_INFO = 0x15,
-        PKT_NUKE_STORAGE = 0x16,
+        PKT_FORMAT_PARTITION = 0x16,
+        PKT_ERROR = 0xfe,
         PKT_NACK = 0xff,
     };
 
@@ -83,18 +85,20 @@ namespace comm_def
     struct __attribute__((packed)) file_attr_info {
         uint32_t crc; // 4
         uint32_t len; // 4
-        uint8_t name_len; // 1
-        char name[UINT8_MAX - 9];
+        char path[max_path_len + 1];
     }; // 255 bytes
 
     struct __attribute__((packed)) file_op_req {
-        uint8_t name_len; // 1
-        char name[UINT8_MAX - 9];
+        char path[max_path_len + 1];
+    };
+
+    struct __attribute__((packed)) part_format_req {
+        char partition_label[max_path_len + 1];
     };
 
     struct __attribute__((packed)) chunk_pkt {
         uint8_t len;
-        uint8_t buf[UINT8_MAX - 1];
+        uint8_t buf[max_path_len + 1];
     }; // 255 bytes
 
     static const constexpr size_t max_pkt_len = UINT8_MAX;
@@ -127,6 +131,7 @@ private:
 private:
     esp_err_t send_ack(uint16_t crc = 0, uint32_t timeout_ms = portMAX_DELAY);
     esp_err_t send_nack(uint32_t timeout_ms = portMAX_DELAY);
+    esp_err_t send_error(esp_err_t err);
     esp_err_t send_dev_info(uint32_t timeout_ms = portMAX_DELAY);
     esp_err_t send_chunk_ack(comm_def::chunk_ack state, uint32_t aux = 0, uint32_t timeout_ms = portMAX_DELAY);
 
@@ -136,7 +141,7 @@ private:
     void handle_file_chunk();
     void handle_get_file_info();
     void handle_delete_file();
-    void handle_nuke_storage();
+    void handle_format_partition();
 
 private:
     static const constexpr char TAG[] = "comm_fsm";
@@ -150,5 +155,5 @@ private:
     size_t file_curr_offset = 0;
     uint32_t file_crc = 0;
     FILE *file_handle = nullptr;
-    char file_name[sizeof(comm_def::file_attr_info::name) + 1] = {0 };
+    char file_name[sizeof(comm_def::file_attr_info::path) + 1] = {0 };
 };

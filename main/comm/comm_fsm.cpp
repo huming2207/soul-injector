@@ -4,9 +4,11 @@
 #include <esp_crc.h>
 #include <esp_mac.h>
 #include <esp_log.h>
+#include <sys/stat.h>
 
 #include "comm_fsm.hpp"
 #include "file_utils.hpp"
+#include "esp_littlefs.h"
 
 esp_err_t comm_fsm::init(comm_interface *_interface)
 {
@@ -31,6 +33,11 @@ esp_err_t comm_fsm::send_ack(uint16_t crc, uint32_t timeout_ms)
 esp_err_t comm_fsm::send_nack(uint32_t timeout_ms)
 {
     return send_pkt(comm_def::PKT_NACK, nullptr, 0);
+}
+
+esp_err_t comm_fsm::send_error(esp_err_t err)
+{
+    return send_pkt(comm_def::PKT_ERROR, (uint8_t *)&err, sizeof(err));
 }
 
 esp_err_t comm_fsm::send_dev_info(uint32_t timeout_ms)
@@ -206,8 +213,8 @@ void comm_fsm::parse_pkt()
             break;
         }
 
-        case comm_def::PKT_NUKE_STORAGE: {
-            handle_nuke_storage();
+        case comm_def::PKT_FORMAT_PARTITION: {
+            handle_format_partition();
             break;
         }
 
@@ -229,7 +236,7 @@ void comm_fsm::handle_store_file_req()
     uint8_t *buf = (rx_buf_ptr + sizeof(comm_def::header));
     auto *fw_info = (comm_def::file_attr_info *)(buf);
 
-    file_handle = fopen(fw_info->name, "wb");
+    file_handle = fopen(fw_info->path, "wb");
     if (file_handle == nullptr) {
         ESP_LOGE(TAG, "Failed to open firmware path");
         memset(file_name, 0, sizeof(file_name));
@@ -237,7 +244,7 @@ void comm_fsm::handle_store_file_req()
     }
 
     memset(file_name, 0, sizeof(file_name));
-    strncpy(file_name, fw_info->name, fw_info->name_len);
+    strncpy(file_name, fw_info->path, sizeof(comm_def::file_attr_info::path));
     file_name[sizeof(file_name) - 1] = '\0';
 
     file_expect_len = fw_info->len;
@@ -315,15 +322,58 @@ void comm_fsm::handle_file_chunk()
 
 void comm_fsm::handle_get_file_info()
 {
+    uint8_t *buf = (rx_buf_ptr + sizeof(comm_def::header));
+    auto *file_op = (comm_def::file_op_req *)(buf);
+    file_op->path[sizeof(comm_def::file_op_req::path) - 1] = '\0';
 
+    uint32_t crc = 0;
+    comm_def::file_attr_info attr_info = {};
+    auto ret = file_utils::get_file_crc32(file_op->path, &crc);
+
+    if (ret != ESP_OK) {
+        send_error(ret);
+        return;
+    }
+
+    attr_info.crc = crc;
+    strncpy(attr_info.path, file_op->path, sizeof(comm_def::file_op_req::path));
+
+    struct stat file_stat = {};
+    if (stat(file_op->path, &file_stat) != 0) {
+        ESP_LOGE(TAG, "File stat failed for %s", file_op->path);
+        send_error(ret);
+        return;
+    }
+
+    send_pkt(comm_def::PKT_GET_FILE_INFO, (uint8_t *)&attr_info, sizeof(attr_info));
 }
 
 void comm_fsm::handle_delete_file()
 {
+    uint8_t *buf = (rx_buf_ptr + sizeof(comm_def::header));
+    auto *file_op = (comm_def::file_op_req *)(buf);
+    file_op->path[sizeof(comm_def::file_op_req::path) - 1] = '\0';
 
+    if (unlink(file_op->path) < 0) {
+        ESP_LOGE(TAG, "Failed to delete file: %s", file_op->path);
+        send_error(ESP_FAIL);
+    } else {
+        ESP_LOGI(TAG, "File deleted: %s", file_op->path);
+        send_ack();
+    }
 }
 
-void comm_fsm::handle_nuke_storage()
+void comm_fsm::handle_format_partition()
 {
+    uint8_t *buf = (rx_buf_ptr + sizeof(comm_def::header));
+    auto *op = (comm_def::part_format_req *)(buf);
+    op->partition_label[sizeof(comm_def::part_format_req::partition_label) - 1] = '\0';
 
+    auto ret = esp_littlefs_format(op->partition_label);
+    if (ret != ESP_OK) {
+        send_error(ret);
+    } else {
+        send_ack();
+    }
 }
+

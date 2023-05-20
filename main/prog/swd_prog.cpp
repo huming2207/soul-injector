@@ -684,3 +684,8 @@ esp_err_t swd_prog::verify(uint32_t expected_crc, uint32_t start_addr, size_t le
     return ESP_OK;
 }
 
+void swd_prog::trigger_nrst()
+{
+    swd_trigger_nrst();
+}
+

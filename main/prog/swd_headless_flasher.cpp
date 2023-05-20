@@ -203,6 +203,8 @@ void swd_headless_flasher::on_self_test()
 
     ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
 
+    swd_prog::trigger_nrst();
+
     state = flasher::DONE;
 }
 

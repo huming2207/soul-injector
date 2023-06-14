@@ -8,3 +8,6 @@
 [submodule "components/esp_littlefs"]
 	path = components/esp_littlefs
 	url = https://github.com/joltwallet/esp_littlefs.git
+[submodule "components/lua"]
+	path = components/lua
+	url = https://github.com/UncleRus/esp-idf-lua.git

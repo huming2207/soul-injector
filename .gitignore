@@ -87,3 +87,7 @@ main/fs_sample/*.bin
 
 # ESP-IDF's stuff
 managed_components/
+
+# This might be a bad practise but somehow ESP-IDF's library manager has some weird behavior causing this file
+# constantly changing, so we ignore it for now.
+dependencies.lock

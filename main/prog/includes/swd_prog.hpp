@@ -65,4 +65,5 @@ public:
     esp_err_t program_file(const char *path, uint32_t *len_written = nullptr, uint32_t start_addr = UINT32_MAX);
     esp_err_t verify(uint32_t expected_crc, uint32_t start_addr = UINT32_MAX, size_t len = 0);
     esp_err_t self_test(uint16_t test_id, uint8_t *readout_buf, size_t readout_buf_len = 0, uint32_t *func_return_val = nullptr);
+    static void trigger_nrst();
 };

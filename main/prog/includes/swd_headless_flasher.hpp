@@ -44,7 +44,7 @@ private:
     swd_headless_flasher() = default;
     uint32_t written_len = 0;
     config_manager &cfg_manager = config_manager::instance();
-    cdc_acm &cdc = cdc_acm::instance();
+    cdc_acm *cdc = cdc_acm::instance();
     led_ctrl &led = led_ctrl::instance();
     swd_prog &swd = swd_prog::instance();
     lcd_manager *lcd = lcd_manager::instance();

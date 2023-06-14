@@ -19,6 +19,7 @@ idf_component_register(
 
         INCLUDE_DIRS
             "." "misc/includes" "prog/includes" "external/includes" "comm" "comm/usb" "driver/includes" "driver"
+
         PRIV_REQUIRES
             "daplink-esp"
             "mbedtls"
@@ -31,4 +32,5 @@ idf_component_register(
             "esp_timer"
             "lvgl"
             "led_strip"
+            "lua"
 )

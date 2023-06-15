@@ -4,7 +4,6 @@ idf_component_register(
             "prog/swd_prog.cpp" "prog/includes/swd_prog.hpp"
             "prog/config_manager.cpp" "prog/includes/config_manager.hpp"
             "prog/swd_headless_flasher.cpp" "prog/includes/swd_headless_flasher.hpp"
-            "external/includes/ArduinoJson.hpp"
             "external/includes/lfbb.hpp" "external/includes/lfbb_impl.hpp"
             "prog/includes/led_ctrl.hpp"
             "misc/includes/file_utils.hpp"
@@ -12,6 +11,7 @@ idf_component_register(
             "comm/comm_fsm.cpp" "comm/comm_fsm.hpp"
             "comm/comm_interface.hpp"
             "misc/includes/soul_nvs.hpp"
+            "misc/includes/psram_json_doc.hpp"
             "driver/includes/button_monitor.hpp"
             "driver/lcd/lhs154kc.c" "driver/lcd/lhs154kc.h"
             "driver/lcd/lvgl_wrapper.c" "driver/lcd/lvgl_wrapper.h"
@@ -33,4 +33,5 @@ idf_component_register(
             "lvgl"
             "led_strip"
             "lua"
+            "arduino_json"
 )

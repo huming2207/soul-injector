@@ -4,7 +4,6 @@
 #include <esp_mac.h>
 
 #include "cdc_acm.hpp"
-#include "config_manager.hpp"
 #include "file_utils.hpp"
 
 esp_err_t cdc_acm::init(tinyusb_cdcacm_itf_t channel)

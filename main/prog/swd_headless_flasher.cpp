@@ -91,8 +91,8 @@ void swd_headless_flasher::on_erase()
 {
     ESP_LOGI(TAG, "Erasing");
     uint32_t start_addr = 0, end_addr = 0;
-    auto ret = cfg_manager.get_flash_start_addr(start_addr);
-    ret = ret ?: cfg_manager.get_flash_end_addr(end_addr);
+    auto ret = cfg_manager.get_flash_start_addr(&start_addr);
+    ret = ret ?: cfg_manager.get_flash_end_addr(&end_addr);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read flash addresses");
     } else {
@@ -116,7 +116,7 @@ void swd_headless_flasher::on_erase()
 void swd_headless_flasher::on_program()
 {
     int64_t ts = esp_timer_get_time();
-    auto ret = swd.program_file(config_manager::FIRMWARE_PATH, &written_len);
+    auto ret = swd.program_file(manifest_manager::FIRMWARE_PATH, &written_len);
     if (ret != ESP_OK) {
         state = flasher::ERROR;
     } else {
@@ -154,7 +154,7 @@ void swd_headless_flasher::on_done()
 void swd_headless_flasher::on_verify()
 {
     uint32_t crc = 0;
-    if (config_manager::instance().get_fw_crc(crc) != ESP_OK) {
+    if (manifest_manager::instance().get_fw_crc(&crc) != ESP_OK) {
         state = flasher::ERROR;
         return;
     }

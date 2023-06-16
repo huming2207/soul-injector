@@ -2,7 +2,7 @@ idf_component_register(
         SRCS
             "main.cpp"
             "prog/swd_prog.cpp" "prog/includes/swd_prog.hpp"
-            "prog/config_manager.cpp" "prog/includes/config_manager.hpp"
+            "prog/manifest_manager.cpp" "prog/includes/manifest_manager.hpp"
             "prog/swd_headless_flasher.cpp" "prog/includes/swd_headless_flasher.hpp"
             "external/includes/lfbb.hpp" "external/includes/lfbb_impl.hpp"
             "prog/includes/led_ctrl.hpp"

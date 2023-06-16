@@ -44,8 +44,8 @@ esp_err_t swd_prog::load_flash_algorithm()
         return ESP_FAIL;
     }
 
-    uint32_t algo_bin_len = 0;
-    if (fw_mgr->get_algo_bin_len(algo_bin_len) != ESP_OK) {
+    size_t algo_bin_len = 0;
+    if (fw_mgr->get_algo_bin_len(&algo_bin_len) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read algo bin len");
         return ESP_ERR_INVALID_STATE;
     }
@@ -99,13 +99,13 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
         }
 
         uint32_t pc_init = 0;
-        if (fw_mgr->get_pc_init(pc_init) != ESP_OK) {
+        if (fw_mgr->get_pc_init(&pc_init) != ESP_OK) {
             ESP_LOGE(TAG, "Init func pointer config not found");
             return ESP_ERR_INVALID_STATE;
         }
 
         uint32_t flash_start_addr = 0;
-        if (fw_mgr->get_flash_start_addr(flash_start_addr) != ESP_OK) {
+        if (fw_mgr->get_flash_start_addr(&flash_start_addr) != ESP_OK) {
             ESP_LOGE(TAG, "Flash start addr config not found");
             return ESP_ERR_INVALID_STATE;
         }
@@ -153,7 +153,7 @@ esp_err_t swd_prog::run_algo_uninit(swd_def::init_mode mode)
     }
 
     uint32_t pc_uninit = 0;
-    if (fw_mgr->get_pc_uninit(pc_uninit) != ESP_OK) {
+    if (fw_mgr->get_pc_uninit(&pc_uninit) != ESP_OK) {
         ESP_LOGE(TAG, "UnInit func pointer config not found");
         return ESP_ERR_INVALID_STATE;
     }
@@ -184,7 +184,7 @@ esp_err_t swd_prog::run_algo_uninit(swd_def::init_mode mode)
     return ESP_OK;
 }
 
-esp_err_t swd_prog::init(config_manager *_algo, uint32_t _ram_addr, uint32_t _stack_size_byte)
+esp_err_t swd_prog::init(manifest_manager *_algo, uint32_t _ram_addr, uint32_t _stack_size_byte)
 {
     if (_algo == nullptr) {
         ESP_LOGE(TAG, "Flash algorithm container pointer is null");
@@ -229,8 +229,8 @@ esp_err_t swd_prog::init(config_manager *_algo, uint32_t _ram_addr, uint32_t _st
 
     code_start = ram_addr;
 
-    uint32_t algo_bin_len = 0;
-    if (fw_mgr->get_algo_bin_len(algo_bin_len) != ESP_OK) {
+    size_t algo_bin_len = 0;
+    if (fw_mgr->get_algo_bin_len(&algo_bin_len) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read algo bin len");
         return ESP_ERR_INVALID_STATE;
     }
@@ -239,7 +239,7 @@ esp_err_t swd_prog::init(config_manager *_algo, uint32_t _ram_addr, uint32_t _st
     stack_offset = ram_addr + offset + stack_size + sizeof(header_blob);
 
     uint32_t data_section_offset = 0;
-    if (fw_mgr->get_data_section_offset(data_section_offset) != ESP_OK) {
+    if (fw_mgr->get_data_section_offset(&data_section_offset) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read data section offset");
         return ESP_ERR_INVALID_STATE;
     }
@@ -260,7 +260,7 @@ esp_err_t swd_prog::init(config_manager *_algo, uint32_t _ram_addr, uint32_t _st
 esp_err_t swd_prog::erase_chip()
 {
     uint32_t pc_erase_all = 0;
-    auto nvs_ret = fw_mgr->get_pc_erase_all(pc_erase_all);
+    auto nvs_ret = fw_mgr->get_pc_erase_all(&pc_erase_all);
     if (nvs_ret != ESP_OK || pc_erase_all == 0 || pc_erase_all == UINT32_MAX) {
         ESP_LOGE(TAG, "This algorithm doesn't support EraseChip");
         return ESP_ERR_NOT_SUPPORTED;
@@ -319,7 +319,7 @@ esp_err_t swd_prog::erase_chip()
 esp_err_t swd_prog::self_test(uint16_t test_id, uint8_t *readout_buf, size_t readout_buf_len, uint32_t *func_return_val)
 {
     uint32_t pc_verify = 0;
-    auto nvs_ret = fw_mgr->get_pc_verify(pc_verify);
+    auto nvs_ret = fw_mgr->get_pc_verify(&pc_verify);
 
     if (nvs_ret != ESP_OK) {
         ESP_LOGE(TAG, "Missing config for Verify/SelfTest");
@@ -368,9 +368,9 @@ esp_err_t swd_prog::self_test(uint16_t test_id, uint8_t *readout_buf, size_t rea
 esp_err_t swd_prog::erase_sector(uint32_t start_addr, uint32_t end_addr)
 {
     uint32_t flash_sector_size = 0, pc_erase_sector = 0, flash_start_addr = 0;
-    auto nvs_ret = fw_mgr->get_sector_size(flash_sector_size);
-    nvs_ret = nvs_ret ?: fw_mgr->get_pc_erase_sector(pc_erase_sector);
-    nvs_ret = nvs_ret ?: fw_mgr->get_flash_start_addr(flash_start_addr);
+    auto nvs_ret = fw_mgr->get_sector_size(&flash_sector_size);
+    nvs_ret = nvs_ret ?: fw_mgr->get_pc_erase_sector(&pc_erase_sector);
+    nvs_ret = nvs_ret ?: fw_mgr->get_flash_start_addr(&flash_start_addr);
 
     if (nvs_ret != ESP_OK) {
         ESP_LOGE(TAG, "Missing config for EraseSector");
@@ -454,9 +454,9 @@ esp_err_t swd_prog::program_page(const uint8_t *buf, size_t len, uint32_t start_
     }
 
     uint32_t page_size = 0, pc_program_page = 0, flash_start_addr = 0;
-    auto nvs_ret = fw_mgr->get_page_size(page_size);
-    nvs_ret = nvs_ret ?: fw_mgr->get_pc_program_page(pc_program_page);
-    nvs_ret = nvs_ret ?: fw_mgr->get_flash_start_addr(flash_start_addr);
+    auto nvs_ret = fw_mgr->get_page_size(&page_size);
+    nvs_ret = nvs_ret ?: fw_mgr->get_pc_program_page(&pc_program_page);
+    nvs_ret = nvs_ret ?: fw_mgr->get_flash_start_addr(&flash_start_addr);
 
     if (nvs_ret != ESP_OK) {
         ESP_LOGE(TAG, "Missing config for ProgramPage");
@@ -559,9 +559,9 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
     }
 
     uint32_t page_size = 0, pc_program_page = 0, flash_start_addr = 0;
-    auto nvs_ret = fw_mgr->get_page_size(page_size);
-    nvs_ret = nvs_ret ?: fw_mgr->get_pc_program_page(pc_program_page);
-    nvs_ret = nvs_ret ?: fw_mgr->get_flash_start_addr(flash_start_addr);
+    auto nvs_ret = fw_mgr->get_page_size(&page_size);
+    nvs_ret = nvs_ret ?: fw_mgr->get_pc_program_page(&pc_program_page);
+    nvs_ret = nvs_ret ?: fw_mgr->get_flash_start_addr(&flash_start_addr);
 
     if (nvs_ret != ESP_OK) {
         ESP_LOGE(TAG, "Missing config for ProgramPage");
@@ -646,8 +646,8 @@ esp_err_t swd_prog::verify(uint32_t expected_crc, uint32_t start_addr, size_t le
     }
 
     uint32_t flash_start_addr = 0, flash_end_addr = 0;
-    auto nvs_ret = fw_mgr->get_flash_end_addr(flash_end_addr);
-    nvs_ret = nvs_ret ?: fw_mgr->get_flash_start_addr(flash_start_addr);
+    auto nvs_ret = fw_mgr->get_flash_end_addr(&flash_end_addr);
+    nvs_ret = nvs_ret ?: fw_mgr->get_flash_start_addr(&flash_start_addr);
 
     if (nvs_ret != ESP_OK) {
         ESP_LOGE(TAG, "Missing config for verify");

@@ -42,16 +42,16 @@ namespace cfg_def
     };
 }
 
-class config_manager
+class manifest_manager
 {
 public:
-    static config_manager& instance()
+    static manifest_manager& instance()
     {
-        static config_manager instance;
+        static manifest_manager instance;
         return instance;
     }
-    config_manager(config_manager const &) = delete;
-    void operator=(config_manager const &) = delete;
+    manifest_manager(manifest_manager const &) = delete;
+    void operator=(manifest_manager const &) = delete;
 
     esp_err_t init();
     esp_err_t get_algo_name(char *algo_name, size_t len) const;
@@ -90,6 +90,6 @@ private:
     static char manifest_json[131072];
     size_t manifest_json_len = 0;
     bool manifest_loaded = false;
-    config_manager() = default;
+    manifest_manager() = default;
     PsRamJsonDocument manifest_doc = PsRamJsonDocument(131072);
 };

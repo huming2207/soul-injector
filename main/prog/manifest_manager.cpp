@@ -4,12 +4,12 @@
 #include <esp_littlefs.h>
 #include <ArduinoJson.hpp>
 
-#include "config_manager.hpp"
+#include "manifest_manager.hpp"
 #include "file_utils.hpp"
 
-char config_manager::manifest_json[131072] = {};
+char manifest_manager::manifest_json[131072] = {};
 
-esp_err_t config_manager::init()
+esp_err_t manifest_manager::init()
 {
     esp_err_t ret = ESP_OK;
     if (!esp_littlefs_mounted(STORAGE_PARTITION_LABEL)) {
@@ -52,7 +52,7 @@ esp_err_t config_manager::init()
     return ret;
 }
 
-esp_err_t config_manager::get_algo_name(char *algo_name, size_t len) const
+esp_err_t manifest_manager::get_algo_name(char *algo_name, size_t len) const
 {
     auto name = manifest_doc["algo"]["name"].as<const char *>();
     if (name == nullptr) {
@@ -63,7 +63,7 @@ esp_err_t config_manager::get_algo_name(char *algo_name, size_t len) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_target_name(char *target_name, size_t len) const
+esp_err_t manifest_manager::get_target_name(char *target_name, size_t len) const
 {
     auto name = manifest_doc["target"]["name"].as<const char *>();
     if (name == nullptr) {
@@ -74,7 +74,7 @@ esp_err_t config_manager::get_target_name(char *target_name, size_t len) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len) const
+esp_err_t manifest_manager::get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len) const
 {
     auto name = manifest_doc["algo"]["name"].as<const char *>();
     if (name == nullptr) {
@@ -86,7 +86,7 @@ esp_err_t config_manager::get_algo_bin(uint8_t *algo, size_t len, size_t *actual
     return file_utils::read_to_buf(path_buf, algo, len, actual_len);
 }
 
-esp_err_t config_manager::get_algo_bin_len(size_t *out) const
+esp_err_t manifest_manager::get_algo_bin_len(size_t *out) const
 {
     auto name = manifest_doc["algo"]["name"].as<const char *>();
     if (name == nullptr) {
@@ -98,7 +98,7 @@ esp_err_t config_manager::get_algo_bin_len(size_t *out) const
     return file_utils::get_len(path_buf, out);
 }
 
-esp_err_t config_manager::get_ram_size_byte(uint32_t *out) const
+esp_err_t manifest_manager::get_ram_size_byte(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -108,7 +108,7 @@ esp_err_t config_manager::get_ram_size_byte(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_flash_size_byte(uint32_t *out) const
+esp_err_t manifest_manager::get_flash_size_byte(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -118,7 +118,7 @@ esp_err_t config_manager::get_flash_size_byte(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_pc_init(uint32_t *out) const
+esp_err_t manifest_manager::get_pc_init(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -128,7 +128,7 @@ esp_err_t config_manager::get_pc_init(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_pc_uninit(uint32_t *out) const
+esp_err_t manifest_manager::get_pc_uninit(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -138,7 +138,7 @@ esp_err_t config_manager::get_pc_uninit(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_pc_program_page(uint32_t *out) const
+esp_err_t manifest_manager::get_pc_program_page(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -148,7 +148,7 @@ esp_err_t config_manager::get_pc_program_page(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_pc_erase_sector(uint32_t *out) const
+esp_err_t manifest_manager::get_pc_erase_sector(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -158,7 +158,7 @@ esp_err_t config_manager::get_pc_erase_sector(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_pc_erase_all(uint32_t *out) const
+esp_err_t manifest_manager::get_pc_erase_all(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -168,7 +168,7 @@ esp_err_t config_manager::get_pc_erase_all(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_pc_verify(uint32_t *out) const
+esp_err_t manifest_manager::get_pc_verify(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -178,7 +178,7 @@ esp_err_t config_manager::get_pc_verify(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_data_section_offset(uint32_t *out) const
+esp_err_t manifest_manager::get_data_section_offset(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -188,7 +188,7 @@ esp_err_t config_manager::get_data_section_offset(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_flash_start_addr(uint32_t *out) const
+esp_err_t manifest_manager::get_flash_start_addr(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -198,7 +198,7 @@ esp_err_t config_manager::get_flash_start_addr(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_flash_end_addr(uint32_t *out) const
+esp_err_t manifest_manager::get_flash_end_addr(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -208,7 +208,7 @@ esp_err_t config_manager::get_flash_end_addr(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_page_size(uint32_t *out) const
+esp_err_t manifest_manager::get_page_size(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -218,7 +218,7 @@ esp_err_t config_manager::get_page_size(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_erased_byte_val(uint32_t *out) const
+esp_err_t manifest_manager::get_erased_byte_val(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -228,7 +228,7 @@ esp_err_t config_manager::get_erased_byte_val(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_program_page_timeout(uint32_t *out) const
+esp_err_t manifest_manager::get_program_page_timeout(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -238,7 +238,7 @@ esp_err_t config_manager::get_program_page_timeout(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_erase_sector_timeout(uint32_t *out) const
+esp_err_t manifest_manager::get_erase_sector_timeout(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -248,7 +248,7 @@ esp_err_t config_manager::get_erase_sector_timeout(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_sector_size(uint32_t *out) const
+esp_err_t manifest_manager::get_sector_size(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -258,7 +258,7 @@ esp_err_t config_manager::get_sector_size(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_fw_crc(uint32_t *out) const
+esp_err_t manifest_manager::get_fw_crc(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -268,7 +268,7 @@ esp_err_t config_manager::get_fw_crc(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::get_algo_crc(uint32_t *out) const
+esp_err_t manifest_manager::get_algo_crc(uint32_t *out) const
 {
     if (out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -278,7 +278,7 @@ esp_err_t config_manager::get_algo_crc(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t config_manager::reload_cfg()
+esp_err_t manifest_manager::reload_cfg()
 {
     memset(manifest_json, 0, sizeof(manifest_json));
     auto ret = file_utils::read_to_buf(MANIFEST_PATH, (uint8_t *) (manifest_json), sizeof(manifest_json) - 1, &manifest_json_len);
@@ -299,7 +299,7 @@ esp_err_t config_manager::reload_cfg()
     return ret;
 }
 
-esp_err_t config_manager::read_cfg(char *out, size_t len) const
+esp_err_t manifest_manager::read_cfg(char *out, size_t len) const
 {
     if (out == nullptr || len < manifest_json_len) {
         return ESP_ERR_INVALID_ARG;
@@ -308,7 +308,7 @@ esp_err_t config_manager::read_cfg(char *out, size_t len) const
     return file_utils::read_to_buf(MANIFEST_PATH, (uint8_t *) out, len);
 }
 
-bool config_manager::has_valid_cfg() const
+bool manifest_manager::has_valid_cfg() const
 {
     return manifest_loaded;
 }

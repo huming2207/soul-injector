@@ -10,7 +10,6 @@ idf_component_register(
             "comm/usb/cdc_acm.cpp" "comm/usb/cdc_acm.hpp"
             "comm/comm_fsm.cpp" "comm/comm_fsm.hpp"
             "comm/comm_interface.hpp"
-            "misc/includes/soul_nvs.hpp"
             "misc/includes/psram_json_doc.hpp"
             "driver/includes/button_monitor.hpp"
             "driver/lcd/lhs154kc.c" "driver/lcd/lhs154kc.h"

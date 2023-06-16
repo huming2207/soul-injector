@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <cstddef>
 #include <esp_err.h>
-#include <soul_nvs.hpp>
 #include <driver/gpio.h>
 #include <psram_json_doc.hpp>
 
@@ -93,5 +92,4 @@ private:
     bool manifest_loaded = false;
     config_manager() = default;
     PsRamJsonDocument manifest_doc = PsRamJsonDocument(131072);
-    std::shared_ptr<nvs::NVSHandle> nvs;
 };

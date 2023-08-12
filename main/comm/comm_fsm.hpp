@@ -97,7 +97,7 @@ namespace comm_def
     };
 
     struct __attribute__((packed)) chunk_pkt {
-        uint8_t len;
+        uint16_t len;
         uint8_t buf[max_path_len + 1];
     }; // 255 bytes
 

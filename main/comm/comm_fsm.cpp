@@ -95,8 +95,9 @@ esp_err_t comm_fsm::send_buf_with_header(const uint8_t *header_buf, size_t heade
         return ESP_ERR_INVALID_ARG;
     }
 
-    auto ret = comm_if->encode_and_send(header_buf, header_len, true, false, timeout_tick);
-    ret = ret ?: comm_if->encode_and_send(buf, len, false, true, timeout_tick);
+    auto ret = comm_if->begin_send(header_len + len, timeout_tick);
+    ret = ret ?: comm_if->send_buf(buf, len, timeout_tick);
+    ret = ret ?: comm_if->finish_send(timeout_tick);
 
     return ret;
 }

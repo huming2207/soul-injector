@@ -2,6 +2,7 @@
 #include <esp_crc.h>
 #include <esp_flash.h>
 #include <esp_mac.h>
+#include <esp_debug_helpers.h>
 
 #include "cdc_acm.hpp"
 #include "file_utils.hpp"
@@ -53,13 +54,123 @@ esp_err_t cdc_acm::init(tinyusb_cdcacm_itf_t channel)
 
     ret = ret ?: tusb_cdc_acm_init(&acm_cfg);
 
-    rx_event = xEventGroupCreate();
-    if (rx_event == nullptr) {
+    io_events = xEventGroupCreate();
+    if (io_events == nullptr) {
         ESP_LOGE(TAG, "Failed to create Rx event group");
         return ESP_ERR_NO_MEM;
     }
 
     return ret;
+}
+
+esp_err_t cdc_acm::begin_send(size_t len, uint32_t timeout_ticks)
+{
+    if (xEventGroupWaitBits(io_events, cdc_def::EVT_TX_IDLE, pdTRUE, pdTRUE, timeout_ticks) == 0) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    xEventGroupSetBits(io_events, cdc_def::EVT_TX_BEGIN);
+
+    const uint8_t start = SLIP_START;
+    if (tinyusb_cdcacm_write_queue(cdc_channel, &start, 1) < 1) {
+        ESP_LOGE(TAG, "Failed to encode and tx start char");
+        xEventGroupSetBits(io_events, cdc_def::EVT_TX_IDLE);
+        xEventGroupClearBits(io_events, cdc_def::EVT_TX_BEGIN);
+        return ESP_ERR_NOT_FINISHED;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t cdc_acm::send_buf(const uint8_t *buf, size_t len, uint32_t timeout_ticks)
+{
+    if (xEventGroupWaitBits(io_events, cdc_def::EVT_TX_BEGIN, pdFALSE, pdTRUE, timeout_ticks) == 0) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    xEventGroupClearBits(io_events, cdc_def::EVT_TX_IDLE);
+
+    const uint8_t slip_esc_start[] = { SLIP_ESC, SLIP_ESC_START };
+    const uint8_t slip_esc_end[] = { SLIP_ESC, SLIP_ESC_END };
+    const uint8_t slip_esc_esc[] = { SLIP_ESC, SLIP_ESC_ESC };
+
+    size_t idx = 0;
+    while (idx < len) {
+        switch (buf[idx]) {
+            case SLIP_START: {
+                if (tinyusb_cdcacm_write_queue(cdc_channel, slip_esc_start, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
+                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_START");
+                    xEventGroupSetBits(io_events, cdc_def::EVT_TX_IDLE);
+                    xEventGroupClearBits(io_events, cdc_def::EVT_TX_BEGIN);
+                    return ESP_ERR_NOT_FINISHED;
+                }
+
+                break;
+            }
+
+            case SLIP_ESC: {
+                if (tinyusb_cdcacm_write_queue(cdc_channel, slip_esc_esc, sizeof(slip_esc_esc)) < sizeof(slip_esc_esc)) {
+                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_ESC");
+                    xEventGroupSetBits(io_events, cdc_def::EVT_TX_IDLE);
+                    xEventGroupClearBits(io_events, cdc_def::EVT_TX_BEGIN);
+                    return ESP_ERR_NOT_FINISHED;
+                }
+
+                break;
+            }
+
+            case SLIP_END: {
+                if (tinyusb_cdcacm_write_queue(cdc_channel, slip_esc_end, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
+                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_END");
+                    xEventGroupSetBits(io_events, cdc_def::EVT_TX_IDLE);
+                    xEventGroupClearBits(io_events, cdc_def::EVT_TX_BEGIN);
+                    return ESP_ERR_NOT_FINISHED;
+                }
+
+                break;
+            }
+
+            default: {
+                if (tinyusb_cdcacm_write_queue(cdc_channel, &buf[idx], 1) < 1) {
+                    ESP_LOGE(TAG, "Failed to encode and tx data");
+                    xEventGroupSetBits(io_events, cdc_def::EVT_TX_IDLE);
+                    xEventGroupClearBits(io_events, cdc_def::EVT_TX_BEGIN);
+                    return ESP_ERR_NOT_FINISHED;
+                }
+
+                break;
+            }
+        }
+
+        idx += 1;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t cdc_acm::finish_send(uint32_t timeout_ticks)
+{
+    if (xEventGroupWaitBits(io_events, cdc_def::EVT_TX_BEGIN, pdFALSE, pdTRUE, timeout_ticks) == 0) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    xEventGroupClearBits(io_events, cdc_def::EVT_TX_IDLE);
+
+    const uint8_t end = SLIP_END;
+    if (tinyusb_cdcacm_write_queue(cdc_channel, &end, 1) < 1) {
+        ESP_LOGE(TAG, "Failed to encode and tx end char");
+        xEventGroupSetBits(io_events, cdc_def::EVT_TX_IDLE);
+        xEventGroupClearBits(io_events, cdc_def::EVT_TX_BEGIN);
+        return ESP_ERR_NOT_FINISHED;
+    }
+
+    xEventGroupSetBits(io_events, cdc_def::EVT_TX_IDLE);
+    return ESP_OK;
+}
+
+esp_err_t cdc_acm::flush_send_queue(uint32_t timeout_ticks)
+{
+    return tinyusb_cdcacm_write_flush(cdc_channel, timeout_ticks);
 }
 
 void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
@@ -92,8 +203,8 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 
         switch (rx_raw_buf[idx]) {
             case SLIP_START: {
-                xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
-                xEventGroupSetBits(ctx->rx_event, cdc_def::EVT_READING_SLIP_FRAME);
+                xEventGroupClearBits(ctx->io_events, cdc_def::EVT_NEW_PACKET);
+                xEventGroupSetBits(ctx->io_events, cdc_def::EVT_READING_SLIP_FRAME);
 
                 idx += 1;
                 break;
@@ -101,7 +212,7 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 
             case SLIP_ESC: {
                 // During receive: if it's not started, just ignore it
-                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_SLIP_FRAME) == 0) {
+                if ((xEventGroupGetBits(ctx->io_events) & cdc_def::EVT_READING_SLIP_FRAME) == 0) {
                     break;
                 }
 
@@ -126,8 +237,8 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
                     }
 
                     default: {
-                        xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_READING_SLIP_FRAME);
-                        xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
+                        xEventGroupClearBits(ctx->io_events, cdc_def::EVT_READING_SLIP_FRAME);
+                        xEventGroupClearBits(ctx->io_events, cdc_def::EVT_NEW_PACKET);
                         ESP_LOGE(TAG, "Unexpected SLIP ESC: 0x%02x", rx_raw_buf[idx]);
                         return;
                     }
@@ -139,19 +250,19 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 
             case SLIP_END: {
                 // During receive: if it's not started, just ignore it
-                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_SLIP_FRAME) == 0) {
+                if ((xEventGroupGetBits(ctx->io_events) & cdc_def::EVT_READING_SLIP_FRAME) == 0) {
                     break;
                 }
 
-                xEventGroupSetBits(ctx->rx_event, cdc_def::EVT_NEW_PACKET);
-                xEventGroupClearBits(ctx->rx_event, cdc_def::EVT_READING_SLIP_FRAME);
+                xEventGroupSetBits(ctx->io_events, cdc_def::EVT_NEW_PACKET);
+                xEventGroupClearBits(ctx->io_events, cdc_def::EVT_READING_SLIP_FRAME);
 
                 break;
             }
 
             default: {
                 // During receive: if it's not started, just ignore it
-                if ((xEventGroupGetBits(ctx->rx_event) & cdc_def::EVT_READING_SLIP_FRAME) == 0) {
+                if ((xEventGroupGetBits(ctx->io_events) & cdc_def::EVT_READING_SLIP_FRAME) == 0) {
                     break;
                 }
 
@@ -167,7 +278,7 @@ void cdc_acm::serial_rx_cb(int itf, cdcacm_event_t *event)
 esp_err_t cdc_acm::pause_recv()
 {
     if (!tusb_inited() || paused) return ESP_ERR_INVALID_STATE;
-    xEventGroupClearBits(rx_event, cdc_def::EVT_NEW_PACKET);
+    xEventGroupClearBits(io_events, cdc_def::EVT_NEW_PACKET);
 
     paused = true;
     return tinyusb_cdcacm_unregister_callback(cdc_channel, CDC_EVENT_RX);
@@ -179,79 +290,6 @@ esp_err_t cdc_acm::resume_recv()
     rx_buf_bb.ReadRelease(rx_buf_bb.ReadAcquire().second);
     paused = false;
     return tinyusb_cdcacm_register_callback(cdc_channel, CDC_EVENT_RX, serial_rx_cb);
-}
-
-esp_err_t cdc_acm::encode_and_send(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks)
-{
-    const uint8_t slip_esc_start[] = { SLIP_ESC, SLIP_ESC_START };
-    const uint8_t slip_esc_end[] = { SLIP_ESC, SLIP_ESC_END };
-    const uint8_t slip_esc_esc[] = { SLIP_ESC, SLIP_ESC_ESC };
-
-    if (buf == nullptr || len < 1) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    const uint8_t start = SLIP_START;
-    const uint8_t end = SLIP_END;
-
-    if (send_start) {
-        if (tinyusb_cdcacm_write_queue(cdc_channel, &start, 1) < 1) {
-            ESP_LOGE(TAG, "Failed to encode and tx start char");
-            return ESP_ERR_NOT_FINISHED;
-        }
-    }
-
-    size_t idx = 0;
-    while (idx < len) {
-        switch (buf[idx]) {
-            case SLIP_START: {
-                if (tinyusb_cdcacm_write_queue(cdc_channel, slip_esc_start, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
-                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_START");
-                    return ESP_ERR_NOT_FINISHED;
-                }
-
-                break;
-            }
-
-            case SLIP_ESC: {
-                if (tinyusb_cdcacm_write_queue(cdc_channel, slip_esc_esc, sizeof(slip_esc_esc)) < sizeof(slip_esc_esc)) {
-                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_ESC");
-                    return ESP_ERR_NOT_FINISHED;
-                }
-
-                break;
-            }
-
-            case SLIP_END: {
-                if (tinyusb_cdcacm_write_queue(cdc_channel, slip_esc_end, sizeof(slip_esc_end)) < sizeof(slip_esc_end)) {
-                    ESP_LOGE(TAG, "Failed to encode and tx SLIP_END");
-                    return ESP_ERR_NOT_FINISHED;
-                }
-
-                break;
-            }
-
-            default: {
-                if (tinyusb_cdcacm_write_queue(cdc_channel, &buf[idx], 1) < 1) {
-                    ESP_LOGE(TAG, "Failed to encode and tx data");
-                    return ESP_ERR_NOT_FINISHED;
-                }
-
-                break;
-            }
-        }
-
-        idx += 1;
-    }
-
-    if (send_end) {
-        if (tinyusb_cdcacm_write_queue(cdc_channel, &end, 1) < 1) {
-            ESP_LOGE(TAG, "Failed to encode and tx end char");
-            return ESP_ERR_NOT_FINISHED;
-        }
-    }
-
-    return tinyusb_cdcacm_write_flush(cdc_channel, timeout_ticks);
 }
 
 esp_err_t cdc_acm::write_to_rx_buf(uint8_t data)
@@ -268,7 +306,7 @@ esp_err_t cdc_acm::write_to_rx_buf(uint8_t data)
 
 esp_err_t cdc_acm::wait_for_recv(uint32_t timeout_ticks)
 {
-    auto ret = xEventGroupWaitBits(rx_event, cdc_def::EVT_NEW_PACKET, pdTRUE, pdFALSE, timeout_ticks);
+    auto ret = xEventGroupWaitBits(io_events, cdc_def::EVT_NEW_PACKET, pdTRUE, pdFALSE, timeout_ticks);
     if ((ret & cdc_def::EVT_NEW_PACKET) == 0) {
         return ESP_ERR_TIMEOUT;
     }

@@ -24,6 +24,8 @@ namespace cdc_def
         EVT_READING_SLIP_FRAME = BIT(1),
         EVT_CONSUMING_PKT = BIT(2),
         EVT_READING_FILE = BIT(3),
+        EVT_TX_IDLE = BIT(4),
+        EVT_TX_BEGIN = BIT(5),
     };
 }
 
@@ -46,6 +48,12 @@ private:
 public:
     esp_err_t init(tinyusb_cdcacm_itf_t channel = TINYUSB_CDC_ACM_0);
     esp_err_t wait_for_recv(uint32_t timeout_ticks) override;
+
+    esp_err_t begin_send(size_t len, uint32_t timeout_ticks) override;
+    esp_err_t send_buf(const uint8_t *buf, size_t len, uint32_t timeout_ticks) override;
+    esp_err_t finish_send(uint32_t timeout_ticks) override;
+    esp_err_t flush_send_queue(uint32_t timeout_ticks) override;
+
     esp_err_t encode_and_send(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks) override;
     esp_err_t pause_recv() final;
     esp_err_t resume_recv() final;
@@ -67,7 +75,7 @@ private:
 
 private:
     tinyusb_cdcacm_itf_t cdc_channel = TINYUSB_CDC_ACM_0;
-    EventGroupHandle_t rx_event = nullptr;
+    EventGroupHandle_t io_events = nullptr;
     volatile bool paused = false;
 };
 

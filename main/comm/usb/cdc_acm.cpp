@@ -2,7 +2,6 @@
 #include <esp_crc.h>
 #include <esp_flash.h>
 #include <esp_mac.h>
-#include <esp_debug_helpers.h>
 
 #include "cdc_acm.hpp"
 #include "file_utils.hpp"
@@ -36,6 +35,19 @@ esp_err_t cdc_acm::init(tinyusb_cdcacm_itf_t channel)
              sn_buf[8], sn_buf[9], sn_buf[10], sn_buf[11], sn_buf[12], sn_buf[13]);
 
     ESP_LOGI(TAG, "Initialised with SN: %s", sn_str);
+
+    rx_ringbuf_buf = (uint8_t *)heap_caps_calloc(RX_DECODED_RING_BUFFER_SIZE, 1, MALLOC_CAP_SPIRAM);
+    if (rx_ringbuf_buf == nullptr) {
+        ESP_LOGE(TAG, "Failed to allocate Rx ringbuffer");
+        return ESP_ERR_NO_MEM;
+    }
+
+    rx_ringbuf = xRingbufferCreateStatic(RX_DECODED_RING_BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF, rx_ringbuf_buf, &rx_ringbuf_ctx);
+    if (rx_ringbuf == nullptr) {
+        ESP_LOGE(TAG, "Failed to set up Rx ringbuffer");
+        free(rx_ringbuf_buf);
+        return ESP_ERR_NO_MEM;
+    }
 
     auto ret = tinyusb_driver_install(&tusb_cfg);
     if (ret != ESP_OK) {
@@ -287,20 +299,17 @@ esp_err_t cdc_acm::pause_recv()
 esp_err_t cdc_acm::resume_recv()
 {
     if (!tusb_inited() || !paused) return ESP_ERR_INVALID_STATE;
-    rx_buf_bb.ReadRelease(rx_buf_bb.ReadAcquire().second);
+
     paused = false;
     return tinyusb_cdcacm_register_callback(cdc_channel, CDC_EVENT_RX, serial_rx_cb);
 }
 
 esp_err_t cdc_acm::write_to_rx_buf(uint8_t data)
 {
-    uint8_t *buf = rx_buf_bb.WriteAcquire(1);
-    if (buf == nullptr) {
-        return ESP_ERR_NO_MEM;
+    if (xRingbufferSend(rx_ringbuf, &data, 1, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
     }
 
-    *buf = data;
-    rx_buf_bb.WriteRelease(1);
     return ESP_OK;
 }
 
@@ -314,26 +323,39 @@ esp_err_t cdc_acm::wait_for_recv(uint32_t timeout_ticks)
     return ESP_OK;
 }
 
-esp_err_t cdc_acm::acquire_read_buf(uint8_t **out, size_t *actual_len)
+esp_err_t cdc_acm::acquire_read_buf(uint8_t **out, size_t req_len, size_t *actual_len, uint32_t timeout_ticks)
 {
     if (out == nullptr || actual_len == nullptr) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    auto read_handle = rx_buf_bb.ReadAcquire();
-    if (read_handle.first == nullptr || read_handle.second == 0) {
-        rx_buf_bb.ReadRelease(0);
-        return ESP_ERR_INVALID_STATE;
+    auto *buf_ptr = (uint8_t *)xRingbufferReceiveUpTo(rx_ringbuf, actual_len, timeout_ticks, req_len);
+
+    if (buf_ptr == nullptr) {
+        ESP_LOGE(TAG, "No Rx stuff retrieved");
+        return ESP_ERR_TIMEOUT;
+    } else {
+        *out = buf_ptr;
     }
 
-    *out = read_handle.first;
-    *actual_len = read_handle.second;
     return ESP_OK;
 }
 
-esp_err_t cdc_acm::release_read_buf(size_t buf_read)
+esp_err_t cdc_acm::release_read_buf(uint8_t *buf, size_t buf_read)
 {
-    rx_buf_bb.ReadRelease(buf_read);
+    vRingbufferReturnItem(rx_ringbuf, buf);
+    return ESP_OK;
+}
 
+esp_err_t cdc_acm::clear_recv_buf()
+{
+    size_t read_len = 0;
+    void *buf_ptr = xRingbufferReceiveUpTo(rx_ringbuf, &read_len, 10, RX_DECODED_RING_BUFFER_SIZE);
+    if (buf_ptr == nullptr) {
+        ESP_LOGW(TAG, "Rx ring buffer is empty, no need to clear?");
+        return ESP_ERR_NOT_FOUND; // No-op??
+    }
+
+    vRingbufferReturnItem(rx_ringbuf, buf_ptr);
     return ESP_OK;
 }

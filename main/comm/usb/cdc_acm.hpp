@@ -3,6 +3,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/event_groups.h>
+#include <freertos/ringbuf.h>
 #include <tinyusb.h>
 #include <tusb_cdc_acm.h>
 #include <esp_err.h>
@@ -54,11 +55,11 @@ public:
     esp_err_t finish_send(uint32_t timeout_ticks) override;
     esp_err_t flush_send_queue(uint32_t timeout_ticks) override;
 
-    esp_err_t encode_and_send(const uint8_t *buf, size_t len, bool send_start, bool send_end, uint32_t timeout_ticks) override;
     esp_err_t pause_recv() final;
     esp_err_t resume_recv() final;
-    esp_err_t acquire_read_buf(uint8_t **out, size_t *actual_len) override;
-    esp_err_t release_read_buf(size_t buf_read) override;
+    esp_err_t acquire_read_buf(uint8_t **out, size_t req_len, size_t *actual_len, uint32_t timeout_ticks) override;
+    esp_err_t release_read_buf(uint8_t *buf, size_t buf_read) override;
+    esp_err_t clear_recv_buf() override;
 
 private:
     esp_err_t write_to_rx_buf(uint8_t data);
@@ -68,14 +69,17 @@ private:
     static const constexpr char USB_DESC_MANUFACTURER[] = "Jackson M Hu";
     static const constexpr char USB_DESC_PRODUCT[] = "Soul Injector";
     static const constexpr char USB_DESC_CDC_NAME[] = "Soul Injector Programmer";
+    static const constexpr size_t RX_DECODED_RING_BUFFER_SIZE = 131072;
 
 private:
     static uint8_t rx_raw_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE];
-    LfBb<uint8_t, 512> rx_buf_bb {};
 
 private:
     tinyusb_cdcacm_itf_t cdc_channel = TINYUSB_CDC_ACM_0;
     EventGroupHandle_t io_events = nullptr;
     volatile bool paused = false;
+    uint8_t *rx_ringbuf_buf = nullptr;
+    StaticRingbuffer_t rx_ringbuf_ctx = {};
+    RingbufHandle_t rx_ringbuf = nullptr;
 };
 

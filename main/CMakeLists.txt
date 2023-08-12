@@ -4,7 +4,6 @@ idf_component_register(
             "prog/swd_prog.cpp" "prog/includes/swd_prog.hpp"
             "prog/manifest_manager.cpp" "prog/includes/manifest_manager.hpp"
             "prog/swd_headless_flasher.cpp" "prog/includes/swd_headless_flasher.hpp"
-            "external/includes/lfbb.hpp" "external/includes/lfbb_impl.hpp"
             "prog/includes/led_ctrl.hpp"
             "misc/includes/file_utils.hpp"
             "comm/usb/cdc_acm.cpp" "comm/usb/cdc_acm.hpp"

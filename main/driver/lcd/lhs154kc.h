@@ -25,9 +25,9 @@ typedef struct {
     uint8_t len;
 } st7789_seq_t;
 
-esp_err_t lv_st7789_init();
-void lv_st7789_fill(int32_t x1, int32_t y1, int32_t x2, int32_t y2, lv_color_t color);
-void lv_st7789_flush(lv_disp_drv_t *disp_drv, const lv_area_t * area, lv_color_t * color_p);
+esp_err_t lv_lhs154kc_init();
+void lv_lhs154kc_fill(int32_t x1, int32_t y1, int32_t x2, int32_t y2, lv_color_t color);
+void lv_lhs154kc_flush(lv_disp_drv_t *disp_drv, const lv_area_t * area, lv_color_t * color_p);
 
 #ifdef __cplusplus
 }

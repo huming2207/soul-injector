@@ -54,7 +54,7 @@ esp_err_t lvgl_disp_init()
     lv_init();
 
     ESP_LOGI(TAG, "Display hardware init");
-    lv_st7789_init();
+    lv_lhs154kc_init();
 
     buf_a = heap_caps_malloc(SI_DISP_BUF_SIZE * sizeof(lv_color_t), MALLOC_CAP_DMA);
     if (buf_a == NULL) {
@@ -72,7 +72,7 @@ esp_err_t lvgl_disp_init()
     lv_disp_draw_buf_init(&draw_buf, buf_a, buf_b, SI_DISP_BUF_SIZE);
     static lv_disp_drv_t disp_drv = {};
     lv_disp_drv_init(&disp_drv);
-    disp_drv.flush_cb = lv_st7789_flush;
+    disp_drv.flush_cb = lv_lhs154kc_flush;
     disp_drv.hor_res = SI_DISP_HOR_SIZE;
     disp_drv.ver_res = SI_DISP_VER_SIZE;
     disp_drv.draw_buf = &draw_buf;

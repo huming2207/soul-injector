@@ -156,7 +156,7 @@ static void st7789_write_fb(const uint16_t val)
     st7789_spi_send_byte(val_buf, 2, false);
 }
 
-void lv_st7789_fill(int32_t x1, int32_t y1, int32_t x2, int32_t y2, lv_color_t color)
+void lv_lhs154kc_fill(int32_t x1, int32_t y1, int32_t x2, int32_t y2, lv_color_t color)
 {
     st7789_set_pos(x1, x2, y1, y2);
     st7789_prep_write_fb();
@@ -170,7 +170,7 @@ void lv_st7789_fill(int32_t x1, int32_t y1, int32_t x2, int32_t y2, lv_color_t c
     ESP_LOGD(LOG_TAG, "Framebuffer filled!");
 }
 
-void lv_st7789_flush(lv_disp_drv_t *disp_drv, const lv_area_t * area, lv_color_t * color_p)
+void lv_lhs154kc_flush(lv_disp_drv_t *disp_drv, const lv_area_t * area, lv_color_t * color_p)
 {
     st7789_set_pos(area->x1, area->x2, area->y1, area->y2);
     st7789_prep_write_fb();
@@ -185,7 +185,7 @@ void lv_st7789_flush(lv_disp_drv_t *disp_drv, const lv_area_t * area, lv_color_t
     lv_disp_flush_ready(disp_drv);
 }
 
-esp_err_t lv_st7789_init()
+esp_err_t lv_lhs154kc_init()
 {
 
     ESP_LOGI(LOG_TAG, "GPIO Init");

@@ -26,6 +26,10 @@ menu "Soul Injector Configuration"
             bool
             prompt "ZJY LHS154KC 1.54 inch, HannStar LCD + ST7789v3"
 
+        config SI_DISP_PANEL_NFP190B
+            bool
+            prompt "ZJY NFP190B 1.9 inch, ST7789v3, parallel port"
+
     endchoice
 
     config SI_DISP_PANEL_IO_SCLK

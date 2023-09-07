@@ -1,0 +1,31 @@
+#pragma once
+
+#include <sdkconfig.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define SI_DISP_BUF_SIZE CONFIG_SI_DISP_PANEL_BUFFER_SIZE
+#define SI_DISP_HOR_SIZE 320
+#define SI_DISP_VER_SIZE 170
+
+#define NFP190B_DISP_PIN_DATA0 39    // 39
+#define NFP190B_DISP_PIN_DATA1 40    // 40
+#define NFP190B_DISP_PIN_DATA2 41    // 41
+#define NFP190B_DISP_PIN_DATA3 42    // 42
+#define NFP190B_DISP_PIN_DATA4 45    // 45
+#define NFP190B_DISP_PIN_DATA5 46    // 46
+#define NFP190B_DISP_PIN_DATA6 47    // 47
+#define NFP190B_DISP_PIN_DATA7 48    // 48
+#define NFP190B_DISP_PIN_PCLK CONFIG_SI_DISP_PANEL_IO_SCLK      // 8
+#define NFP190B_DISP_PIN_CS CONFIG_SI_DISP_PANEL_IO_CS        // 6
+#define NFP190B_DISP_PIN_DC CONFIG_SI_DISP_PANEL_IO_DC        // 7
+#define NFP190B_DISP_PIN_RST CONFIG_SI_DISP_PANEL_IO_RST       // 5
+#define NFP190B_DISP_PIN_BK_LIGHT 38 // 1
+#define NFP190B_DISP_PIN_POWER 15
+#define PIN_LCD_RD 9
+
+#ifdef __cplusplus
+}
+#endif

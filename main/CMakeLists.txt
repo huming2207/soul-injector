@@ -12,6 +12,7 @@ idf_component_register(
             "misc/includes/psram_json_doc.hpp"
             "driver/includes/button_monitor.hpp"
             "driver/lcd/lhs154kc.c" "driver/lcd/lhs154kc.h"
+            "driver/lcd/nfp190b.c" "driver/lcd/nfp190b.h"
             "driver/lcd/lvgl_wrapper.c" "driver/lcd/lvgl_wrapper.h"
             "driver/lcd/lcd_manager.cpp" "driver/lcd/lcd_manager.hpp"
 

@@ -18,16 +18,31 @@ menu "Soul Injector Configuration"
         help
             Enable LCD display
 
+    choice SI_DISP_PANEL_PORT
+        prompt "Display panel port"
+        default SI_DISP_SPI
+
+        config SI_DISP_SPI
+            bool
+            prompt "SPI"
+
+        config SI_DISP_I80
+            bool
+            prompt "I80"
+    endchoice
+
     choice SI_DISP_PANEL_MODEL
         prompt "Display panel model"
         default SI_DISP_PANEL_LHS154KC
 
         config SI_DISP_PANEL_LHS154KC
             bool
+            depends on SI_DISP_SPI
             prompt "ZJY LHS154KC 1.54 inch, HannStar LCD + ST7789v3"
 
         config SI_DISP_PANEL_NFP190B
             bool
+            depends on SI_DISP_I80
             prompt "ZJY NFP190B 1.9 inch, ST7789v3, parallel port"
 
     endchoice
@@ -42,6 +57,7 @@ menu "Soul Injector Configuration"
     config SI_DISP_PANEL_IO_MOSI
         int "Display SPI data output (MOSI) pin"
         depends on SI_DISP_ENABLE
+        depends on SI_DISP_SPI
         default 5
         help
              LCD panel's SPI MOSI pin
@@ -61,11 +77,97 @@ menu "Soul Injector Configuration"
              LCD panel's Data/Command control pin
 
     config SI_DISP_PANEL_IO_CS
-        int "Display SPI CS pin"
+        int "Display CS pin"
         depends on SI_DISP_ENABLE
         default 7
         help
              LCD panel's SPI chip select pin
+
+    config SI_DISP_PANEL_IO_D0
+        int "Display I80 DATA0"
+        depends on SI_DISP_ENABLE
+        depends on SI_DISP_I80
+        default 39
+        help
+             LCD panel's I80 data pin
+
+    config SI_DISP_PANEL_IO_D1
+        int "Display I80 DATA1"
+        depends on SI_DISP_ENABLE
+        depends on SI_DISP_I80
+        default 40
+        help
+             LCD panel's I80 data pin
+
+    config SI_DISP_PANEL_IO_D2
+        int "Display I80 DATA2"
+        depends on SI_DISP_ENABLE
+        depends on SI_DISP_I80
+        default 41
+        help
+             LCD panel's I80 data pin
+
+    config SI_DISP_PANEL_IO_D3
+        int "Display I80 DATA3"
+        depends on SI_DISP_ENABLE
+        depends on SI_DISP_I80
+        default 42
+        help
+             LCD panel's I80 data pin
+
+    config SI_DISP_PANEL_IO_D4
+        int "Display I80 DATA4"
+        depends on SI_DISP_ENABLE
+        depends on SI_DISP_I80
+        default 45
+        help
+             LCD panel's I80 data pin
+
+    config SI_DISP_PANEL_IO_D5
+        int "Display I80 DATA5"
+        depends on SI_DISP_ENABLE
+        depends on SI_DISP_I80
+        default 46
+        help
+             LCD panel's I80 data pin
+
+    config SI_DISP_PANEL_IO_D6
+        int "Display I80 DATA6"
+        depends on SI_DISP_ENABLE
+        depends on SI_DISP_I80
+        default 47
+        help
+             LCD panel's I80 data pin
+
+    config SI_DISP_PANEL_IO_D7
+       int "Display I80 DATA7"
+       depends on SI_DISP_ENABLE
+        depends on SI_DISP_I80
+       default 48
+       help
+            LCD panel's I80 data pin
+
+    config SI_DISP_PANEL_IO_RD
+        int "Display I80 RD"
+        depends on SI_DISP_ENABLE
+        depends on SI_DISP_I80
+        default 9
+        help
+            LCD panel's I80 RD pin
+
+    config SI_DISP_PANEL_BKL
+        int "Display backlight control"
+        depends on SI_DISP_ENABLE
+        default 38
+        help
+            LCD panel's backlight control
+
+    config SI_DISP_PANEL_PWR
+        int "Display power control"
+        depends on SI_DISP_ENABLE
+        default 15
+        help
+            LCD panel's power control
 
     config SI_DISP_PANEL_BUFFER_SIZE
         int "Display buffer size"

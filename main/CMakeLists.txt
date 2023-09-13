@@ -11,6 +11,8 @@ idf_component_register(
             "comm/comm_interface.hpp"
             "misc/includes/psram_json_doc.hpp"
             "driver/includes/button_monitor.hpp"
+            "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
+            "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
             "driver/lcd/lhs154kc.c" "driver/lcd/lhs154kc.h"
             "driver/lcd/nfp190b.c" "driver/lcd/nfp190b.h"
             "driver/lcd/lvgl_wrapper.c" "driver/lcd/lvgl_wrapper.h"
@@ -33,4 +35,5 @@ idf_component_register(
             "led_strip"
             "lua"
             "arduino_json"
+            "esp_lcd"
 )

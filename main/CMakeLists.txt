@@ -19,7 +19,7 @@ idf_component_register(
             "driver/lcd/lcd_manager.cpp" "driver/lcd/lcd_manager.hpp"
 
         INCLUDE_DIRS
-            "." "misc/includes" "prog/includes" "external/includes" "comm" "comm/usb" "driver/includes" "driver"
+            "." "misc/includes" "prog/includes" "comm" "comm/usb" "driver/includes" "driver"
 
         PRIV_REQUIRES
             "daplink-esp"

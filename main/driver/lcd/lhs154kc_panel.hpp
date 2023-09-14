@@ -1,5 +1,6 @@
 #pragma once
 
+#include <driver/spi_master.h>
 #include "display_manager.hpp"
 
 namespace lhs154kc
@@ -20,6 +21,17 @@ public:
     esp_err_t deinit() override;
 
 private:
+    esp_err_t spi_send(const uint8_t *payload, size_t len, bool is_cmd);
+    esp_err_t spi_send(const uint16_t *pixel, size_t len);
+    esp_err_t spi_send(uint8_t payload, bool is_cmd);
+    esp_err_t spi_send(const lhs154kc::seq_t *seq);
+    esp_err_t set_pos(uint16_t x1, uint16_t x2, uint16_t y1, uint16_t y2);
+
+private:
+    spi_device_handle_t device_handle = nullptr;
+
+private:
+    static constexpr const char TAG[] = "lhs154kc";
     static constexpr const uint8_t REG_SLEEP_OUT = 0x11;
     static constexpr const uint8_t REG_POS_GAMMA = 0xE0;
     static constexpr const uint8_t REG_NEG_GAMMA = 0xE1;

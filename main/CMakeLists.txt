@@ -14,9 +14,9 @@ idf_component_register(
             "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
             "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
             "driver/lcd/lhs154kc.c" "driver/lcd/lhs154kc.h"
-            "driver/lcd/nfp190b.c" "driver/lcd/nfp190b.h"
             "driver/lcd/lvgl_wrapper.c" "driver/lcd/lvgl_wrapper.h"
             "driver/lcd/lcd_manager.cpp" "driver/lcd/lcd_manager.hpp"
+            "driver/lcd/nfp190b_panel.cpp" "driver/lcd/nfp190b_panel.hpp"
 
         INCLUDE_DIRS
             "." "misc/includes" "prog/includes" "comm" "comm/usb" "driver/includes" "driver"

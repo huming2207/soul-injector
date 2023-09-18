@@ -127,6 +127,12 @@ esp_err_t nfp190b_panel::init()
                               15);
 
     ret = ret ?: esp_lcd_panel_disp_on_off(panel_handle, true);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LCD init failed: 0x%x", ret);
+        return ret;
+    } else {
+        ESP_LOGI(TAG, "Init OK");
+    }
 
     return ret;
 }
@@ -138,7 +144,12 @@ esp_err_t nfp190b_panel::set_backlight(uint8_t level)
 
 void nfp190b_panel::flush_display(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
 {
+    auto x1 = area->x1;
+    auto x2 = area->x2;
+    auto y1 = area->y1;
+    auto y2 = area->y2;
 
+    esp_lcd_panel_draw_bitmap(panel_handle, x1, y1, x2 + 1, y2 + 1, color_p);
 }
 
 esp_err_t nfp190b_panel::deinit()
@@ -148,5 +159,22 @@ esp_err_t nfp190b_panel::deinit()
 
 bool nfp190b_panel::handle_fb_trans_finish(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
 {
+    auto *ctx = (nfp190b_panel *)user_ctx;
+    lv_disp_flush_ready(ctx->lv_drv);
     return false;
+}
+
+void nfp190b_panel::set_lv_disp_drv(lv_disp_drv_t *drv)
+{
+    lv_drv = drv;
+}
+
+size_t nfp190b_panel::get_hor_size() const
+{
+    return SI_DISP_HOR_SIZE;
+}
+
+size_t nfp190b_panel::get_ver_size() const
+{
+    return SI_DISP_VER_SIZE;
 }

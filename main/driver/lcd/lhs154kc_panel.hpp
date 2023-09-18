@@ -19,6 +19,8 @@ public:
     esp_err_t set_backlight(uint8_t level) override;
     void flush_display(lv_disp_drv_t *disp_drv, const lv_area_t * area, lv_color_t * color_p) override;
     esp_err_t deinit() override;
+    [[nodiscard]] size_t get_hor_size() const override;
+    [[nodiscard]] size_t get_ver_size() const override;
 
 private:
     esp_err_t spi_send(const uint8_t *payload, size_t len, bool is_cmd);

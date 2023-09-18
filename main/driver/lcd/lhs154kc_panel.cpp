@@ -38,6 +38,9 @@
 #define CONFIG_LCD_IO_RST (-1)
 #endif
 
+#define SI_DISP_HOR_SIZE 240
+#define SI_DISP_VER_SIZE 240
+
 esp_err_t lhs154kc_panel::init()
 {
     ESP_LOGI(TAG, "GPIO Init");
@@ -214,4 +217,14 @@ esp_err_t lhs154kc_panel::set_pos(uint16_t x1, uint16_t x2, uint16_t y1, uint16_
 
     ESP_LOGD(TAG, "Position set!");
     return ret;
+}
+
+size_t lhs154kc_panel::get_hor_size() const
+{
+    return SI_DISP_HOR_SIZE;
+}
+
+size_t lhs154kc_panel::get_ver_size() const
+{
+    return SI_DISP_VER_SIZE;
 }

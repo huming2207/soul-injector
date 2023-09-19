@@ -19,7 +19,12 @@ idf_component_register(
             "driver/lcd/nfp190b_panel.cpp" "driver/lcd/nfp190b_panel.hpp"
 
         INCLUDE_DIRS
-            "." "misc/includes" "prog/includes" "comm" "comm/usb" "driver/includes" "driver"
+            "."
+            "misc/includes"
+            "prog/includes"
+            "comm" "comm/usb"
+            "driver/includes" "driver"
+            "external/elfio/elfio"
 
         PRIV_REQUIRES
             "daplink-esp"

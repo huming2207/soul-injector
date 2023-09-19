@@ -4,6 +4,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <esp_err.h>
+#include <esp_timer.h>
 #include "lvgl.h"
 #include "nfp190b_panel.hpp"
 
@@ -16,6 +17,8 @@ public:
     virtual esp_err_t deinit() = 0;
     [[nodiscard]] virtual size_t get_hor_size() const = 0;
     [[nodiscard]] virtual size_t get_ver_size() const = 0;
+    virtual lv_disp_drv_t *get_lv_disp_drv() = 0;
+    virtual esp_err_t setup_lvgl(lv_disp_draw_buf_t *draw_buf) = 0;
 };
 
 class display_manager
@@ -34,8 +37,8 @@ public:
     disp_panel_if *get_panel();
 
 private:
-    static void handle_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_color_t * color_p);
     static void IRAM_ATTR lv_tick_cb(void *arg);
+    static void lv_ui_task(void *_ctx);
 
 private:
 #ifdef CONFIG_SI_DISP_PANEL_NFP190B
@@ -46,6 +49,8 @@ private:
 
 private:
     static const constexpr char TAG[] = "disp_mgr";
+    static const constexpr size_t UI_STACK_SIZE = 131072;
+    static const constexpr uint32_t LV_TICK_PERIOD_MS = 1;
     lv_disp_draw_buf_t draw_buf = {};
     uint8_t *disp_buf_a = nullptr;
     uint8_t *disp_buf_b = nullptr;
@@ -53,4 +58,5 @@ private:
     StaticTask_t lv_ui_task_stack = {};
     StackType_t *lv_ui_task_stack_buf = nullptr;
     TaskHandle_t lv_ui_task_handle = nullptr;
+    esp_timer_handle_t timer_handle = nullptr;
 };

@@ -228,3 +228,13 @@ size_t lhs154kc_panel::get_ver_size() const
 {
     return SI_DISP_VER_SIZE;
 }
+
+lv_disp_drv_t *lhs154kc_panel::get_lv_disp_drv()
+{
+    return &lv_drv;
+}
+
+esp_err_t lhs154kc_panel::setup_lvgl(lv_disp_draw_buf_t *draw_buf)
+{
+    return ESP_OK;
+}

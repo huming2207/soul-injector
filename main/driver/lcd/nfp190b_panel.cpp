@@ -160,13 +160,8 @@ esp_err_t nfp190b_panel::deinit()
 bool nfp190b_panel::handle_fb_trans_finish(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
 {
     auto *ctx = (nfp190b_panel *)user_ctx;
-    lv_disp_flush_ready(ctx->lv_drv);
+    lv_disp_flush_ready(&ctx->lv_drv);
     return false;
-}
-
-void nfp190b_panel::set_lv_disp_drv(lv_disp_drv_t *drv)
-{
-    lv_drv = drv;
 }
 
 size_t nfp190b_panel::get_hor_size() const
@@ -177,4 +172,34 @@ size_t nfp190b_panel::get_hor_size() const
 size_t nfp190b_panel::get_ver_size() const
 {
     return SI_DISP_VER_SIZE;
+}
+
+lv_disp_drv_t *nfp190b_panel::get_lv_disp_drv()
+{
+    return &lv_drv;
+}
+
+esp_err_t nfp190b_panel::setup_lvgl(lv_disp_draw_buf_t *draw_buf)
+{
+    lv_disp_drv_init(&lv_drv);
+    lv_drv.flush_cb = handle_flush;
+    lv_drv.hor_res = (int16_t)get_hor_size();
+    lv_drv.ver_res = (int16_t)get_ver_size();
+    lv_drv.draw_buf = draw_buf;
+    lv_drv.antialiasing = 1;
+    lv_drv.user_data = this;
+
+    lv_disp = lv_disp_drv_register(&lv_drv);
+    if (lv_disp == nullptr) {
+        ESP_LOGE(TAG, "LVGL display register failed!");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return 0;
+}
+
+void nfp190b_panel::handle_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
+{
+    auto *ctx = static_cast<nfp190b_panel *>(disp_drv->user_data);
+    ctx->flush_display(disp_drv, area, color_p);
 }

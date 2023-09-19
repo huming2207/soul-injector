@@ -21,6 +21,8 @@ public:
     esp_err_t deinit() override;
     [[nodiscard]] size_t get_hor_size() const override;
     [[nodiscard]] size_t get_ver_size() const override;
+    lv_disp_drv_t *get_lv_disp_drv() override;
+    esp_err_t setup_lvgl(lv_disp_draw_buf_t *draw_buf) override;
 
 private:
     esp_err_t spi_send(const uint8_t *payload, size_t len, bool is_cmd);
@@ -31,6 +33,7 @@ private:
 
 private:
     spi_device_handle_t device_handle = nullptr;
+    lv_disp_drv_t lv_drv = {};
 
 private:
     static constexpr const char TAG[] = "lhs154kc";

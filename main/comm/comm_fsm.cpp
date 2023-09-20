@@ -5,6 +5,7 @@
 #include <esp_mac.h>
 #include <esp_log.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "comm_fsm.hpp"
 #include "file_utils.hpp"
@@ -118,27 +119,27 @@ void comm_fsm::rx_handler_task(void *_ctx)
     ESP_LOGI(TAG, "Rx handler task started");
     auto *ctx = comm_fsm::instance();
     while(true) {
-        if (ctx->comm_if == nullptr) {
-            vTaskDelay(1);
-            return;
-        }
-
-        auto ret = ctx->comm_if->wait_for_recv(portMAX_DELAY);
-        ret = ret ?: ctx->comm_if->pause_recv();
-        ret = ret ?: ctx->comm_if->acquire_read_buf(&ctx->rx_buf_ptr, &ctx->rx_buf_len);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Read comm if failed: 0x%x", ret);
-            ctx->comm_if->release_read_buf(ctx->rx_buf_len);
-            ctx->comm_if->resume_recv();
-            return;
-        } else {
-            ctx->parse_pkt();
-        }
-
-        ctx->comm_if->release_read_buf(ctx->rx_buf_len);
-        ctx->comm_if->resume_recv();
-        ctx->rx_buf_len = 0;
-        ctx->rx_buf_ptr = nullptr;
+//        if (ctx->comm_if == nullptr) {
+//            vTaskDelay(1);
+//            return;
+//        }
+//
+//        auto ret = ctx->comm_if->wait_for_recv(portMAX_DELAY);
+//        ret = ret ?: ctx->comm_if->pause_recv();
+//        ret = ret ?: ctx->comm_if->acquire_read_buf(&ctx->rx_buf_ptr, &ctx->rx_buf_len, pdMS_TO_TICKS(3000));
+//        if (ret != ESP_OK) {
+//            ESP_LOGE(TAG, "Read comm if failed: 0x%x", ret);
+//            ctx->comm_if->release_read_buf(ctx->rx_buf_len);
+//            ctx->comm_if->resume_recv();
+//            return;
+//        } else {
+//            ctx->parse_pkt();
+//        }
+//
+//        ctx->comm_if->release_read_buf(ctx->rx_buf_len);
+//        ctx->comm_if->resume_recv();
+//        ctx->rx_buf_len = 0;
+//        ctx->rx_buf_ptr = nullptr;
     }
 }
 

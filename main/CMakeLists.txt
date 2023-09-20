@@ -5,6 +5,7 @@ idf_component_register(
             "prog/manifest_manager.cpp" "prog/includes/manifest_manager.hpp"
             "prog/swd_headless_flasher.cpp" "prog/includes/swd_headless_flasher.hpp"
             "prog/includes/led_ctrl.hpp"
+            "prog/flash_algo_parser.cpp" "prog/includes/flash_algo_parser.hpp"
             "misc/includes/file_utils.hpp"
             "comm/usb/cdc_acm.cpp" "comm/usb/cdc_acm.hpp"
             "comm/comm_fsm.cpp" "comm/comm_fsm.hpp"

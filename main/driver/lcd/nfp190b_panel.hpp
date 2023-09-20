@@ -1,7 +1,8 @@
 #pragma once
 
 #include <esp_lcd_panel_io.h>
-#include "display_manager.hpp"
+#include <lvgl.h>
+#include "disp_panel_if.hpp"
 
 class nfp190b_panel : public disp_panel_if
 {

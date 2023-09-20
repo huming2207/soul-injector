@@ -1,7 +1,8 @@
 #pragma once
 
 #include <driver/spi_master.h>
-#include "display_manager.hpp"
+#include <lvgl.h>
+#include "disp_panel_if.hpp"
 
 namespace lhs154kc
 {

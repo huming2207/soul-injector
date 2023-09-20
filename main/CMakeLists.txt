@@ -25,7 +25,7 @@ idf_component_register(
             "prog/includes"
             "comm" "comm/usb"
             "driver/includes" "driver"
-            "external/elfio/elfio"
+            "external/elfio"
 
         PRIV_REQUIRES
             "daplink-esp"

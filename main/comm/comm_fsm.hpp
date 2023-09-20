@@ -4,7 +4,6 @@
 #include <freertos/task.h>
 #include <esp_err.h>
 #include "comm_interface.hpp"
-#include "lfbb.hpp"
 
 #ifndef CONFIG_SI_DEVICE_MODEL
 #define SI_DEVICE_MODEL "Soul Injector"

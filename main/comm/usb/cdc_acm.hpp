@@ -8,7 +8,6 @@
 #include <tusb_cdc_acm.h>
 #include <esp_err.h>
 
-#include "lfbb.hpp"
 #include "comm_interface.hpp"
 
 #define SLIP_START              0xa5

@@ -40,4 +40,5 @@ idf_component_register(
             "lua"
             "arduino_json"
             "esp_lcd"
+            "wear_levelling"
 )

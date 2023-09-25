@@ -116,15 +116,15 @@ void swd_headless_flasher::on_erase()
 void swd_headless_flasher::on_program()
 {
     int64_t ts = esp_timer_get_time();
-    auto ret = swd.program_file(manifest_manager::FIRMWARE_PATH, &written_len);
-    if (ret != ESP_OK) {
-        state = flasher::ERROR;
-    } else {
-        ts = esp_timer_get_time() - ts;
-        double speed = written_len / ((double)ts / 1000000.0);
-        ESP_LOGI(TAG, "Firmware written, len: %lu, speed: %.2f bytes per sec", written_len, speed);
-        state = flasher::VERIFY;
-    }
+//    auto ret = swd.program_file(manifest_manager::FIRMWARE_PATH, &written_len);
+//    if (ret != ESP_OK) {
+//        state = flasher::ERROR;
+//    } else {
+//        ts = esp_timer_get_time() - ts;
+//        double speed = written_len / ((double)ts / 1000000.0);
+//        ESP_LOGI(TAG, "Firmware written, len: %lu, speed: %.2f bytes per sec", written_len, speed);
+//        state = flasher::VERIFY;
+//    }
 
     cdc->resume_recv();
 }

@@ -49,6 +49,8 @@ esp_err_t cdc_acm::init(tinyusb_cdcacm_itf_t channel)
         return ESP_ERR_NO_MEM;
     }
 
+    tinyusb_msc_storage_mount()
+
     auto ret = tinyusb_driver_install(&tusb_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "TinyUSB driver install failed");

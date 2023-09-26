@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <esp_err.h>
 #include <driver/gpio.h>
-#include <psram_json_doc.hpp>
 
 #define CFG_MGR_PKT_MAGIC 0x4a485349
 #define CFG_MGR_FLASH_ALGO_MAX_SIZE  32768
@@ -12,9 +11,8 @@
 
 namespace cfg_def
 {
-    struct __attribute__((packed)) config_pkt
+    struct config_pkt
     {
-        uint32_t magic;
         uint32_t pc_init;
         uint32_t pc_uninit;
         uint32_t pc_program_page;
@@ -31,8 +29,7 @@ namespace cfg_def
         uint32_t erase_timeout;
         uint32_t ram_size;
         uint32_t flash_size;
-        char name[32];
-        char target[32];
+        char name[128];
     };
 
     struct __attribute__((packed)) algo_info
@@ -42,16 +39,16 @@ namespace cfg_def
     };
 }
 
-class manifest_manager
+class local_mission_manager
 {
 public:
-    static manifest_manager& instance()
+    static local_mission_manager& instance()
     {
-        static manifest_manager instance;
+        static local_mission_manager instance;
         return instance;
     }
-    manifest_manager(manifest_manager const &) = delete;
-    void operator=(manifest_manager const &) = delete;
+    local_mission_manager(local_mission_manager const &) = delete;
+    void operator=(local_mission_manager const &) = delete;
 
     esp_err_t init();
     esp_err_t get_algo_name(char *algo_name, size_t len) const;
@@ -79,17 +76,14 @@ public:
     [[nodiscard]] bool has_valid_cfg() const;
 
     esp_err_t reload_cfg();
-    esp_err_t read_cfg(char *out, size_t len) const;
 
-    static const constexpr char *BASE_PATH = "/soul";
-    static const constexpr char *MANIFEST_PATH = "/soul/manifest.json";
+    static const constexpr char BASE_PATH[] = "/data";
+    static const constexpr char ALGO_ELF_PATH[] = "/data/algo.elf";
+    static const constexpr char FIRMWARE_PATH[] = "/data/fw.bin";
 
 private:
-    static const constexpr char *TAG = "cfg_mgr";
+    static const constexpr char *TAG = "mission_mgr";
     static const constexpr char *STORAGE_PARTITION_LABEL = "storage";
-    static char manifest_json[131072];
-    size_t manifest_json_len = 0;
     bool manifest_loaded = false;
-    manifest_manager() = default;
-    PsRamJsonDocument manifest_doc = PsRamJsonDocument(131072);
+    local_mission_manager() = default;
 };

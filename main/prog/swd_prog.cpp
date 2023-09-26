@@ -184,7 +184,7 @@ esp_err_t swd_prog::run_algo_uninit(swd_def::init_mode mode)
     return ESP_OK;
 }
 
-esp_err_t swd_prog::init(manifest_manager *_algo, uint32_t _ram_addr, uint32_t _stack_size_byte)
+esp_err_t swd_prog::init(local_mission_manager *_algo, uint32_t _ram_addr, uint32_t _stack_size_byte)
 {
     if (_algo == nullptr) {
         ESP_LOGE(TAG, "Flash algorithm container pointer is null");

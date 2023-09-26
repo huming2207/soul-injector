@@ -2,7 +2,7 @@ idf_component_register(
         SRCS
             "main.cpp"
             "prog/swd_prog.cpp" "prog/includes/swd_prog.hpp"
-            "prog/manifest_manager.cpp" "prog/includes/manifest_manager.hpp"
+            "prog/local_mission_manager.cpp" "prog/includes/local_mission_manager.hpp"
             "prog/swd_headless_flasher.cpp" "prog/includes/swd_headless_flasher.hpp"
             "prog/includes/led_ctrl.hpp"
             "prog/flash_algo_parser.cpp" "prog/includes/flash_algo_parser.hpp"

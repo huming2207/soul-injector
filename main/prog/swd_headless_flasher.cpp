@@ -35,9 +35,6 @@ esp_err_t swd_headless_flasher::init()
 
     //ret = ret ?: lcd->init();
 
-    ret = ret ?: cfg_manager.init();
-    ret = ret ?: cdc->init();
-
     if (ret != ESP_OK) return ret;
 
     while (true) {
@@ -116,17 +113,16 @@ void swd_headless_flasher::on_erase()
 void swd_headless_flasher::on_program()
 {
     int64_t ts = esp_timer_get_time();
-//    auto ret = swd.program_file(manifest_manager::FIRMWARE_PATH, &written_len);
-//    if (ret != ESP_OK) {
-//        state = flasher::ERROR;
-//    } else {
-//        ts = esp_timer_get_time() - ts;
-//        double speed = written_len / ((double)ts / 1000000.0);
-//        ESP_LOGI(TAG, "Firmware written, len: %lu, speed: %.2f bytes per sec", written_len, speed);
-//        state = flasher::VERIFY;
-//    }
+    auto ret = swd.program_file(local_mission_manager::FIRMWARE_PATH, &written_len);
+    if (ret != ESP_OK) {
+        state = flasher::ERROR;
+    } else {
+        ts = esp_timer_get_time() - ts;
+        double speed = written_len / ((double)ts / 1000000.0);
+        ESP_LOGI(TAG, "Firmware written, len: %lu, speed: %.2f bytes per sec", written_len, speed);
+        state = flasher::VERIFY;
+    }
 
-    cdc->resume_recv();
 }
 
 void swd_headless_flasher::on_detect()
@@ -139,7 +135,6 @@ void swd_headless_flasher::on_detect()
         ret = swd.init(&cfg_manager);
     }
 
-    cdc->pause_recv();
     state = flasher::ERASE; // To erase
 }
 
@@ -154,7 +149,7 @@ void swd_headless_flasher::on_done()
 void swd_headless_flasher::on_verify()
 {
     uint32_t crc = 0;
-    if (manifest_manager::instance().get_fw_crc(&crc) != ESP_OK) {
+    if (local_mission_manager::instance().get_fw_crc(&crc) != ESP_OK) {
         state = flasher::ERROR;
         return;
     }

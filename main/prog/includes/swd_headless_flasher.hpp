@@ -3,7 +3,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 
-#include <manifest_manager.hpp>
+#include <local_mission_manager.hpp>
 #include <led_ctrl.hpp>
 #include <esp_err.h>
 #include "swd_prog.hpp"
@@ -43,8 +43,7 @@ public:
 private:
     swd_headless_flasher() = default;
     uint32_t written_len = 0;
-    manifest_manager &cfg_manager = manifest_manager::instance();
-    cdc_acm *cdc = cdc_acm::instance();
+    local_mission_manager &cfg_manager = local_mission_manager::instance();
     led_ctrl &led = led_ctrl::instance();
     swd_prog &swd = swd_prog::instance();
     lcd_manager *lcd = lcd_manager::instance();

@@ -5,6 +5,7 @@
 #include <esp_timer.h>
 #include <cstring>
 #include <esp_crc.h>
+#include <algorithm>
 #include "swd_prog.hpp"
 
 #define TAG "swd_prog"

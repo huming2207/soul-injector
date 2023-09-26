@@ -52,22 +52,31 @@ esp_err_t comm_msc::init()
         return ret;
     }
 
-    tinyusb_config_cdcacm_t acm_cfg = {
-            .usb_dev = TINYUSB_USBDEV_0,
-            .cdc_port = CDC_CHANNEL,
-            .callback_rx = nullptr,
-            .callback_rx_wanted_char = nullptr,
-            .callback_line_state_changed = nullptr,
-            .callback_line_coding_changed = nullptr
-    };
+    tinyusb_config_cdcacm_t acm_cfg = {};
+    acm_cfg.usb_dev = TINYUSB_USBDEV_0;
+    acm_cfg.cdc_port = CDC_CHANNEL;
+    acm_cfg.callback_rx = nullptr;
+    acm_cfg.callback_rx_wanted_char = nullptr;
+    acm_cfg.callback_line_state_changed = nullptr;
+    acm_cfg.callback_line_coding_changed = nullptr;
 
     ret = tusb_cdc_acm_init(&acm_cfg);
     ret = ret ?: esp_tusb_init_console(CDC_CHANNEL);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "CDC console init failed: 0x%x", ret);
+        return ret;
+    }
+
+    msc_evt_group = xEventGroupCreate();
+    if (msc_evt_group == nullptr) {
+        ESP_LOGE(TAG, "MSC event group init fail: 0x%x", ret);
+        return ESP_ERR_NO_MEM;
+    }
 
     return ret;
 }
 
-esp_err_t comm_msc::unmount_and_expose()
+esp_err_t comm_msc::unmount_and_start_msc()
 {
     if (tinyusb_msc_storage_in_use_by_usb_host()) {
         ESP_LOGE(TAG, "Already exposed to USB");
@@ -75,5 +84,22 @@ esp_err_t comm_msc::unmount_and_expose()
     }
 
     ESP_LOGI(TAG, "Unmount & expose to USB now");
-    return tinyusb_msc_storage_unmount();
+    auto ret = tinyusb_msc_storage_unmount();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Unmount/Expose failed");
+        return ret;
+    }
+
+    xEventGroupClearBits(msc_evt_group, comm::MSC_MOUNTED);
+    return ret;
+}
+
+esp_err_t comm_msc::mount_and_stop_msc()
+{
+    auto ret = tinyusb_msc_storage_mount(PART_PATH);
+    if (ret == ESP_OK) {
+        xEventGroupSetBits(msc_evt_group, comm::MSC_MOUNTED);
+    }
+
+    return ret;
 }

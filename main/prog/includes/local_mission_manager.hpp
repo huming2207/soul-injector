@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <esp_err.h>
 #include <driver/gpio.h>
+#include "flash_algo_parser.hpp"
 
 #define CFG_MGR_PKT_MAGIC 0x4a485349
 #define CFG_MGR_FLASH_ALGO_MAX_SIZE  32768
@@ -82,6 +83,9 @@ public:
     static const constexpr char FIRMWARE_PATH[] = "/data/fw.bin";
 
 private:
+    flash_algo::dev_description dev_descr = {};
+    flash_algo::test_description test_descr = {};
+
     static const constexpr char *TAG = "mission_mgr";
     static const constexpr char *STORAGE_PARTITION_LABEL = "storage";
     bool manifest_loaded = false;

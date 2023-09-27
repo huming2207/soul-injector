@@ -4,11 +4,19 @@
 
 #include "local_mission_manager.hpp"
 #include "file_utils.hpp"
+#include "flash_algo_parser.hpp"
 
 esp_err_t local_mission_manager::init()
 {
     esp_err_t ret = ESP_OK;
 
+    flash_algo_parser algo_parser {};
+    ret = algo_parser.load(ALGO_ELF_PATH);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    // TODO
 
     return ret;
 }

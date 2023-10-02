@@ -51,13 +51,17 @@ public:
     esp_err_t get_test_description(flash_algo::test_description *descr, std::vector<flash_algo::test_item> &test_items);
     esp_err_t get_dev_description(flash_algo::dev_description *descr, std::vector<flash_algo::flash_sector> &sectors);
     esp_err_t get_flash_algo(uint8_t *buf_out, size_t buf_len, size_t *actual_len);
+    esp_err_t get_func_pc(const char *func_name, uint32_t *pc_out);
 
 private:
-    esp_err_t get_section_data(void *data_out, const char *section_name, size_t min_size, size_t *actual_size, uint32_t offset) const;
+    esp_err_t get_section_data(void *data_out, const char *section_name,  size_t min_size, size_t *actual_size, uint32_t offset = 0, ELFIO::Elf_Word sec_type = ELFIO::SHT_PROGBITS) const;
 
 private:
     ELFIO::elfio elf_parser;
 
 private:
     static const constexpr char TAG[] = "algo_parser";
+    static const constexpr char ALGO_BIN_CODE_SECTION_NAME[] = "PrgCode";
+    static const constexpr char ALGO_BIN_DATA_SECTION_NAME[] = "PrgData"; // Need to find PROGBITS
+    static const constexpr char ALGO_BIN_BSS_SECTION_NAME[] = "PrgData"; // Need to find NOBITS
 };

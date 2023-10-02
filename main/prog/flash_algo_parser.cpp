@@ -134,10 +134,14 @@ esp_err_t flash_algo_parser::get_dev_description(flash_algo::dev_description *de
 
 esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, size_t *actual_len)
 {
-    return get_section_data(buf_out, "PrgCode", buf_len, actual_len, 0);
+    auto ret = get_section_data(buf_out, ALGO_BIN_CODE_SECTION_NAME, buf_len, actual_len, 0);
+
+    // TODO: append data and BSS section
+
+    return ret;
 }
 
-esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *section_name, size_t min_size, size_t *actual_size, uint32_t offset) const
+esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *section_name, size_t min_size, size_t *actual_size, uint32_t offset, ELFIO::Elf_Word sect_type) const
 {
     if (data_out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -151,7 +155,7 @@ esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *sectio
 
     for (size_t idx = 0; idx < section_cnt; idx += 1) {
         auto curr_section = elf_parser.sections[idx];
-        if ( curr_section->get_type() == ELFIO::SHT_NOBITS ) {
+        if (curr_section->get_type() != sect_type) {
             continue;
         }
 
@@ -169,5 +173,10 @@ esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *sectio
 
     ESP_LOGE(TAG, "Section '%s' not found!", section_name);
     return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t flash_algo_parser::get_func_pc(const char *func_name, uint32_t *pc_out)
+{
+    return ESP_OK;
 }
 

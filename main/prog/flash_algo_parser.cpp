@@ -10,6 +10,11 @@ esp_err_t flash_algo_parser::load(const char *path)
         return ESP_FAIL;
     }
 
+    if (elf_parser.get_class() == ELFIO::ELFCLASS64) {
+        ESP_LOGE(TAG, "No 64-bit support for now");
+        return ESP_FAIL;
+    }
+
     ESP_LOGI(TAG, "ELF loaded, version=%s, type=%s",
              ELFIO::dump::str_version(elf_parser.get_version()).c_str(),
              ELFIO::dump::str_type(elf_parser.get_type()).c_str()
@@ -134,14 +139,51 @@ esp_err_t flash_algo_parser::get_dev_description(flash_algo::dev_description *de
 
 esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, size_t *actual_len)
 {
-    auto ret = get_section_data(buf_out, ALGO_BIN_CODE_SECTION_NAME, buf_len, actual_len, 0);
+    size_t out_len = 0, curr_pos = 0;
+    auto ret = get_section_data(buf_out, ALGO_BIN_CODE_SECTION_NAME, buf_len - curr_pos, &out_len, 0);
 
-    // TODO: append data and BSS section
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get section data for PrgCode: 0x%x", ret);
+        return ret;
+    }
+
+    if (curr_pos > buf_len) {
+        ESP_LOGW(TAG, "No space left for for PrgCode: buf @ %p, got %u, need %u", buf_out, buf_len, curr_pos);
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "Got PrgCode length: %u", out_len);
+
+    curr_pos += out_len;
+    ret = ret ?: get_section_data(buf_out + curr_pos, ALGO_BIN_DATA_SECTION_NAME, buf_len - curr_pos, &out_len, 0);
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get section data for PrgData: 0x%x", ret);
+        return ret;
+    }
+
+    if (curr_pos > buf_len) {
+        ESP_LOGW(TAG, "No space left for PrgData: buf @ %p, got %u, need %u", buf_out, buf_len, curr_pos);
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "Got PrgData length: %u", out_len);
+
+    curr_pos += out_len;
+    size_t bss_len = 0;
+    ret = ret ?: get_bss_length(ALGO_BIN_BSS_SECTION_NAME, &bss_len);
+
+    if (curr_pos + bss_len > buf_len) {
+        ESP_LOGE(TAG, "Insufficient place for BSS, need %u, got only %u", curr_pos + bss_len, buf_len);
+    }
+
+    memset(buf_out + curr_pos, 0, bss_len); // Wipe the RAM for BSS
+    ESP_LOGI(TAG, "Zeroed BSS length = %u", bss_len);
 
     return ret;
 }
 
-esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *section_name, size_t min_size, size_t *actual_size, uint32_t offset, ELFIO::Elf_Word sect_type) const
+esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *section_name, size_t min_size, size_t *actual_size, uint32_t offset) const
 {
     if (data_out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -155,7 +197,7 @@ esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *sectio
 
     for (size_t idx = 0; idx < section_cnt; idx += 1) {
         auto curr_section = elf_parser.sections[idx];
-        if (curr_section->get_type() != sect_type) {
+        if (curr_section->get_type() != ELFIO::SHT_PROGBITS) {
             continue;
         }
 
@@ -172,6 +214,36 @@ esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *sectio
     }
 
     ESP_LOGE(TAG, "Section '%s' not found!", section_name);
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t flash_algo_parser::get_bss_length(const char *section_name, size_t *len_out) const
+{
+    if (len_out == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    auto section_cnt = elf_parser.sections.size();
+    if (section_cnt < 1) {
+        ESP_LOGE(TAG, "No section at all?");
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    for (size_t idx = 0; idx < section_cnt; idx += 1) {
+        auto curr_section = elf_parser.sections[idx];
+        if (curr_section->get_type() != ELFIO::SHT_NOBITS) {
+            continue;
+        }
+
+        if (curr_section->get_name() == section_name) {
+            *len_out = curr_section->get_size();
+            return ESP_OK;
+        } else {
+            continue;
+        }
+    }
+
+    ESP_LOGE(TAG, "BSS '%s' not found!", section_name);
     return ESP_ERR_NOT_FOUND;
 }
 

@@ -54,7 +54,8 @@ public:
     esp_err_t get_func_pc(const char *func_name, uint32_t *pc_out);
 
 private:
-    esp_err_t get_section_data(void *data_out, const char *section_name,  size_t min_size, size_t *actual_size, uint32_t offset = 0, ELFIO::Elf_Word sec_type = ELFIO::SHT_PROGBITS) const;
+    esp_err_t get_section_data(void *data_out, const char *section_name,  size_t min_size, size_t *actual_size, uint32_t offset = 0) const;
+    esp_err_t get_bss_length(const char *section_name, size_t *len_out) const;
 
 private:
     ELFIO::elfio elf_parser;

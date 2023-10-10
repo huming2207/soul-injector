@@ -249,6 +249,53 @@ esp_err_t flash_algo_parser::get_bss_length(const char *section_name, size_t *le
 
 esp_err_t flash_algo_parser::get_func_pc(const char *func_name, uint32_t *pc_out)
 {
-    return ESP_OK;
+    if (func_name == nullptr || pc_out == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    auto section_cnt = elf_parser.sections.size();
+    if (section_cnt < 1) {
+        ESP_LOGE(TAG, "No section at all?");
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    for (size_t idx = 0; idx < section_cnt; idx += 1) {
+        auto curr_section = elf_parser.sections[idx];
+        if (curr_section->get_type() != ELFIO::SHT_SYMTAB) {
+            continue;
+        }
+
+        ELFIO::const_symbol_section_accessor symbols(elf_parser, curr_section);
+        auto sym_cnt = symbols.get_symbols_num();
+        if (unlikely(sym_cnt > SIZE_MAX)) {
+            ESP_LOGE(TAG, "Symbol table found but too huge");
+            return ESP_ERR_NO_MEM;
+        }
+
+        for (size_t sym_idx = 0; sym_idx < sym_cnt; sym_idx += 1) {
+            std::string name;
+            ELFIO::Elf64_Addr value = 0;
+            ELFIO::Elf_Xword size = 0;
+            unsigned char bind = 0;
+            unsigned char type = 0;
+            ELFIO::Elf_Half section = 0;
+            unsigned char other = 0;
+            if (!symbols.get_symbol(idx, name, value, size, bind, type, section, other)) {
+                continue;
+            }
+
+            if (type != ELFIO::STT_FUNC) {
+                continue;
+            }
+
+            if (name == func_name) {
+                *pc_out = (uint32_t)(value & 0xffffffffULL);
+                return ESP_OK;
+            }
+        }
+    }
+
+    ESP_LOGE(TAG, "Function '%s' not found", func_name);
+    return ESP_ERR_NOT_FOUND;
 }
 

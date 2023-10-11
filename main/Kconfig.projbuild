@@ -45,6 +45,11 @@ menu "Soul Injector Configuration"
             depends on SI_DISP_I80
             prompt "ZJY NFP190B 1.9 inch, ST7789v3, parallel port"
 
+        config SI_DISP_PANEL_NFP114H
+            bool
+            depends on SI_DISP_SPI
+            prompt "ZJY NFP114H 1.14 inch ST7789, SPI"
+
     endchoice
 
     config SI_DISP_PANEL_IO_SCLK

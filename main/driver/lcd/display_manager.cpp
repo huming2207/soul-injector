@@ -35,15 +35,13 @@ esp_err_t display_manager::init()
     lv_init();
 
     ESP_LOGI(TAG, "Lock & task init");
-    lv_ui_task_lock = xSemaphoreCreateBinary();
+    lv_ui_task_lock = xSemaphoreCreateRecursiveMutex();
     if (lv_ui_task_lock == nullptr) {
         ESP_LOGE(TAG, "Failed to create UI task lock");
         free(disp_buf_a);
         free(disp_buf_b);
         free(lv_ui_task_stack_buf);
         return ESP_ERR_NO_MEM;
-    } else {
-        xSemaphoreGive(lv_ui_task_lock); // Set up initial semaphore state
     }
 
     lv_ui_task_handle = xTaskCreateStatic(lv_ui_task, "ui_task", UI_STACK_SIZE, this, tskIDLE_PRIORITY + 1, lv_ui_task_stack_buf, &lv_ui_task_stack);
@@ -56,7 +54,7 @@ esp_err_t display_manager::init()
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "UI task started");
+    ESP_LOGI(TAG, "UI task init OK");
 
     lv_disp_draw_buf_init(&draw_buf, disp_buf_a, disp_buf_b, CONFIG_SI_DISP_PANEL_BUFFER_SIZE);
     ret = ret ?: panel->setup_lvgl(&draw_buf);
@@ -91,6 +89,15 @@ esp_err_t display_manager::init()
         ESP_LOGI(TAG, "Display manager init OK");
     }
 
+    ESP_LOGI(TAG, "Draw some stuff");
+    acquire_lock();
+    auto *label = lv_obj_create(nullptr);
+    lv_obj_set_pos(label, 0, 0);
+    lv_obj_set_style_bg_color(label, lv_color_black(), 0);
+    lv_obj_set_size(label, 35, 35);
+    give_lock();
+    ESP_LOGI(TAG, "Draw OK");
+
     return ret;
 }
 
@@ -102,7 +109,7 @@ disp_panel_if *display_manager::get_panel()
 void IRAM_ATTR display_manager::lv_tick_cb(void *arg)
 {
     (void) arg;
-    lv_tick_inc(1);
+    lv_tick_inc(LV_TICK_PERIOD_MS);
 }
 
 void display_manager::lv_ui_task(void *_ctx)
@@ -111,9 +118,21 @@ void display_manager::lv_ui_task(void *_ctx)
     auto *ctx = static_cast<display_manager *>(_ctx);
 
     while (true) {
-        xSemaphoreTake(ctx->lv_ui_task_lock, portMAX_DELAY);
-        lv_task_handler();
-        xSemaphoreGive(ctx->lv_ui_task_lock);
+        xSemaphoreTakeRecursive(ctx->lv_ui_task_lock, portMAX_DELAY);
+        ESP_LOGI(TAG, "Ref: 0x%lx", lv_task_handler());
+
+        xSemaphoreGiveRecursive(ctx->lv_ui_task_lock);
         vTaskDelay(1);
     }
+}
+
+esp_err_t display_manager::acquire_lock(uint32_t timeout_ms)
+{
+    TickType_t timeout_ticks = (timeout_ms == 0) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
+    return xSemaphoreTakeRecursive(lv_ui_task_lock, timeout_ticks) == pdTRUE ? ESP_OK : ESP_FAIL;
+}
+
+void display_manager::give_lock()
+{
+    xSemaphoreGiveRecursive(lv_ui_task_lock);
 }

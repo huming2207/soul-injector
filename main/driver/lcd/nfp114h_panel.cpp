@@ -55,7 +55,7 @@ esp_err_t nfp114h_panel::init()
     io_cfg.lcd_param_bits = 8;
     io_cfg.spi_mode = 0;
     io_cfg.trans_queue_depth = 10;
-    io_cfg.on_color_trans_done = handle_fb_trans_finish;
+    io_cfg.on_color_trans_done = handle_fb_trans_done;
     io_cfg.user_ctx = this;
     ret = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_SPI_HOST, &io_cfg, &io_handle);
 
@@ -78,11 +78,11 @@ esp_err_t nfp114h_panel::init()
     ret = set_backlight(0);
     ret = ret ?: esp_lcd_panel_reset(panel_handle);
     ret = ret ?: esp_lcd_panel_init(panel_handle);
+    ret = ret ?: esp_lcd_panel_disp_on_off(panel_handle, true);
     ret = ret ?: esp_lcd_panel_invert_color(panel_handle, true);
-    ret = ret ?: esp_lcd_panel_swap_xy(panel_handle, true);
-    ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 52, 40); // This is probably wrong - try 40, 53 and 52 combos
-    ret = ret ?: send_sequence(LCD_INIT_SEQ, sizeof(LCD_INIT_SEQ) / sizeof(nfp114h::seq_t));
-
+    ret = ret ?: esp_lcd_panel_swap_xy(panel_handle, false);
+    ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 53, 40); // This is probably wrong - try 40, 53 and 52 combos
+   // ret = ret ?: send_sequence(LCD_INIT_SEQ, sizeof(LCD_INIT_SEQ) / sizeof(nfp114h::seq_t));
 
     return ret;
 }
@@ -94,36 +94,58 @@ esp_err_t nfp114h_panel::set_backlight(uint8_t level)
 
 void nfp114h_panel::flush_display(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
 {
+    auto x1 = area->x1;
+    auto x2 = area->x2;
+    auto y1 = area->y1;
+    auto y2 = area->y2;
 
+    ESP_LOGI(TAG, "Draw at x1 %d x2 %d; y1 %d y2 %d", x1, x2, y1, y2);
+    esp_lcd_panel_draw_bitmap(panel_handle, x1, y1, x2 + 1, y2 + 1, color_p);
 }
 
 esp_err_t nfp114h_panel::deinit()
 {
-    return 0;
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 size_t nfp114h_panel::get_hor_size() const
 {
-    return 0;
+    return 135;
 }
 
 size_t nfp114h_panel::get_ver_size() const
 {
-    return 0;
+    return 240;
 }
 
 lv_disp_drv_t *nfp114h_panel::get_lv_disp_drv()
 {
-    return nullptr;
+    return &lv_drv;
 }
 
 esp_err_t nfp114h_panel::setup_lvgl(lv_disp_draw_buf_t *draw_buf)
 {
-    return 0;
+    lv_disp_drv_init(&lv_drv);
+    lv_drv.flush_cb = handle_flush;
+    lv_drv.hor_res = (int16_t)get_hor_size();
+    lv_drv.ver_res = (int16_t)get_ver_size();
+    lv_drv.draw_buf = draw_buf;
+    lv_drv.antialiasing = 1;
+    lv_drv.user_data = this;
+
+    lv_disp = lv_disp_drv_register(&lv_drv);
+    if (lv_disp == nullptr) {
+        ESP_LOGE(TAG, "LVGL display register failed!");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return ESP_OK;
 }
 
-bool nfp114h_panel::handle_fb_trans_finish(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
+bool nfp114h_panel::handle_fb_trans_done(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
 {
+    auto *ctx = (nfp114h_panel *)user_ctx;
+    lv_disp_flush_ready(&ctx->lv_drv);
     return false;
 }
 
@@ -136,4 +158,10 @@ esp_err_t nfp114h_panel::send_sequence(const nfp114h::seq_t *seq, size_t seq_cnt
     }
 
     return ret;
+}
+
+void nfp114h_panel::handle_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
+{
+    auto *ctx = static_cast<nfp114h_panel *>(disp_drv->user_data);
+    ctx->flush_display(disp_drv, area, color_p);
 }

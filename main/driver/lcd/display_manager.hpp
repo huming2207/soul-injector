@@ -8,6 +8,7 @@
 #include "lvgl.h"
 #include "nfp190b_panel.hpp"
 #include "disp_panel_if.hpp"
+#include "nfp114h_panel.hpp"
 
 class display_manager
 {
@@ -23,6 +24,8 @@ public:
 public:
     esp_err_t init();
     disp_panel_if *get_panel();
+    esp_err_t acquire_lock(uint32_t timeout_ms = 0);
+    void give_lock();
 
 private:
     static void IRAM_ATTR lv_tick_cb(void *arg);
@@ -32,13 +35,15 @@ private:
 #ifdef CONFIG_SI_DISP_PANEL_NFP190B
     disp_panel_if *panel = (disp_panel_if *)(new nfp190b_panel());
 #elif defined(CONFIG_SI_DISP_PANEL_LHS154KC)
-    isp_panel_if *panel = (disp_panel_if *)(new nfp190b_panel());
+    disp_panel_if *panel = (disp_panel_if *)(new nfp190b_panel());
+#elif defined(CONFIG_SI_DISP_PANEL_NFP114H)
+    disp_panel_if *panel = (disp_panel_if *)(new nfp114h_panel());
 #endif
 
 private:
     static const constexpr char TAG[] = "disp_mgr";
     static const constexpr size_t UI_STACK_SIZE = 131072;
-    static const constexpr uint32_t LV_TICK_PERIOD_MS = 1;
+    static const constexpr uint32_t LV_TICK_PERIOD_MS = 2;
     lv_disp_draw_buf_t draw_buf = {};
     uint8_t *disp_buf_a = nullptr;
     uint8_t *disp_buf_b = nullptr;

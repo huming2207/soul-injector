@@ -1,5 +1,6 @@
 #pragma once
 
+#include <driver/spi_master.h>
 #include <esp_lcd_panel_io.h>
 #include <lvgl.h>
 
@@ -27,7 +28,10 @@ public:
     esp_err_t setup_lvgl(lv_disp_draw_buf_t *draw_buf) override;
 
 private:
-    static bool handle_fb_trans_finish(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx);
+    static bool handle_fb_trans_done(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx);
+    static void handle_flush(lv_disp_drv_t *disp_drv, const lv_area_t * area, lv_color_t * color_p);
+
+
     esp_err_t send_sequence(const nfp114h::seq_t *seq, size_t seq_cnt);
 
 private:

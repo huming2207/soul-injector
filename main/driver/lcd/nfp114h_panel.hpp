@@ -25,6 +25,7 @@ public:
     [[nodiscard]] size_t get_hor_size() const override;
     [[nodiscard]] size_t get_ver_size() const override;
     lv_disp_drv_t *get_lv_disp_drv() override;
+    lv_disp_t *get_lv_disp() override;
     esp_err_t setup_lvgl(lv_disp_draw_buf_t *draw_buf) override;
 
 private:

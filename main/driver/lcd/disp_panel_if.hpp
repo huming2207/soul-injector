@@ -13,4 +13,5 @@ public:
     [[nodiscard]] virtual size_t get_ver_size() const = 0;
     virtual lv_disp_drv_t *get_lv_disp_drv() = 0;
     virtual esp_err_t setup_lvgl(lv_disp_draw_buf_t *draw_buf) = 0;
+    virtual lv_disp_t *get_lv_disp() = 0;
 };

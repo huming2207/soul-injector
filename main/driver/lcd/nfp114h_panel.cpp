@@ -82,7 +82,7 @@ esp_err_t nfp114h_panel::init()
     ret = ret ?: esp_lcd_panel_invert_color(panel_handle, true);
     ret = ret ?: esp_lcd_panel_swap_xy(panel_handle, false);
     ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 53, 40); // This is probably wrong - try 40, 53 and 52 combos
-   // ret = ret ?: send_sequence(LCD_INIT_SEQ, sizeof(LCD_INIT_SEQ) / sizeof(nfp114h::seq_t));
+    ret = ret ?: send_sequence(LCD_INIT_SEQ, sizeof(LCD_INIT_SEQ) / sizeof(nfp114h::seq_t));
 
     return ret;
 }
@@ -164,4 +164,9 @@ void nfp114h_panel::handle_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area,
 {
     auto *ctx = static_cast<nfp114h_panel *>(disp_drv->user_data);
     ctx->flush_display(disp_drv, area, color_p);
+}
+
+lv_disp_t *nfp114h_panel::get_lv_disp()
+{
+    return lv_disp;
 }

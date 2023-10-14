@@ -44,18 +44,6 @@ esp_err_t display_manager::init()
         return ESP_ERR_NO_MEM;
     }
 
-    lv_ui_task_handle = xTaskCreateStatic(lv_ui_task, "ui_task", UI_STACK_SIZE, this, tskIDLE_PRIORITY + 1, lv_ui_task_stack_buf, &lv_ui_task_stack);
-    if (lv_ui_task_handle == nullptr) {
-        ESP_LOGE(TAG, "Failed to create UI task");
-        free(disp_buf_a);
-        free(disp_buf_b);
-        vTaskDelete(lv_ui_task_handle);
-        free(lv_ui_task_stack_buf);
-        return ESP_ERR_NO_MEM;
-    }
-
-    ESP_LOGI(TAG, "UI task init OK");
-
     lv_disp_draw_buf_init(&draw_buf, disp_buf_a, disp_buf_b, CONFIG_SI_DISP_PANEL_BUFFER_SIZE);
     ret = ret ?: panel->setup_lvgl(&draw_buf);
     if (ret != ESP_OK) {
@@ -89,12 +77,24 @@ esp_err_t display_manager::init()
         ESP_LOGI(TAG, "Display manager init OK");
     }
 
+    lv_ui_task_handle = xTaskCreateStatic(lv_ui_task, "ui_task", UI_STACK_SIZE, this, tskIDLE_PRIORITY + 1, lv_ui_task_stack_buf, &lv_ui_task_stack);
+    if (lv_ui_task_handle == nullptr) {
+        ESP_LOGE(TAG, "Failed to create UI task");
+        free(disp_buf_a);
+        free(disp_buf_b);
+        vTaskDelete(lv_ui_task_handle);
+        free(lv_ui_task_stack_buf);
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "UI task init OK");
+
     ESP_LOGI(TAG, "Draw some stuff");
     acquire_lock();
-    auto *label = lv_obj_create(nullptr);
+    auto *label = lv_label_create(lv_disp_get_scr_act(panel->get_lv_disp()));
     lv_obj_set_pos(label, 0, 0);
-    lv_obj_set_style_bg_color(label, lv_color_black(), 0);
-    lv_obj_set_size(label, 35, 35);
+    lv_label_set_text(label, "Hello world\nBy Jackson M Hu\nST7789V, 1.14 inch");
+    lv_obj_set_size(label, 135, 240);
     give_lock();
     ESP_LOGI(TAG, "Draw OK");
 
@@ -119,7 +119,7 @@ void display_manager::lv_ui_task(void *_ctx)
 
     while (true) {
         xSemaphoreTakeRecursive(ctx->lv_ui_task_lock, portMAX_DELAY);
-        ESP_LOGI(TAG, "Ref: 0x%lx", lv_task_handler());
+        lv_task_handler();
 
         xSemaphoreGiveRecursive(ctx->lv_ui_task_lock);
         vTaskDelay(1);

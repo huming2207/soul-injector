@@ -46,7 +46,7 @@ esp_err_t nfp114h_panel::init()
     io_cfg.cs_gpio_num = CONFIG_SI_DISP_PANEL_IO_CS;
 
 #ifndef CONFIG_SI_DISP_SLOW_CLK
-    io_cfg.pclk_hz = SPI_MASTER_FREQ_20M;
+    io_cfg.pclk_hz = SPI_MASTER_FREQ_26M;
 #else
     io_cfg.pclk_hz = SPI_MASTER_FREQ_8M;
 #endif

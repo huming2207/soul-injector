@@ -44,6 +44,7 @@ private:
     static const constexpr char TAG[] = "disp_mgr";
     static const constexpr size_t UI_STACK_SIZE = 131072;
     static const constexpr uint32_t LV_TICK_PERIOD_MS = 2;
+    static const constexpr uint32_t LV_TASK_MAX_IDLE_MS = 500; // At least 2 refreshes guaranteed?? We don't need high FPS here...
     lv_disp_draw_buf_t draw_buf = {};
     uint8_t *disp_buf_a = nullptr;
     uint8_t *disp_buf_b = nullptr;

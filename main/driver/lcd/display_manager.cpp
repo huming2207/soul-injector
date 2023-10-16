@@ -1,5 +1,6 @@
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <algorithm>
 #include "display_manager.hpp"
 
 esp_err_t display_manager::init()
@@ -119,10 +120,19 @@ void display_manager::lv_ui_task(void *_ctx)
 
     while (true) {
         xSemaphoreTakeRecursive(ctx->lv_ui_task_lock, portMAX_DELAY);
-        lv_task_handler();
-
+        uint32_t next_delay =  lv_task_handler();
         xSemaphoreGiveRecursive(ctx->lv_ui_task_lock);
-        vTaskDelay(1);
+
+        uint32_t next_tick = 0;
+        if (likely(next_delay >= LV_TASK_MAX_IDLE_MS)) {
+            next_tick = 1;
+        } else if (next_delay <= (1000 / configTICK_RATE_HZ)) {
+            next_tick = pdMS_TO_TICKS(LV_TASK_MAX_IDLE_MS);
+        } else {
+            next_tick = pdMS_TO_TICKS(next_delay);
+        }
+
+        vTaskDelay(next_tick);
     }
 }
 

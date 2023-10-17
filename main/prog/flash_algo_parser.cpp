@@ -257,6 +257,7 @@ esp_err_t flash_algo_parser::get_func_pc(const char *func_name, uint32_t *pc_out
     for (size_t idx = 0; idx < section_cnt; idx += 1) {
         auto curr_section = elf_parser.sections[idx];
         if (curr_section->get_type() != ELFIO::SHT_SYMTAB) {
+            ESP_LOGD(TAG, "Skipping non-symbol section: 0x%lx", curr_section->get_type());
             continue;
         }
 
@@ -275,17 +276,21 @@ esp_err_t flash_algo_parser::get_func_pc(const char *func_name, uint32_t *pc_out
             unsigned char type = 0;
             ELFIO::Elf_Half section = 0;
             unsigned char other = 0;
-            if (!symbols.get_symbol(idx, name, value, size, bind, type, section, other)) {
+            if (!symbols.get_symbol(sym_idx, name, value, size, bind, type, section, other)) {
+                ESP_LOGD(TAG, "Failed to get symbol (corrupted ELF?)");
                 continue;
             }
 
             if (type != ELFIO::STT_FUNC) {
+                ESP_LOGD(TAG, "This symbol 0x%x isn't a function", type);
                 continue;
             }
 
             if (name == func_name) {
                 *pc_out = (uint32_t)(value & 0xffffffffULL);
                 return ESP_OK;
+            } else {
+                ESP_LOGD(TAG, "Name mismatch: %s", name.c_str());
             }
         }
     }

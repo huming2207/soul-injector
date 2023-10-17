@@ -25,7 +25,13 @@ esp_err_t comm_msc::init()
     const tinyusb_msc_spiflash_config_t spiflash_cfg = { .wl_handle = wl_handle };
     ret = tinyusb_msc_storage_init_spiflash(&spiflash_cfg);
     ret = ret ?: tinyusb_msc_storage_mount(PART_PATH);
-    ESP_LOGI(TAG, "Mount OK, now do CDC");
+
+    if (ret != ESP_OK) {
+        ESP_LOGI(TAG, "Mount failed: 0x%x", ret);
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "Mount OK, now install USB");
 
     static char sn_str[32] = {};
     static char lang[2] = {0x09, 0x04};
@@ -43,6 +49,7 @@ esp_err_t comm_msc::init()
     tusb_cfg.device_descriptor = nullptr;
     tusb_cfg.self_powered = false;
     tusb_cfg.external_phy = false;
+    tusb_cfg.string_descriptor_count = 5;
 
     uint8_t sn_buf[16] = { 0 };
     ret = ret ?: esp_efuse_mac_get_default(sn_buf);
@@ -52,20 +59,19 @@ esp_err_t comm_msc::init()
         return ret;
     }
 
-    tinyusb_config_cdcacm_t acm_cfg = {};
-    acm_cfg.usb_dev = TINYUSB_USBDEV_0;
-    acm_cfg.cdc_port = CDC_CHANNEL;
-    acm_cfg.callback_rx = nullptr;
-    acm_cfg.callback_rx_wanted_char = nullptr;
-    acm_cfg.callback_line_state_changed = nullptr;
-    acm_cfg.callback_line_coding_changed = nullptr;
+    snprintf(sn_str, 32, "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+             sn_buf[0], sn_buf[1], sn_buf[2], sn_buf[3], sn_buf[4], sn_buf[5], sn_buf[6], sn_buf[7],
+             sn_buf[8], sn_buf[9], sn_buf[10], sn_buf[11], sn_buf[12], sn_buf[13]);
 
-    ret = tusb_cdc_acm_init(&acm_cfg);
-    ret = ret ?: esp_tusb_init_console(CDC_CHANNEL);
+    ESP_LOGI(TAG, "Initialised with SN: %s", sn_str);
+
+    ret = tinyusb_driver_install(&tusb_cfg);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "CDC console init failed: 0x%x", ret);
+        ESP_LOGE(TAG, "USB driver install failed: 0x%x", ret);
         return ret;
     }
+
+    ESP_LOGI(TAG, "USB install OK");
 
     msc_evt_group = xEventGroupCreate();
     if (msc_evt_group == nullptr) {

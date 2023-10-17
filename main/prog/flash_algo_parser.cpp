@@ -10,24 +10,19 @@ esp_err_t flash_algo_parser::load(const char *path)
         return ESP_FAIL;
     }
 
-    if (elf_parser.get_class() == ELFIO::ELFCLASS64) {
-        ESP_LOGE(TAG, "No 64-bit support for now");
+    return run_elf_check();
+}
+
+esp_err_t flash_algo_parser::load(const uint8_t *buf, size_t len)
+{
+    imemstream stream(reinterpret_cast<const char *>(buf), len);
+
+    if (!elf_parser.load(stream)) {
+        ESP_LOGE(TAG, "ELF parse failed!");
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "ELF loaded, version=%s, type=%s",
-             ELFIO::dump::str_version(elf_parser.get_version()).c_str(),
-             ELFIO::dump::str_type(elf_parser.get_type()).c_str()
-    );
-
-    ESP_LOGI(TAG, "ELF class=%s, OS_ABI=%s, Machine=%s",
-             ELFIO::dump::str_class(elf_parser.get_class()).c_str(),
-             ELFIO::dump::str_os_abi(elf_parser.get_os_abi()).c_str(),
-             ELFIO::dump::str_machine(elf_parser.get_machine()).c_str()
-    );
-
-    // We probably need to enforce a check here (e.g. is it ARM or RISCV? is it a bare-metal ELF?)
-    return ESP_OK;
+    return run_elf_check();
 }
 
 esp_err_t flash_algo_parser::get_test_description(flash_algo::test_description *descr, std::vector<flash_algo::test_item> &test_items)
@@ -297,5 +292,27 @@ esp_err_t flash_algo_parser::get_func_pc(const char *func_name, uint32_t *pc_out
 
     ESP_LOGE(TAG, "Function '%s' not found", func_name);
     return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t flash_algo_parser::run_elf_check()
+{
+    // We probably need to enforce a check here (e.g. is it ARM or RISCV? is it a bare-metal ELF?)
+    if (elf_parser.get_class() == ELFIO::ELFCLASS64) {
+        ESP_LOGE(TAG, "No 64-bit support for now");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "ELF loaded, version=%s, type=%s",
+             ELFIO::dump::str_version(elf_parser.get_version()).c_str(),
+             ELFIO::dump::str_type(elf_parser.get_type()).c_str()
+    );
+
+    ESP_LOGI(TAG, "ELF class=%s, OS_ABI=%s, Machine=%s",
+             ELFIO::dump::str_class(elf_parser.get_class()).c_str(),
+             ELFIO::dump::str_os_abi(elf_parser.get_os_abi()).c_str(),
+             ELFIO::dump::str_machine(elf_parser.get_machine()).c_str()
+    );
+
+    return ESP_OK;
 }
 

@@ -91,3 +91,6 @@ managed_components/
 # This might be a bad practise but somehow ESP-IDF's library manager has some weird behavior causing this file
 # constantly changing, so we ignore it for now.
 dependencies.lock
+
+# Project specific stuff
+main/test_data_img/

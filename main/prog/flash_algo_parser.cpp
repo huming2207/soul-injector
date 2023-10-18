@@ -166,7 +166,7 @@ esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, si
 
     curr_pos += out_len;
     size_t bss_len = 0;
-    ret = ret ?: get_bss_length(ALGO_BIN_BSS_SECTION_NAME, &bss_len);
+    ret = ret ?: get_section_length(ALGO_BIN_BSS_SECTION_NAME, &bss_len);
 
     if (curr_pos + bss_len > buf_len) {
         ESP_LOGE(TAG, "Insufficient place for BSS, need %u, got only %u", curr_pos + bss_len, buf_len);
@@ -180,7 +180,7 @@ esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, si
 
 esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *section_name, size_t min_size, size_t *actual_size, uint32_t offset) const
 {
-    if (data_out == nullptr) {
+    if (section_name == nullptr) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -197,7 +197,10 @@ esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *sectio
         }
 
         if (curr_section->get_name() == section_name) {
-            memcpy(data_out, curr_section->get_data() + offset, std::min((size_t)(curr_section->get_size() - offset), min_size));
+            if (data_out != nullptr) {
+                memcpy(data_out, curr_section->get_data() + offset, std::min((size_t)(curr_section->get_size() - offset), min_size));
+            }
+
             if (actual_size != nullptr) {
                 *actual_size = curr_section->get_size();
             }
@@ -212,7 +215,7 @@ esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *sectio
     return ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t flash_algo_parser::get_bss_length(const char *section_name, size_t *len_out) const
+esp_err_t flash_algo_parser::get_section_length(const char *section_name, size_t *len_out) const
 {
     if (len_out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -232,6 +235,36 @@ esp_err_t flash_algo_parser::get_bss_length(const char *section_name, size_t *le
 
         if (curr_section->get_name() == section_name) {
             *len_out = curr_section->get_size();
+            return ESP_OK;
+        } else {
+            continue;
+        }
+    }
+
+    ESP_LOGE(TAG, "BSS '%s' not found!", section_name);
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t flash_algo_parser::get_section_addr(const char *section_name, uint32_t *addr_out)
+{
+    if (addr_out == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    auto section_cnt = elf_parser.sections.size();
+    if (section_cnt < 1) {
+        ESP_LOGE(TAG, "No section at all?");
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    for (size_t idx = 0; idx < section_cnt; idx += 1) {
+        auto curr_section = elf_parser.sections[idx];
+        if (curr_section->get_type() != ELFIO::SHT_NOBITS) {
+            continue;
+        }
+
+        if (curr_section->get_name() == section_name) {
+            *addr_out = (uint32_t)(curr_section->get_address());
             return ESP_OK;
         } else {
             continue;
@@ -320,4 +353,6 @@ esp_err_t flash_algo_parser::run_elf_check()
 
     return ESP_OK;
 }
+
+
 

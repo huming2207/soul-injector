@@ -22,7 +22,12 @@ esp_err_t comm_msc::init()
     }
 
     ESP_LOGI(TAG, "Mount data partition");
-    const tinyusb_msc_spiflash_config_t spiflash_cfg = { .wl_handle = wl_handle };
+    const tinyusb_msc_spiflash_config_t spiflash_cfg = {
+            .wl_handle = wl_handle,
+            .callback_mount_changed = nullptr,
+            .callback_premount_changed = nullptr
+    };
+
     ret = tinyusb_msc_storage_init_spiflash(&spiflash_cfg);
     ret = ret ?: tinyusb_msc_storage_mount(PART_PATH);
 
@@ -36,7 +41,7 @@ esp_err_t comm_msc::init()
     static char sn_str[32] = {};
     static char lang[2] = {0x09, 0x04};
 
-    static char *desc_str[5] = {
+    static const char *desc_str[5] = {
             lang,                // 0: is supported language is English (0x0409)
             const_cast<char *>(USB_DESC_MANUFACTURER), // 1: Manufacturer
             const_cast<char *>(USB_DESC_PRODUCT),      // 2: Product
@@ -49,7 +54,7 @@ esp_err_t comm_msc::init()
     tusb_cfg.device_descriptor = nullptr;
     tusb_cfg.self_powered = false;
     tusb_cfg.external_phy = false;
-    tusb_cfg.string_descriptor_count = 5;
+    tusb_cfg.string_descriptor_count = sizeof(desc_str) / sizeof(desc_str[0]);
 
     uint8_t sn_buf[16] = { 0 };
     ret = ret ?: esp_efuse_mac_get_default(sn_buf);

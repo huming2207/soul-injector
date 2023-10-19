@@ -215,7 +215,7 @@ esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *sectio
     return ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t flash_algo_parser::get_section_length(const char *section_name, size_t *len_out) const
+esp_err_t flash_algo_parser::get_section_length(const char *section_name, size_t *len_out, ELFIO::Elf_Word type) const
 {
     if (len_out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -229,7 +229,7 @@ esp_err_t flash_algo_parser::get_section_length(const char *section_name, size_t
 
     for (size_t idx = 0; idx < section_cnt; idx += 1) {
         auto curr_section = elf_parser.sections[idx];
-        if (curr_section->get_type() != ELFIO::SHT_NOBITS) {
+        if (curr_section->get_type() != type) {
             continue;
         }
 
@@ -245,7 +245,7 @@ esp_err_t flash_algo_parser::get_section_length(const char *section_name, size_t
     return ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t flash_algo_parser::get_section_addr(const char *section_name, uint32_t *addr_out)
+esp_err_t flash_algo_parser::get_section_addr(const char *section_name, uint32_t *addr_out, ELFIO::Elf_Word type) const
 {
     if (addr_out == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -259,7 +259,7 @@ esp_err_t flash_algo_parser::get_section_addr(const char *section_name, uint32_t
 
     for (size_t idx = 0; idx < section_cnt; idx += 1) {
         auto curr_section = elf_parser.sections[idx];
-        if (curr_section->get_type() != ELFIO::SHT_NOBITS) {
+        if (curr_section->get_type() != type) {
             continue;
         }
 
@@ -330,6 +330,40 @@ esp_err_t flash_algo_parser::get_func_pc(const char *func_name, uint32_t *pc_out
 
     ESP_LOGE(TAG, "Function '%s' not found", func_name);
     return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t flash_algo_parser::get_data_section_offset(uint32_t *offset)
+{
+    if (offset == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Two ways to do this: 1. try if we can get PrgData's address
+    uint32_t data_section_addr = 0;
+    auto ret = get_section_addr(ALGO_BIN_DATA_SECTION_NAME, &data_section_addr);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "No data section found, assuming it's after code section");
+    } else {
+        ESP_LOGI(TAG, "Data section found at 0x%08lx", data_section_addr);
+        *offset = data_section_addr;
+        return ret;
+    }
+
+    // 2. ...or if no PrgData, then we assume PrgData is right after the code section
+    uint32_t code_section_addr = 0;
+    size_t code_section_len = 0;
+    ret = get_section_addr(ALGO_BIN_CODE_SECTION_NAME, &code_section_addr);
+    ret = ret ?: get_section_length(ALGO_BIN_CODE_SECTION_NAME, &code_section_len);
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get data section offset: 0x%x", ret);
+    } else {
+        data_section_addr = code_section_addr + code_section_len;
+        ESP_LOGI(TAG, "Assuming data section at 0x%08lx", data_section_addr);
+        *offset = data_section_addr;
+    }
+
+    return ret;
 }
 
 esp_err_t flash_algo_parser::run_elf_check()

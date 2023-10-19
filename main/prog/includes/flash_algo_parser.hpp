@@ -70,8 +70,9 @@ public:
     esp_err_t get_flash_algo(uint8_t *buf_out, size_t buf_len, size_t *actual_len);
     esp_err_t get_func_pc(const char *func_name, uint32_t *pc_out);
     esp_err_t get_section_data(void *data_out, const char *section_name,  size_t min_size, size_t *actual_size, uint32_t offset = 0) const;
-    esp_err_t get_section_length(const char *section_name, size_t *len_out) const;
-    esp_err_t get_section_addr(const char *section_name, uint32_t *addr_out);
+    esp_err_t get_section_length(const char *section_name, size_t *len_out, ELFIO::Elf_Word type = ELFIO::SHT_PROGBITS) const;
+    esp_err_t get_section_addr(const char *section_name, uint32_t *addr_out, ELFIO::Elf_Word type = ELFIO::SHT_PROGBITS) const;
+    esp_err_t get_data_section_offset(uint32_t *offset);
 
 private:
     esp_err_t run_elf_check();

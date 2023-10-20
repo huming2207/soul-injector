@@ -76,6 +76,10 @@ esp_err_t flash_algo_parser::get_test_description(flash_algo::test_description *
         items_buf += sizeof(flash_algo::test_item);
     }
 
+    if (items_buf != nullptr) {
+        free(items_buf);
+    }
+
     return ret;
 }
 
@@ -128,6 +132,10 @@ esp_err_t flash_algo_parser::get_dev_description(flash_algo::dev_description *de
 
         item_left_size -= sizeof(flash_algo::flash_sector);
         items_buf += sizeof(flash_algo::flash_sector);
+    }
+
+    if (items_buf != nullptr) {
+        free(items_buf);
     }
 
     return ret;

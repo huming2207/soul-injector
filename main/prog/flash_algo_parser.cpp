@@ -103,13 +103,14 @@ esp_err_t flash_algo_parser::get_dev_description(flash_algo::dev_description *de
     }
 
     size_t actual_items_size = 0;
-    ret = get_section_data(items_buf, "DeviceData", item_size, &actual_items_size, sizeof(flash_algo::test_description));
+    ret = get_section_data(items_buf, "DeviceData", item_size, &actual_items_size, sizeof(flash_algo::dev_description));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get sector info: 0x%x", ret);
         return ret;
     }
 
-    auto item_left_size = (int32_t)actual_items_size;
+    ESP_LOGD(TAG, "sizeof(flash_algo::test_description) = %zu", sizeof(flash_algo::dev_description));
+    auto item_left_size = (int32_t)(actual_items_size);
     uint8_t *item_ptr = items_buf;
     sectors.clear();
 
@@ -202,7 +203,7 @@ esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *sectio
             }
 
             if (actual_size != nullptr) {
-                *actual_size = curr_section->get_size();
+                *actual_size = curr_section->get_size() - offset;
             }
 
             return ESP_OK;

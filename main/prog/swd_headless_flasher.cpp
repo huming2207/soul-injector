@@ -33,7 +33,7 @@ esp_err_t swd_headless_flasher::init()
     ret = led.init((gpio_num_t)(CONFIG_SI_LED_SIGNAL_PIN));
     led.set_color(60,0,0,30);
 
-    //ret = ret ?: lcd->init();
+    // TODO: init LCD here
 
     if (ret != ESP_OK) return ret;
 

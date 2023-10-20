@@ -12,8 +12,6 @@ idf_component_register(
             "driver/includes/button_monitor.hpp"
             "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
             "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
-            "driver/lcd/lvgl_wrapper.c" "driver/lcd/lvgl_wrapper.h"
-            "driver/lcd/lcd_manager.cpp" "driver/lcd/lcd_manager.hpp"
 #            "driver/lcd/nfp190b_panel.cpp" "driver/lcd/nfp190b_panel.hpp"
             "driver/lcd/nfp114h_panel.cpp" "driver/lcd/nfp114h_panel.hpp"
 

@@ -16,6 +16,7 @@ idf_component_register(
             "driver/lcd/nfp114h_panel.cpp" "driver/lcd/nfp114h_panel.hpp"
             "ui/ui_sm_if.hpp"
             "ui/ui_sm_114.cpp" "ui/ui_sm_114.hpp"
+            "ui/ui_producer_sm.cpp" "ui/ui_producer_sm.hpp"
 
         INCLUDE_DIRS
             "."

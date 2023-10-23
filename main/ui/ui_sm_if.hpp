@@ -7,29 +7,54 @@ namespace ui_state
 {
     struct init_screen
     {
-
+        char title[32];
+        char subtitle[32];
     };
 
     struct erase_screen
     {
-
+        uint8_t percentage;
+        char title[32];
+        char subtitle[32];
     };
 
     struct flash_screen
     {
-
+        uint8_t percentage;
+        char title[32];
+        char subtitle[32];
     };
 
     struct test_screen
     {
-
+        char title[32];
+        char subtitle[32];
     };
 
     struct error_screen
     {
-
+        char title[32];
+        char subtitle[32];
     };
 
+    enum display_state : uint8_t
+    {
+        STATE_INIT = 0,
+        STATE_ERASE = 1,
+        STATE_FLASH = 2,
+        STATE_TEST  = 3,
+        STATE_ERROR = 4,
+    };
+
+    struct __attribute__((packed)) queue_item
+    {
+        display_state state;
+        uint8_t percentage;
+        uint8_t bg_opacity;
+        uint32_t bg_color;
+        char title[32];
+        char subtitle[32];
+    };
 };
 
 class ui_producer_sm_if

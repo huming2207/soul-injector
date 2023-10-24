@@ -57,21 +57,6 @@ namespace ui_state
     };
 };
 
-class ui_producer_sm_if
-{
-public:
-    virtual esp_err_t init() = 0;
-    virtual esp_err_t deinit() = 0;
-
-public:
-    // These functions below should be called in any thread except UI thread
-    virtual esp_err_t display(ui_state::init_screen *screen)  = 0;
-    virtual esp_err_t display(ui_state::erase_screen *screen) = 0;
-    virtual esp_err_t display(ui_state::flash_screen *screen) = 0;
-    virtual esp_err_t display(ui_state::test_screen *screen)  = 0;
-    virtual esp_err_t display(ui_state::error_screen *screen) = 0;
-};
-
 class ui_consumer_sm_if
 {
 public:
@@ -80,9 +65,9 @@ public:
 
 public:
     // These functions below should be called in UI thread only
-    virtual esp_err_t draw(ui_state::init_screen *screen)  = 0;
-    virtual esp_err_t draw(ui_state::erase_screen *screen) = 0;
-    virtual esp_err_t draw(ui_state::flash_screen *screen) = 0;
-    virtual esp_err_t draw(ui_state::test_screen *screen)  = 0;
-    virtual esp_err_t draw(ui_state::error_screen *screen) = 0;
+    virtual esp_err_t draw_init(ui_state::queue_item *screen)  = 0;
+    virtual esp_err_t draw_erase(ui_state::queue_item *screen) = 0;
+    virtual esp_err_t draw_flash(ui_state::queue_item *screen) = 0;
+    virtual esp_err_t draw_test(ui_state::queue_item *screen)  = 0;
+    virtual esp_err_t draw_error(ui_state::queue_item *screen) = 0;
 };

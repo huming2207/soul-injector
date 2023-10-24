@@ -12,7 +12,12 @@ esp_err_t ui_producer_sm::init()
 
 esp_err_t ui_producer_sm::deinit()
 {
-    return 0;
+    if (producer_queue == nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    vQueueDelete(producer_queue);
+    return ESP_OK;
 }
 
 esp_err_t ui_producer_sm::display(ui_state::init_screen *screen)
@@ -38,4 +43,9 @@ esp_err_t ui_producer_sm::display(ui_state::test_screen *screen)
 esp_err_t ui_producer_sm::display(ui_state::error_screen *screen)
 {
     return 0;
+}
+
+QueueHandle_t ui_producer_sm::get_queue()
+{
+    return producer_queue;
 }

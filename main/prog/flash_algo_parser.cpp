@@ -73,12 +73,10 @@ esp_err_t flash_algo_parser::get_test_description(flash_algo::test_description *
         test_items.emplace_back(item);
 
         item_left_size -= sizeof(flash_algo::test_item);
-        items_buf += sizeof(flash_algo::test_item);
+        item_ptr += sizeof(flash_algo::test_item);
     }
 
-    if (items_buf != nullptr) {
-        free(items_buf);
-    }
+    free(items_buf);
 
     return ret;
 }
@@ -131,12 +129,10 @@ esp_err_t flash_algo_parser::get_dev_description(flash_algo::dev_description *de
         sectors.emplace_back(item);
 
         item_left_size -= sizeof(flash_algo::flash_sector);
-        items_buf += sizeof(flash_algo::flash_sector);
+        item_ptr += sizeof(flash_algo::flash_sector);
     }
 
-    if (items_buf != nullptr) {
-        free(items_buf);
-    }
+    free(items_buf);
 
     return ret;
 }

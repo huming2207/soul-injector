@@ -2,19 +2,19 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-#include "ui_sm_if.hpp"
+#include "ui_if.hpp"
 
-class ui_producer_sm
+class ui_commander
 {
 public:
-    static ui_producer_sm *instance()
+    static ui_commander *instance()
     {
-        static ui_producer_sm _instance;
+        static ui_commander _instance;
         return &_instance;
     }
 
-    ui_producer_sm(ui_producer_sm const &) = delete;
-    void operator=(ui_producer_sm const &) = delete;
+    ui_commander(ui_commander const &) = delete;
+    void operator=(ui_commander const &) = delete;
 
 public:
     esp_err_t init();
@@ -29,7 +29,7 @@ public:
     QueueHandle_t get_queue();
 
 private:
-    ui_producer_sm() = default;
+    ui_commander() = default;
     QueueHandle_t producer_queue = nullptr;
 
 private:

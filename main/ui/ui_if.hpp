@@ -37,8 +37,9 @@ namespace ui_state
         char subtitle[32];
     };
 
-    enum display_state : uint8_t
+    enum display_state : int8_t
     {
+        STATE_EMPTY = -1,
         STATE_INIT = 0,
         STATE_ERASE = 1,
         STATE_FLASH = 2,
@@ -52,12 +53,11 @@ namespace ui_state
         uint8_t percentage;
         uint8_t bg_opacity;
         uint32_t bg_color;
-        char title[32];
-        char subtitle[32];
+        char comment[32];
     };
 };
 
-class ui_consumer_sm_if
+class ui_composer_sm
 {
 public:
     virtual esp_err_t init() = 0;

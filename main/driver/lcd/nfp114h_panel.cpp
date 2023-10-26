@@ -66,7 +66,7 @@ esp_err_t nfp114h_panel::init()
 
     esp_lcd_panel_dev_config_t panel_cfg = {};
     panel_cfg.reset_gpio_num = CONFIG_SI_DISP_PANEL_IO_RST;
-    panel_cfg.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
+    panel_cfg.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
     panel_cfg.bits_per_pixel = 16;
     ret = esp_lcd_new_panel_st7789(io_handle, &panel_cfg, &panel_handle);
 
@@ -79,7 +79,7 @@ esp_err_t nfp114h_panel::init()
     ret = ret ?: esp_lcd_panel_reset(panel_handle);
     ret = ret ?: esp_lcd_panel_init(panel_handle);
     ret = ret ?: esp_lcd_panel_disp_on_off(panel_handle, true);
-    ret = ret ?: esp_lcd_panel_invert_color(panel_handle, false);
+    ret = ret ?: esp_lcd_panel_invert_color(panel_handle, true);
     ret = ret ?: esp_lcd_panel_swap_xy(panel_handle, false);
     ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 52, 40); // This is probably wrong - try 40, 53 and 52 combos
     ret = ret ?: send_sequence(LCD_INIT_SEQ, sizeof(LCD_INIT_SEQ) / sizeof(nfp114h::seq_t));

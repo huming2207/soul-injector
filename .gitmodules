@@ -17,3 +17,6 @@
 [submodule "main/external/elfio"]
 	path = main/external/elfio
 	url = https://github.com/serge1/ELFIO.git
+[submodule "components/ina228"]
+	path = components/ina228
+	url = git@github.com:huming2207/esp-ina228.git

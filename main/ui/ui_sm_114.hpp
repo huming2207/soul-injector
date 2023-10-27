@@ -10,7 +10,6 @@ class ui_composer_114 : public ui_composer_sm
 {
 public:
     esp_err_t init() override;
-    esp_err_t deinit() override;
 
 public:
     // These functions below should be called in UI thread only
@@ -19,6 +18,7 @@ public:
     esp_err_t draw_flash(ui_state::queue_item *screen) override;
     esp_err_t draw_test(ui_state::queue_item *screen)  override;
     esp_err_t draw_error(ui_state::queue_item *screen) override;
+    esp_err_t draw_done(ui_state::queue_item *screen) override;
 
 private:
     esp_err_t recreate_widget(bool with_comment = false);

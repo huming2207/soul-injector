@@ -9,6 +9,7 @@
 #include "nfp190b_panel.hpp"
 #include "disp_panel_if.hpp"
 #include "nfp114h_panel.hpp"
+#include "ui_sm_114.hpp"
 
 class display_manager
 {
@@ -25,6 +26,7 @@ public:
     esp_err_t init();
     disp_panel_if *get_panel();
     esp_err_t acquire_lock(uint32_t timeout_ms = 0);
+    QueueHandle_t get_ui_queue();
     void give_lock();
 
 private:
@@ -53,4 +55,7 @@ private:
     StackType_t *lv_ui_task_stack_buf = nullptr;
     TaskHandle_t lv_ui_task_handle = nullptr;
     esp_timer_handle_t timer_handle = nullptr;
+    QueueHandle_t ui_queue = nullptr;
+
+    ui_composer_114 composer {};
 };

@@ -26,11 +26,9 @@ public:
     esp_err_t display(ui_state::flash_screen *screen);
     esp_err_t display(ui_state::test_screen *screen);
     esp_err_t display(ui_state::error_screen *screen);
-    QueueHandle_t get_queue();
 
 private:
     ui_commander() = default;
-    QueueHandle_t producer_queue = nullptr;
 
 private:
     static const constexpr char TAG[] = "ui_prod";

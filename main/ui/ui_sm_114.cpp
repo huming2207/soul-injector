@@ -5,11 +5,11 @@
 
 esp_err_t ui_composer_114::init()
 {
-//    ui_queue = ui_commander::instance()->get_queue();
-//    if (ui_queue == nullptr) {
-//        ESP_LOGE(TAG, "UI queue needs to be init first");
-//        return ESP_ERR_INVALID_STATE;
-//    }
+    ui_queue = display_manager::instance()->get_ui_queue();
+    if (ui_queue == nullptr) {
+        ESP_LOGE(TAG, "UI queue needs to be init first");
+        return ESP_ERR_INVALID_STATE;
+    }
 
     disp_obj = lv_disp_get_scr_act(display_manager::instance()->get_panel()->get_lv_disp());
     if (disp_obj == nullptr) {
@@ -17,12 +17,7 @@ esp_err_t ui_composer_114::init()
         return ESP_ERR_INVALID_STATE;
     }
 
-    recreate_widget(true);
-    return ESP_OK;
-}
-
-esp_err_t ui_composer_114::deinit()
-{
+    recreate_widget();
     return ESP_OK;
 }
 
@@ -51,6 +46,9 @@ esp_err_t ui_composer_114::draw_erase(ui_state::queue_item *screen)
 
     if (curr_state != ui_state::STATE_ERASE) {
         recreate_widget();
+        lv_label_set_text(top_label, "ERASE");
+        lv_label_set_text(bottom_label, LV_SYMBOL_REFRESH);
+        lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 0, 220), 0); // Not-so-bright blue
         curr_state = ui_state::STATE_ERASE;
     }
 
@@ -66,6 +64,8 @@ esp_err_t ui_composer_114::draw_flash(ui_state::queue_item *screen)
 
     if (curr_state != ui_state::STATE_FLASH) {
         recreate_widget();
+        lv_label_set_text(top_label, "FLASH");
+        lv_label_set_text_fmt(bottom_label, "%d%%", screen->percentage);
         lv_obj_set_style_bg_color(bottom_sect, lv_color_make(226, 220, 0), 0); // Dark ish yellow
         curr_state = ui_state::STATE_FLASH;
     }
@@ -81,7 +81,10 @@ esp_err_t ui_composer_114::draw_test(ui_state::queue_item *screen)
     }
 
     if (curr_state != ui_state::STATE_TEST) {
-        recreate_widget();
+        recreate_widget(true);
+        lv_label_set_text(top_label, "TEST");
+        lv_label_set_text_fmt(bottom_label, "%u/%u", screen->percentage, screen->total_count);
+        lv_label_set_text(bottom_comment, screen->comment);
         lv_obj_set_style_bg_color(bottom_sect, lv_color_make(128, 0, 128), 0); // Dark purple
         curr_state = ui_state::STATE_TEST;
     }
@@ -98,12 +101,33 @@ esp_err_t ui_composer_114::draw_error(ui_state::queue_item *screen)
 
     if (curr_state != ui_state::STATE_ERROR) {
         recreate_widget();
+        lv_label_set_text(top_label, "TEST");
+        lv_label_set_text(bottom_label, LV_SYMBOL_CLOSE);
+        lv_label_set_text(bottom_comment, screen->comment);
         lv_obj_set_style_bg_color(bottom_sect, lv_color_make(230, 0, 0), 0); // Not-so-bright red
         curr_state = ui_state::STATE_ERROR;
     }
 
     return ESP_OK;
 }
+
+
+esp_err_t ui_composer_114::draw_done(ui_state::queue_item *screen)
+{
+    if (disp_obj == nullptr) {
+        ESP_LOGE(TAG, "LVGL needs to be init first");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (curr_state != ui_state::STATE_ERROR) {
+        recreate_widget();
+        lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 200, 0), 0);
+        curr_state = ui_state::STATE_ERROR;
+    }
+
+    return ESP_OK;
+}
+
 
 esp_err_t ui_composer_114::recreate_widget(bool with_comment)
 {
@@ -132,7 +156,6 @@ esp_err_t ui_composer_114::recreate_widget(bool with_comment)
     lv_obj_set_style_bg_color(top_sect, lv_color_white(), 0);
 
     top_label = lv_label_create(top_sect);
-    lv_label_set_text(top_label, "FLASH");
     lv_obj_set_style_text_align(top_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(top_label, &lv_font_montserrat_30, 0);
     lv_obj_set_align(top_label, LV_ALIGN_CENTER);
@@ -145,11 +168,11 @@ esp_err_t ui_composer_114::recreate_widget(bool with_comment)
     lv_obj_set_size(bottom_sect, (int16_t)display_manager::instance()->get_panel()->get_hor_size(), 140);
     lv_obj_set_pos(bottom_sect, 0, 100);
     lv_obj_set_align(bottom_sect, LV_ALIGN_TOP_LEFT);
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(226, 220, 0), 0);
+    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 200, 0), 0);
 
     bottom_label = lv_label_create(bottom_sect);
-    lv_label_set_text(bottom_label, "100%");
-    lv_obj_set_style_text_font(bottom_label, &lv_font_montserrat_32, 0);
+    lv_label_set_text(bottom_label, LV_SYMBOL_OK);
+    lv_obj_set_style_text_font(bottom_label, &lv_font_montserrat_36, 0);
     lv_obj_set_align(bottom_label, LV_ALIGN_CENTER);
     lv_obj_set_style_text_color(bottom_label, lv_color_white(), 0);
 

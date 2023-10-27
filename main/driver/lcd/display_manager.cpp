@@ -2,6 +2,7 @@
 #include <esp_timer.h>
 #include <algorithm>
 #include "display_manager.hpp"
+#include "ui_sm_114.hpp"
 
 esp_err_t display_manager::init()
 {
@@ -78,9 +79,23 @@ esp_err_t display_manager::init()
         ESP_LOGI(TAG, "Display manager init OK");
     }
 
+    ui_queue = xQueueCreate(3, sizeof(ui_state::queue_item));
+    if (ui_queue == nullptr) {
+        ESP_LOGE(TAG, "Failed to set up UI queue");
+        esp_timer_delete(timer_handle);
+        free(disp_buf_a);
+        free(disp_buf_b);
+        vTaskDelete(lv_ui_task_handle);
+        free(lv_ui_task_stack_buf);
+        return ESP_ERR_NO_MEM;
+    }
+
+
     lv_ui_task_handle = xTaskCreateStatic(lv_ui_task, "ui_task", UI_STACK_SIZE, this, tskIDLE_PRIORITY + 1, lv_ui_task_stack_buf, &lv_ui_task_stack);
     if (lv_ui_task_handle == nullptr) {
         ESP_LOGE(TAG, "Failed to create UI task");
+        esp_timer_delete(timer_handle);
+        vQueueDelete(ui_queue);
         free(disp_buf_a);
         free(disp_buf_b);
         vTaskDelete(lv_ui_task_handle);
@@ -92,10 +107,14 @@ esp_err_t display_manager::init()
 
     ESP_LOGI(TAG, "Draw some stuff");
     acquire_lock();
-    auto *label = lv_label_create(lv_disp_get_scr_act(panel->get_lv_disp()));
-    lv_obj_set_pos(label, 0, 0);
-    lv_label_set_text(label, "Hello world\nBy Jackson M Hu\nST7789V, 1.14 inch");
-    lv_obj_set_size(label, 135, 240);
+
+    composer.init();
+
+
+//    auto *label = lv_label_create(lv_disp_get_scr_act(panel->get_lv_disp()));
+//    lv_obj_set_pos(label, 0, 0);
+//    lv_label_set_text(label, "Hello world\nBy Jackson M Hu\nST7789V, 1.14 inch");
+//    lv_obj_set_size(label, 135, 240);
     give_lock();
     ESP_LOGI(TAG, "Draw OK");
 
@@ -120,7 +139,7 @@ void display_manager::lv_ui_task(void *_ctx)
 
     while (true) {
         xSemaphoreTakeRecursive(ctx->lv_ui_task_lock, portMAX_DELAY);
-        uint32_t next_delay =  lv_task_handler();
+        uint32_t next_delay = lv_task_handler();
         xSemaphoreGiveRecursive(ctx->lv_ui_task_lock);
 
         uint32_t next_tick = 0;
@@ -145,4 +164,9 @@ esp_err_t display_manager::acquire_lock(uint32_t timeout_ms)
 void display_manager::give_lock()
 {
     xSemaphoreGiveRecursive(lv_ui_task_lock);
+}
+
+QueueHandle_t display_manager::get_ui_queue()
+{
+    return ui_queue;
 }

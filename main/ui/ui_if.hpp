@@ -51,7 +51,7 @@ namespace ui_state
     {
         display_state state;
         uint8_t percentage;
-        uint8_t bg_opacity;
+        uint8_t total_count;
         uint32_t bg_color;
         char comment[32];
     };
@@ -61,7 +61,6 @@ class ui_composer_sm
 {
 public:
     virtual esp_err_t init() = 0;
-    virtual esp_err_t deinit() = 0;
 
 public:
     // These functions below should be called in UI thread only
@@ -70,4 +69,5 @@ public:
     virtual esp_err_t draw_flash(ui_state::queue_item *screen) = 0;
     virtual esp_err_t draw_test(ui_state::queue_item *screen)  = 0;
     virtual esp_err_t draw_error(ui_state::queue_item *screen) = 0;
+    virtual esp_err_t draw_done(ui_state::queue_item *screen) = 0;
 };

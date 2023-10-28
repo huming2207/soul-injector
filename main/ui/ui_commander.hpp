@@ -18,18 +18,20 @@ public:
 
 public:
     esp_err_t init();
-    esp_err_t deinit();
 
 public:
-    esp_err_t display(ui_state::init_screen *screen);
-    esp_err_t display(ui_state::erase_screen *screen);
-    esp_err_t display(ui_state::flash_screen *screen);
-    esp_err_t display(ui_state::test_screen *screen);
-    esp_err_t display(ui_state::error_screen *screen);
+    esp_err_t display_init();
+    esp_err_t display_chip_erase();
+    esp_err_t display_flash(ui_state::flash_screen *screen);
+    esp_err_t display_test(ui_state::test_screen *screen);
+    esp_err_t display_error(ui_state::error_screen *screen);
+    esp_err_t display_done();
+    esp_err_t display_usb();
 
 private:
+    QueueHandle_t task_queue = nullptr;
     ui_commander() = default;
 
 private:
-    static const constexpr char TAG[] = "ui_prod";
+    static const constexpr char TAG[] = "ui_cmder";
 };

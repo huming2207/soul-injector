@@ -42,14 +42,7 @@ esp_err_t display_manager::init()
     ESP_LOGI(TAG, "LVGL init");
     lv_init();
 
-    ESP_LOGI(TAG, "Lock & task init");
-    lv_ui_task_lock = xSemaphoreCreateRecursiveMutex();
-    if (lv_ui_task_lock == nullptr) {
-        ESP_LOGE(TAG, "Failed to create UI task lock");
-        deinit();
-        return ESP_ERR_NO_MEM;
-    }
-
+    ESP_LOGI(TAG, "Task init");
     lv_disp_draw_buf_init(&draw_buf, disp_buf_a, disp_buf_b, CONFIG_SI_DISP_PANEL_BUFFER_SIZE);
     ret = ret ?: panel->setup_lvgl(&draw_buf);
     if (ret != ESP_OK) {
@@ -132,17 +125,6 @@ void display_manager::lv_ui_task(void *_ctx)
 
         vTaskDelay(1);
     }
-}
-
-esp_err_t display_manager::acquire_lock(uint32_t timeout_ms)
-{
-    TickType_t timeout_ticks = (timeout_ms == 0) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
-    return xSemaphoreTakeRecursive(lv_ui_task_lock, timeout_ticks) == pdTRUE ? ESP_OK : ESP_FAIL;
-}
-
-void display_manager::give_lock()
-{
-    xSemaphoreGiveRecursive(lv_ui_task_lock);
 }
 
 QueueHandle_t display_manager::get_ui_queue()

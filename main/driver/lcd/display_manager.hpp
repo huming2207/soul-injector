@@ -24,6 +24,7 @@ public:
 
 public:
     esp_err_t init();
+    void deinit();
     disp_panel_if *get_panel();
     esp_err_t acquire_lock(uint32_t timeout_ms = 0);
     QueueHandle_t get_ui_queue();

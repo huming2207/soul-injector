@@ -14,6 +14,11 @@ esp_err_t ui_commander::init()
 
 esp_err_t ui_commander::display_init()
 {
+    if (task_queue == nullptr) {
+        ESP_LOGE(TAG, "LVGL needs to be init first");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     ui_state::queue_item item = {};
     item.state = ui_state::STATE_INIT;
 

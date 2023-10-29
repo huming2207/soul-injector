@@ -80,9 +80,9 @@ esp_err_t ui_composer_114::draw_init(ui_state::queue_item *screen)
     }
 
     lv_label_set_text(top_label, "INIT");
-    lv_label_set_text(bottom_label, LV_SYMBOL_REFRESH);
+    lv_label_set_text(bottom_label, LV_SYMBOL_DOWNLOAD);
     lv_label_set_text(bottom_comment, screen->comment);
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 0, 220), 0); // Not-so-bright blue
+    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 206, 209), 0); // Not-so-bright blue
     return ESP_OK;
 }
 
@@ -169,13 +169,14 @@ esp_err_t ui_composer_114::draw_done(ui_state::queue_item *screen)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (curr_state != ui_state::STATE_ERROR) {
+    if (curr_state != ui_state::STATE_DONE) {
         recreate_widget();
-        lv_label_set_text(top_label, "USB");
-        lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 200, 0), 0); // Dark-ish green
-        curr_state = ui_state::STATE_ERROR;
+        curr_state = ui_state::STATE_DONE;
     }
 
+    lv_label_set_text(top_label, "DONE");
+    lv_label_set_text(bottom_label, LV_SYMBOL_OK);
+    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 200, 0), 0); // Dark-ish green
     return ESP_OK;
 }
 
@@ -186,12 +187,14 @@ esp_err_t ui_composer_114::draw_usb(ui_state::queue_item *screen)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (curr_state != ui_state::STATE_ERROR) {
+    if (curr_state != ui_state::STATE_USB) {
         recreate_widget();
-        lv_obj_set_style_bg_color(bottom_sect, lv_color_make(255, 117, 23), 0); // Orange
-        curr_state = ui_state::STATE_ERROR;
+        curr_state = ui_state::STATE_USB;
     }
 
+    lv_label_set_text(top_label, "USB");
+    lv_label_set_text(bottom_label, LV_SYMBOL_USB);
+    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(255, 117, 23), 0); // Orange
     return ESP_OK;
 }
 

@@ -28,7 +28,6 @@ private:
 
 private:
     ui_state::display_state curr_state = ui_state::STATE_EMPTY;
-    QueueHandle_t ui_queue = nullptr;
     lv_obj_t *disp_obj = nullptr;
     lv_obj_t *base_obj = nullptr;
     lv_obj_t *top_sect = nullptr;

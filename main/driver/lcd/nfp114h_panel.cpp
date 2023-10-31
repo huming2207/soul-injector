@@ -99,7 +99,7 @@ void nfp114h_panel::flush_display(lv_disp_drv_t *disp_drv, const lv_area_t *area
     auto y1 = area->y1;
     auto y2 = area->y2;
 
-    ESP_LOGI(TAG, "Draw at x1 %d x2 %d; y1 %d y2 %d", x1, x2, y1, y2);
+    ESP_LOGD(TAG, "Draw at x1 %d x2 %d; y1 %d y2 %d", x1, x2, y1, y2);
     esp_lcd_panel_draw_bitmap(panel_handle, x1, y1, x2 + 1, y2 + 1, color_p);
 }
 

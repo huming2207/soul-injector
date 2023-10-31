@@ -9,7 +9,7 @@ idf_component_register(
             "misc/includes/file_utils.hpp"
             "comm/comm_msc.cpp" "comm/comm_msc.hpp"
             "misc/includes/psram_json_doc.hpp"
-            "driver/includes/button_monitor.hpp"
+            "driver/button_manager.cpp" "driver/button_manager.hpp"
             "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
             "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
 #            "driver/lcd/nfp190b_panel.cpp" "driver/lcd/nfp190b_panel.hpp"
@@ -23,7 +23,7 @@ idf_component_register(
             "misc/includes"
             "prog/includes"
             "comm" "comm/usb"
-            "driver/includes" "driver"
+            "driver" "driver/lcd"
             "external/elfio"
             "ui"
 

@@ -24,8 +24,12 @@ esp_err_t button_manager::init()
         return ret;
     }
 
+    btn_evt_queue = xQueueCreate(8, sizeof(int));
+    if (btn_evt_queue == nullptr) {
+        ESP_LOGE(TAG, "Button event queue error");
+    }
+
     xTaskCreate(btn_task_handler, "btn_task", 3072, this, tskIDLE_PRIORITY + 10, nullptr);
-    btn_evt_queue = xQueueCreate(16, sizeof(int));
     return ret;
 }
 
@@ -42,8 +46,33 @@ void button_manager::btn_task_handler(void *_ctx)
     while (true) {
         int level = 0;
         if (xQueueReceive(ctx->btn_evt_queue, &level, portMAX_DELAY) == pdTRUE) {
-            int64_t ts = esp_timer_get_time();
+            if (level > 0) {
+                ctx->release_ts = esp_timer_get_time();
+                int64_t time_diff = ctx->release_ts - ctx->press_ts;
+                if (time_diff < (ctx->glitch_filter_thresh * 1000LL)) {
+                    ESP_LOGD(TAG, "Ignore glitch: %lld", time_diff);
+                    continue;
+                }
 
+                if (ctx->cb == nullptr) {
+                    continue;
+                }
+
+                if (time_diff >= (ctx->long_press_thresh * 1000LL)) {
+                    ctx->cb->handle_long_press();
+                } else {
+                    ctx->cb->handle_short_press();
+                }
+            } else {
+                ctx->press_ts = esp_timer_get_time();
+            }
         }
     }
+}
+
+void button_manager::set_handler(button_handle_cb *handler, uint32_t long_press_thresh_ms, uint32_t glitch_filter_thresh_ms)
+{
+    cb = handler;
+    long_press_thresh = long_press_thresh_ms;
+    glitch_filter_thresh = glitch_filter_thresh_ms;
 }

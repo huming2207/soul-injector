@@ -109,18 +109,10 @@ void display_manager::lv_ui_task(void *_ctx)
     while (true) {
         ctx->composer.wait_and_draw();
         do {
+            ESP_LOGD(TAG, "UI: before handle: inv_p %u %lu", disp->inv_p, disp->inv_en_cnt);
             uint32_t next_delay = lv_task_handler();
-            uint32_t next_tick = 0;
-            if (likely(next_delay >= LV_TASK_MAX_IDLE_MS)) {
-                next_tick = 1;
-            } else if (next_delay <= (1000 / configTICK_RATE_HZ)) {
-                next_tick = pdMS_TO_TICKS(LV_TASK_MAX_IDLE_MS);
-            } else {
-                next_tick = pdMS_TO_TICKS(next_delay);
-            }
-
-            ESP_LOGI(TAG, "UI: wait %lu, inv_p %u %lu", next_tick, disp->inv_p, disp->inv_en_cnt);
-            vTaskDelay(next_tick);
+            ESP_LOGI(TAG, "UI: wait %lu, inv_p %u last act %lu", next_delay, disp->inv_p, disp->last_activity_time);
+            vTaskDelay(1);
         } while (disp->inv_p > 0);
 
         vTaskDelay(1);

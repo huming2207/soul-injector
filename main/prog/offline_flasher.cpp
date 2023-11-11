@@ -7,33 +7,12 @@
 #include <esp_crc.h>
 #include <esp_timer.h>
 
-#include "swd_headless_flasher.hpp"
+#include "offline_flasher.hpp"
 #include "cdc_acm.hpp"
 
-esp_err_t swd_headless_flasher::init()
+esp_err_t offline_flasher::init()
 {
-    flasher_evt = xEventGroupCreate();
-    if (flasher_evt == nullptr) {
-        ESP_LOGE(TAG, "Failed to create flasher event group!");
-        return ESP_ERR_NO_MEM;
-    }
-
-    xTaskCreate(button_intr_handler, "button_intr", 3072, this, tskIDLE_PRIORITY + 1, nullptr);
-
-    auto ret = gpio_install_isr_service(0);
-    ret = ret ?: gpio_set_intr_type(GPIO_NUM_0, GPIO_INTR_NEGEDGE);
-    ret = ret ?: gpio_intr_enable(GPIO_NUM_0);
-    ret = ret ?: gpio_isr_handler_add(GPIO_NUM_0, button_isr, this);
-
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set up button GPIO");
-        return ret;
-    }
-
-    ret = led.init((gpio_num_t)(CONFIG_SI_LED_SIGNAL_PIN));
-    led.set_color(60,0,0,30);
-
-    // TODO: init LCD here
+    auto ret = disp->init();
 
     if (ret != ESP_OK) return ret;
 
@@ -58,14 +37,17 @@ esp_err_t swd_headless_flasher::init()
                 on_error();
                 break;
             }
+
             case flasher::DONE: {
                 on_done();
                 break;
             }
+
             case flasher::VERIFY: {
                 on_verify();
                 break;
             }
+
             case flasher::SELF_TEST: {
                 on_self_test();
                 break;
@@ -76,15 +58,12 @@ esp_err_t swd_headless_flasher::init()
     return ret;
 }
 
-void swd_headless_flasher::on_error()
+void offline_flasher::on_error()
 {
-    led.set_color(50, 0, 0, 50);
-    vTaskDelay(pdMS_TO_TICKS(300));
-    led.set_color(0, 0, 0, 50);
-    vTaskDelay(pdMS_TO_TICKS(300));
+
 }
 
-void swd_headless_flasher::on_erase()
+void offline_flasher::on_erase()
 {
     ESP_LOGI(TAG, "Erasing");
     uint32_t start_addr = 0, end_addr = 0;
@@ -110,7 +89,7 @@ void swd_headless_flasher::on_erase()
     state = flasher::PROGRAM;
 }
 
-void swd_headless_flasher::on_program()
+void offline_flasher::on_program()
 {
     int64_t ts = esp_timer_get_time();
     auto ret = swd.program_file(local_mission_manager::FIRMWARE_PATH, &written_len);
@@ -125,7 +104,7 @@ void swd_headless_flasher::on_program()
 
 }
 
-void swd_headless_flasher::on_detect()
+void offline_flasher::on_detect()
 {
     ESP_LOGI(TAG, "Detecting");
     auto ret = swd.init(&cfg_manager);
@@ -138,15 +117,12 @@ void swd_headless_flasher::on_detect()
     state = flasher::ERASE; // To erase
 }
 
-void swd_headless_flasher::on_done()
+void offline_flasher::on_done()
 {
-    led.set_color(0, 50, 0, 50);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    led.set_color(0, 0, 0, 50);
-    vTaskDelay(pdMS_TO_TICKS(500));
+
 }
 
-void swd_headless_flasher::on_verify()
+void offline_flasher::on_verify()
 {
     uint32_t crc = 0;
     if (local_mission_manager::instance().get_fw_crc(&crc) != ESP_OK) {
@@ -164,11 +140,9 @@ void swd_headless_flasher::on_verify()
 }
 
 
-void swd_headless_flasher::on_self_test()
+void offline_flasher::on_self_test()
 {
     ESP_LOGI(TAG, "Run self test");
-
-    led.set_color(100, 0, 100, 0);
 
     // TODO: just testing
     uint32_t func_ret = UINT32_MAX;
@@ -201,36 +175,4 @@ void swd_headless_flasher::on_self_test()
     swd_prog::trigger_nrst();
 
     state = flasher::DONE;
-}
-
-void swd_headless_flasher::button_isr(void *_ctx)
-{
-    auto *ctx = static_cast<swd_headless_flasher *>(_ctx);
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    BaseType_t ret = xEventGroupSetBitsFromISR(ctx->flasher_evt, flasher::CLEAR_BUTTON_PRESSED, &xHigherPriorityTaskWoken);
-    if (ret == pdPASS) {
-        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-    }
-}
-
-void swd_headless_flasher::button_intr_handler(void *_ctx)
-{
-    auto *ctx = static_cast<swd_headless_flasher *>(_ctx);
-    while (true) {
-        EventBits_t bits = xEventGroupWaitBits(ctx->flasher_evt,
-                                               flasher::CLEAR_BUTTON_PRESSED, // Wait for button pressed bit
-                                               pdTRUE, pdTRUE,       // Clear on exit, wait for all
-                                               portMAX_DELAY);         // Timeout
-
-
-        if((bits & flasher::CLEAR_BUTTON_PRESSED) != 0) {
-            ESP_LOGI(TAG, "Button pressed!");
-            if (ctx->state == flasher::DONE || ctx->state == flasher::ERROR) {
-                ctx->state = flasher::DETECT;
-            }
-        } else {
-            vTaskDelete(nullptr);
-            return; // Won't happen
-        }
-    }
 }

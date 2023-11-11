@@ -35,18 +35,25 @@ esp_err_t offline_asset_manager::get_algo_bin(uint8_t *algo, size_t len, size_t 
     return algo_parser.get_flash_algo(algo, len, actual_len);
 }
 
-esp_err_t offline_asset_manager::get_algo_bin_len(size_t *out)
+esp_err_t offline_asset_manager::get_ram_size_byte(uint32_t *out) const
 {
-    return ESP_OK;
-}
+    if (out != nullptr) {
+        *out = test_descr.ram_end_addr - test_descr.ram_start_addr;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
 
-esp_err_t offline_asset_manager::get_ram_size_byte(uint32_t *out)
-{
     return ESP_OK;
 }
 
 esp_err_t offline_asset_manager::get_flash_size_byte(uint32_t *out)
 {
+    if (out != nullptr) {
+        *out = dev_descr.dev_size;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 
@@ -85,38 +92,80 @@ esp_err_t offline_asset_manager::get_data_section_offset(uint32_t *out)
     return algo_parser.get_data_section_offset(out);
 }
 
-esp_err_t offline_asset_manager::get_flash_start_addr(uint32_t *out)
+esp_err_t offline_asset_manager::get_flash_start_addr(uint32_t *out) const
 {
+    if (out != nullptr) {
+        *out = dev_descr.dev_addr;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 
-esp_err_t offline_asset_manager::get_flash_end_addr(uint32_t *out)
+esp_err_t offline_asset_manager::get_flash_end_addr(uint32_t *out) const
 {
+    if (out != nullptr) {
+        *out = dev_descr.dev_addr + dev_descr.dev_size;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 
-esp_err_t offline_asset_manager::get_page_size(uint32_t *out)
+esp_err_t offline_asset_manager::get_page_size(uint32_t *out) const
 {
+    if (out != nullptr) {
+        *out = dev_descr.page_size;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 
-esp_err_t offline_asset_manager::get_erased_byte_val(uint32_t *out)
+esp_err_t offline_asset_manager::get_erased_byte_val(uint32_t *out) const
 {
+    if (out != nullptr) {
+        *out = dev_descr.empty;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 
-esp_err_t offline_asset_manager::get_program_page_timeout(uint32_t *out)
+esp_err_t offline_asset_manager::get_program_page_timeout(uint32_t *out) const
 {
+    if (out != nullptr) {
+        *out = dev_descr.prog_timeout;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 
-esp_err_t offline_asset_manager::get_erase_sector_timeout(uint32_t *out)
+esp_err_t offline_asset_manager::get_erase_sector_timeout(uint32_t *out) const
 {
+    if (out != nullptr) {
+        *out = dev_descr.erase_timeout;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 
-esp_err_t offline_asset_manager::get_sector_size(uint32_t *out)
+esp_err_t offline_asset_manager::get_sector_size(uint32_t *out) const
 {
+    if (out != nullptr) {
+        *out = dev_descr.page_size;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 

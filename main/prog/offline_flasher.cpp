@@ -14,6 +14,7 @@ esp_err_t offline_flasher::init()
 {
     auto ret = disp->init();
 
+
     if (ret != ESP_OK) return ret;
 
     while (true) {
@@ -67,14 +68,14 @@ void offline_flasher::on_erase()
 {
     ESP_LOGI(TAG, "Erasing");
     uint32_t start_addr = 0, end_addr = 0;
-    auto ret = cfg_manager.get_flash_start_addr(&start_addr);
-    ret = ret ?: cfg_manager.get_flash_end_addr(&end_addr);
+    auto ret = asset->get_flash_start_addr(&start_addr);
+    ret = ret ?: asset->get_flash_end_addr(&end_addr);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read flash addresses");
     } else {
-        ret = swd.erase_chip();
+        ret = swd->erase_chip();
         if (ret != ESP_OK) {
-            ret = swd.erase_sector(start_addr, end_addr);
+            ret = swd->erase_sector(start_addr, end_addr);
         }
     }
 
@@ -92,7 +93,7 @@ void offline_flasher::on_erase()
 void offline_flasher::on_program()
 {
     int64_t ts = esp_timer_get_time();
-    auto ret = swd.program_file(local_mission_manager::FIRMWARE_PATH, &written_len);
+    auto ret = swd->program_file(offline_asset_manager::FIRMWARE_PATH, &written_len);
     if (ret != ESP_OK) {
         state = flasher::ERROR;
     } else {
@@ -107,11 +108,11 @@ void offline_flasher::on_program()
 void offline_flasher::on_detect()
 {
     ESP_LOGI(TAG, "Detecting");
-    auto ret = swd.init(&cfg_manager);
+    auto ret = swd->init(asset);
     while (ret != ESP_OK) {
         on_error();
         ESP_LOGE(TAG, "Detect failed, retrying");
-        ret = swd.init(&cfg_manager);
+        ret = swd->init(asset);
     }
 
     state = flasher::ERASE; // To erase
@@ -125,12 +126,12 @@ void offline_flasher::on_done()
 void offline_flasher::on_verify()
 {
     uint32_t crc = 0;
-    if (local_mission_manager::instance().get_fw_crc(&crc) != ESP_OK) {
+    if (offline_asset_manager::instance()->get_fw_crc(&crc) != ESP_OK) {
         state = flasher::ERROR;
         return;
     }
 
-    if (swd.verify(crc, UINT32_MAX, written_len) != ESP_OK) {
+    if (swd->verify(crc, UINT32_MAX, written_len) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to verify!");
         state = flasher::ERROR;
     } else {
@@ -146,7 +147,7 @@ void offline_flasher::on_self_test()
 
     // TODO: just testing
     uint32_t func_ret = UINT32_MAX;
-    auto ret = swd.self_test(0x004, nullptr, 0, &func_ret);
+    auto ret = swd->self_test(0x004, nullptr, 0, &func_ret);
     if (ret == ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGW(TAG, "No self test config found, skipping");
         state = flasher::DONE;
@@ -159,7 +160,7 @@ void offline_flasher::on_self_test()
 
     ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
 
-    ret = swd.self_test(0x003, nullptr, 0, &func_ret);
+    ret = swd->self_test(0x003, nullptr, 0, &func_ret);
     if (ret == ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGW(TAG, "No self test config found, skipping");
         state = flasher::DONE;

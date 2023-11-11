@@ -3,7 +3,7 @@
 #include <esp_err.h>
 #include <swd_host.h>
 #include <led_ctrl.hpp>
-#include "local_mission_manager.hpp"
+#include "offline_asset_manager.hpp"
 
 namespace swd_def
 {
@@ -29,10 +29,10 @@ namespace swd_def
 class swd_prog
 {
 public:
-    static swd_prog& instance()
+    static swd_prog *instance()
     {
-        static swd_prog instance;
-        return instance;
+        static swd_prog _instance;
+        return &_instance;
     }
 
     swd_prog(swd_prog const &) = delete;
@@ -46,7 +46,8 @@ private:
     uint32_t func_offset = 0;
     uint32_t ram_addr = 0;
     uint32_t stack_size = 0;
-    local_mission_manager *fw_mgr = nullptr;
+    size_t algo_bin_len = 0;
+    offline_asset_manager *fw_mgr = nullptr;
     led_ctrl &led = led_ctrl::instance();
 
     static const uint32_t header_blob[];
@@ -58,7 +59,7 @@ private:
     esp_err_t run_algo_uninit(swd_def::init_mode mode);
 
 public:
-    esp_err_t init(local_mission_manager *algo, uint32_t ram_addr = 0x20000000, uint32_t stack_size_byte = 0x200);
+    esp_err_t init(offline_asset_manager *algo, uint32_t ram_addr = 0x20000000, uint32_t stack_size_byte = 0x200);
     esp_err_t erase_chip();
     esp_err_t erase_sector(uint32_t start_addr, uint32_t end_addr);
     esp_err_t program_page(const uint8_t *buf, size_t len, uint32_t start_addr = UINT32_MAX);

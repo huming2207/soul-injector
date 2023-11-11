@@ -45,24 +45,25 @@ esp_err_t swd_prog::load_flash_algorithm()
         return ESP_FAIL;
     }
 
-    size_t algo_bin_len = 0;
-    if (fw_mgr->get_algo_bin_len(&algo_bin_len) != ESP_OK) {
+    uint32_t est_algo_len = 0;
+    if (fw_mgr->get_ram_size_byte(&est_algo_len) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read algo bin len");
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < algo_bin_len) {
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < est_algo_len) {
         ESP_LOGE(TAG, "Flash algo is too huge");
         return ESP_ERR_NO_MEM;
     }
 
-    auto *algo_bin = static_cast<uint8_t *>(heap_caps_malloc(algo_bin_len, MALLOC_CAP_INTERNAL));
+    auto *algo_bin = static_cast<uint8_t *>(heap_caps_malloc(est_algo_len, MALLOC_CAP_INTERNAL));
     if (algo_bin == nullptr) {
         ESP_LOGE(TAG, "Failed to allocate flash algo bin buffer");
         return ESP_ERR_NO_MEM;
     }
 
-    if (fw_mgr->get_algo_bin(algo_bin, algo_bin_len) != ESP_OK) {
+    ESP_LOGI(TAG, "Allocated est algo (RAM size) = %lu", est_algo_len);
+    if (fw_mgr->get_algo_bin(algo_bin, est_algo_len, &algo_bin_len) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read algo bin");
         free(algo_bin);
         return ESP_ERR_INVALID_STATE;
@@ -185,7 +186,7 @@ esp_err_t swd_prog::run_algo_uninit(swd_def::init_mode mode)
     return ESP_OK;
 }
 
-esp_err_t swd_prog::init(local_mission_manager *_algo, uint32_t _ram_addr, uint32_t _stack_size_byte)
+esp_err_t swd_prog::init(offline_asset_manager *_algo, uint32_t _ram_addr, uint32_t _stack_size_byte)
 {
     if (_algo == nullptr) {
         ESP_LOGE(TAG, "Flash algorithm container pointer is null");
@@ -227,16 +228,9 @@ esp_err_t swd_prog::init(local_mission_manager *_algo, uint32_t _ram_addr, uint3
     // We are using probe-rs style flash algorithm
     uint32_t offset = 0;
     offset += sizeof(header_blob);
-
     code_start = ram_addr;
 
-    size_t algo_bin_len = 0;
-    if (fw_mgr->get_algo_bin_len(&algo_bin_len) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read algo bin len");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    offset += algo_bin_len;
+    offset += algo_bin_len; // Add the actual algorithm binary length
     stack_offset = ram_addr + offset + stack_size + sizeof(header_blob);
 
     uint32_t data_section_offset = 0;

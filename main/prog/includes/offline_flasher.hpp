@@ -3,7 +3,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 
-#include <local_mission_manager.hpp>
+#include <offline_asset_manager.hpp>
 #include <led_ctrl.hpp>
 #include <esp_err.h>
 #include "swd_prog.hpp"
@@ -39,8 +39,8 @@ public:
 private:
     offline_flasher() = default;
     uint32_t written_len = 0;
-    local_mission_manager &cfg_manager = local_mission_manager::instance();
-    swd_prog &swd = swd_prog::instance();
+    offline_asset_manager *asset = offline_asset_manager::instance();
+    swd_prog *swd = swd_prog::instance();
     display_manager *disp = display_manager::instance();
     volatile flasher::pg_state state = flasher::DETECT;
 

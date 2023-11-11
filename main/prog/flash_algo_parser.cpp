@@ -137,9 +137,9 @@ esp_err_t flash_algo_parser::get_dev_description(flash_algo::dev_description *de
     return ret;
 }
 
-esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, size_t *actual_len)
+esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, size_t *actual_len) const
 {
-    size_t out_len = 0, curr_pos = 0;
+    size_t out_len = 0, curr_pos = 0, actual_len_cnt = 0;
     auto ret = get_section_data(buf_out, ALGO_BIN_CODE_SECTION_NAME, buf_len - curr_pos, &out_len, 0);
 
     if (ret != ESP_OK) {
@@ -154,6 +154,7 @@ esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, si
 
     ESP_LOGI(TAG, "Got PrgCode length: %u", out_len);
 
+    actual_len_cnt += out_len;
     curr_pos += out_len;
     ret = ret ?: get_section_data(buf_out + curr_pos, ALGO_BIN_DATA_SECTION_NAME, buf_len - curr_pos, &out_len, 0);
 
@@ -169,6 +170,7 @@ esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, si
 
     ESP_LOGI(TAG, "Got PrgData length: %u", out_len);
 
+    actual_len_cnt += out_len;
     curr_pos += out_len;
     size_t bss_len = 0;
     ret = ret ?: get_section_length(ALGO_BIN_BSS_SECTION_NAME, &bss_len);
@@ -178,7 +180,13 @@ esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, si
     }
 
     memset(buf_out + curr_pos, 0, bss_len); // Wipe the RAM for BSS
+    actual_len_cnt += bss_len;
     ESP_LOGI(TAG, "Zeroed BSS length = %u", bss_len);
+    ESP_LOGI(TAG, "Total algo bin len = %u", actual_len_cnt);
+
+    if (actual_len != nullptr) {
+        *actual_len = actual_len_cnt;
+    }
 
     return ret;
 }

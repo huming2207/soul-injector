@@ -40,16 +40,16 @@ namespace cfg_def
     };
 }
 
-class local_mission_manager
+class offline_asset_manager
 {
 public:
-    static local_mission_manager& instance()
+    static offline_asset_manager& instance()
     {
-        static local_mission_manager instance;
+        static offline_asset_manager instance;
         return instance;
     }
-    local_mission_manager(local_mission_manager const &) = delete;
-    void operator=(local_mission_manager const &) = delete;
+    offline_asset_manager(offline_asset_manager const &) = delete;
+    void operator=(offline_asset_manager const &) = delete;
 
     esp_err_t init();
     esp_err_t get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len = nullptr);
@@ -95,5 +95,5 @@ private:
     static const constexpr char *TAG = "mission_mgr";
     static const constexpr char *STORAGE_PARTITION_LABEL = "storage";
     bool manifest_loaded = false;
-    local_mission_manager() = default;
+    offline_asset_manager() = default;
 };

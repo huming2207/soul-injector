@@ -17,6 +17,7 @@ esp_err_t nfp114h_panel::init()
     };
 
     auto ret = gpio_config(&pwr_io_cfg);
+    ret = ret ?: gpio_set_level((gpio_num_t)CONFIG_SI_DISP_PANEL_BKL, 0);
     ret = ret ?: gpio_reset_pin((gpio_num_t)CONFIG_SI_DISP_PANEL_IO_CS);
     ret = ret ?: gpio_reset_pin((gpio_num_t)CONFIG_SI_DISP_PANEL_IO_DC);
     ret = ret ?: gpio_reset_pin((gpio_num_t)CONFIG_SI_DISP_PANEL_IO_MOSI);
@@ -83,12 +84,19 @@ esp_err_t nfp114h_panel::init()
     ret = ret ?: esp_lcd_panel_swap_xy(panel_handle, false);
     ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 52, 40); // This is probably wrong - try 40, 53 and 52 combos
     ret = ret ?: send_sequence(LCD_INIT_SEQ, sizeof(LCD_INIT_SEQ) / sizeof(nfp114h::seq_t));
+    ret = ret ?: set_backlight(100);
 
     return ret;
 }
 
 esp_err_t nfp114h_panel::set_backlight(uint8_t level)
 {
+    if (level < 1) {
+        gpio_set_level((gpio_num_t)CONFIG_SI_DISP_PANEL_BKL, 0);
+    } else {
+        gpio_set_level((gpio_num_t)CONFIG_SI_DISP_PANEL_BKL, 1);
+    }
+
     return ESP_OK;
 }
 

@@ -44,5 +44,3 @@ idf_component_register(
             "esp_lcd"
             "wear_levelling"
 )
-
-fatfs_create_spiflash_image("data" "test_data_img" FLASH_IN_PROJECT)

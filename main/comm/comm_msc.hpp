@@ -4,7 +4,7 @@
 #include <freertos/event_groups.h>
 #include <esp_err.h>
 #include <wear_levelling.h>
-#include "tusb_cdc_acm.h"
+#include "tusb_msc_storage.h"
 
 namespace comm
 {
@@ -35,7 +35,7 @@ public:
     esp_err_t mount_and_stop_msc();
 
 private:
-    wl_handle_t wl_handle = WL_INVALID_HANDLE;
+    tinyusb_msc_spiflash_config_t spiflash_cfg = {};
     const esp_partition_t *data_part = nullptr;
     EventGroupHandle_t msc_evt_group = nullptr;
 
@@ -46,5 +46,4 @@ private:
     static const constexpr char USB_DESC_MANUFACTURER[] = "Jackson M Hu";
     static const constexpr char USB_DESC_PRODUCT[] = "Soul Injector";
     static const constexpr char USB_DESC_CDC_NAME[] = "Soul Injector Programmer";
-    static const tinyusb_cdcacm_itf_t CDC_CHANNEL = TINYUSB_CDC_ACM_0;
 };

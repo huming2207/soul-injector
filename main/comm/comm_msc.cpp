@@ -2,8 +2,6 @@
 #include <tusb_console.h>
 #include "tusb_msc_storage.h"
 #include "tinyusb.h"
-#include <tusb_cdc_acm.h>
-#include <tusb_console.h>
 #include <esp_mac.h>
 #include <esp_flash.h>
 
@@ -15,20 +13,19 @@ esp_err_t comm_msc::init()
         return ESP_ERR_NOT_FOUND;
     }
 
+    wl_handle_t wl_handle = WL_INVALID_HANDLE;
     auto ret = wl_mount(data_part, &wl_handle);
     if (ret != ESP_OK) {
         ESP_LOGI(TAG, "Wear level mount error: 0x%x", ret);
         return ret;
     }
 
-    ESP_LOGI(TAG, "Mount data partition");
-    const tinyusb_msc_spiflash_config_t spiflash_cfg = {
-            .wl_handle = wl_handle,
-            .callback_mount_changed = nullptr,
-            .callback_premount_changed = nullptr
-    };
+    ESP_LOGI(TAG, "Mount data partition, wl handle = %ld", wl_handle);
+    spiflash_cfg.wl_handle = wl_handle;
 
     ret = tinyusb_msc_storage_init_spiflash(&spiflash_cfg);
+
+    ESP_LOGI(TAG, "Start mount");
     ret = ret ?: tinyusb_msc_storage_mount(PART_PATH);
 
     if (ret != ESP_OK) {
@@ -52,7 +49,7 @@ esp_err_t comm_msc::init()
     tinyusb_config_t tusb_cfg = {}; // the configuration using default values
     tusb_cfg.string_descriptor = (const char **)desc_str;
     tusb_cfg.device_descriptor = nullptr;
-    tusb_cfg.self_powered = false;
+    tusb_cfg.self_powered = true;
     tusb_cfg.external_phy = false;
     tusb_cfg.string_descriptor_count = sizeof(desc_str) / sizeof(desc_str[0]);
 

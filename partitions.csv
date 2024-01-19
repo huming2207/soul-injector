@@ -1,4 +1,4 @@
 phy_init,data,phy,0x9000,4K,
-factory,app,factory,0x10000,1M,
+factory,app,factory,0x10000,2M,
 nvs,data,nvs,,256K,
-data,data,fat,,6M,
+data,data,fat,,5M,

@@ -145,33 +145,26 @@ void offline_flasher::on_self_test()
 {
     ESP_LOGI(TAG, "Run self test");
 
-    // TODO: just testing
-    uint32_t func_ret = UINT32_MAX;
-    auto ret = swd->self_test(0x004, nullptr, 0, &func_ret);
-    if (ret == ESP_ERR_NOT_SUPPORTED) {
-        ESP_LOGW(TAG, "No self test config found, skipping");
-        state = flasher::DONE;
-        return;
-    } else if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Self test failed, host returned 0x%x, function returned 0x%lx", ret, func_ret);
-        state = flasher::ERROR;
-        return;
+    const std::vector<flash_algo::test_item> &items = asset->get_test_items();
+    for (auto &item : items) {
+        uint32_t func_ret = UINT32_MAX;
+        auto ret = swd->self_test(item.id, nullptr, 0, &func_ret);
+        if (ret == ESP_ERR_NOT_SUPPORTED) {
+            ESP_LOGW(TAG, "No self test config found, skipping");
+            state = flasher::DONE;
+            return;
+        } else if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Self test failed, host returned 0x%x, function returned 0x%lx", ret, func_ret);
+            state = flasher::ERROR;
+            return;
+        }
+
+        if (item.type == flash_algo::INTERNAL_SIMPLE_TEST) {
+
+        }
+
+        ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
     }
-
-    ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
-
-    ret = swd->self_test(0x003, nullptr, 0, &func_ret);
-    if (ret == ESP_ERR_NOT_SUPPORTED) {
-        ESP_LOGW(TAG, "No self test config found, skipping");
-        state = flasher::DONE;
-        return;
-    } else if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Self test failed, host returned 0x%x, function returned 0x%lx", ret, func_ret);
-        state = flasher::ERROR;
-        return;
-    }
-
-    ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
 
     swd_prog::trigger_nrst();
 

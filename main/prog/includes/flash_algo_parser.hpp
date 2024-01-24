@@ -23,6 +23,13 @@ struct imemstream: virtual membuf, std::istream
 
 namespace flash_algo
 {
+    enum self_test_type : uint8_t
+    {
+        INTERNAL_SIMPLE_TEST = 0,
+        INTERNAL_EXTEND_TEST = 1,
+        EXTERNAL_TEST = 2,
+    };
+
     struct __attribute__((packed)) flash_sector
     {
         uint32_t size;
@@ -45,7 +52,8 @@ namespace flash_algo
 
     struct __attribute__((packed)) test_item
     {
-        uint32_t id;
+        self_test_type type;
+        uint16_t id;
         char name[32];
     };
 

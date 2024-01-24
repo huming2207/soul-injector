@@ -64,12 +64,12 @@ esp_err_t flash_algo_parser::get_test_description(flash_algo::test_description *
         memcpy(&item, item_ptr, sizeof(flash_algo::test_item));
         item.name[sizeof(item.name) - 1] = '\0';
 
-        if (item.id == UINT32_MAX) {
+        if (item.id == UINT16_MAX) {
             ESP_LOGI(TAG, "End of test item detected, got %u items", test_items.size());
             break;
         }
 
-        ESP_LOGI(TAG, "Found test item ID=%ld: \"%s\"", item.id, item.name);
+        ESP_LOGI(TAG, "Found test item ID=%u: \"%s\"", item.id, item.name);
         test_items.emplace_back(item);
 
         item_left_size -= sizeof(flash_algo::test_item);

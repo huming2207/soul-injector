@@ -7,7 +7,6 @@
 #include <led_ctrl.hpp>
 #include <esp_err.h>
 #include "swd_prog.hpp"
-#include "cdc_acm.hpp"
 #include "display_manager.hpp"
 
 namespace flasher

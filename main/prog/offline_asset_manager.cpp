@@ -178,3 +178,8 @@ esp_err_t offline_asset_manager::get_algo_crc(uint32_t *out)
 {
     return ESP_OK;
 }
+
+std::vector<flash_algo::test_item> &offline_asset_manager::get_test_items()
+{
+    return test_items;
+}

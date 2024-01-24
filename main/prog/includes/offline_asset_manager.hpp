@@ -41,6 +41,9 @@ public:
     esp_err_t get_sector_size(uint32_t *out) const;
     esp_err_t get_fw_crc(uint32_t *out);
     esp_err_t get_algo_crc(uint32_t *out);
+    std::vector<flash_algo::test_item> &get_test_items();
+
+
 
     static const constexpr char BASE_PATH[] = "/data";
     static const constexpr char ALGO_ELF_PATH[] = "/data/algo.elf";

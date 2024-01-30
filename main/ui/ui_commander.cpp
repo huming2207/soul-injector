@@ -39,8 +39,8 @@ esp_err_t ui_commander::display_flash(ui_state::flash_screen *screen)
 {
     ui_state::queue_item item = {};
     item.state = ui_state::STATE_FLASH;
-    item.total_count = 100;
-    item.percentage = screen->percentage;
+    strncpy(item.comment, screen->subtitle, sizeof(ui_state::queue_item::comment));
+    item.comment[sizeof(ui_state::queue_item::comment) - 1] = '\0';
 
     xQueueSend(task_queue, &item, portMAX_DELAY);
     return ESP_OK;

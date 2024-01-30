@@ -11,7 +11,7 @@
 esp_err_t offline_flasher::init()
 {
     auto ret = disp->init();
-
+    ret = ret ?: ui_cmder->init();
 
     if (ret != ESP_OK) return ret;
 
@@ -65,24 +65,29 @@ void offline_flasher::on_error()
 void offline_flasher::on_erase()
 {
     ESP_LOGI(TAG, "Erasing");
+    ui_cmder->display_chip_erase();
     uint32_t start_addr = 0, end_addr = 0;
     auto ret = asset->get_flash_start_addr(&start_addr);
     ret = ret ?: asset->get_flash_end_addr(&end_addr);
     if (ret != ESP_OK) {
+        ui_state::error_screen error = {};
+        strcpy(error.subtitle, "No flash address");
+        ui_cmder->display_error(&error);
+
+        state = flasher::ERROR;
         ESP_LOGE(TAG, "Failed to read flash addresses");
     } else {
         ret = swd->erase_chip();
         if (ret != ESP_OK) {
             ret = swd->erase_sector(start_addr, end_addr);
         }
-    }
 
-    if (ret != ESP_OK) {
-        for (uint32_t idx = 0; idx < 32; idx++) {
-            on_error();
+        if (ret != ESP_OK) {
+            ui_state::error_screen error = {};
+            snprintf(error.subtitle, sizeof(error.subtitle), "Erase failed\nCode: 0x%x", ret);
+            ui_cmder->display_error(&error);
+            state = flasher::ERROR;
         }
-
-        state = flasher::DETECT;
     }
 
     state = flasher::PROGRAM;
@@ -91,8 +96,14 @@ void offline_flasher::on_erase()
 void offline_flasher::on_program()
 {
     int64_t ts = esp_timer_get_time();
+
+    ui_state::flash_screen flash = {};
+    ui_cmder->display_flash(&flash);
     auto ret = swd->program_file(offline_asset_manager::FIRMWARE_PATH, &written_len);
     if (ret != ESP_OK) {
+        ui_state::error_screen error = {};
+        snprintf(error.subtitle, sizeof(error.subtitle), "Prog failed\nCode: 0x%x", ret);
+        ui_cmder->display_error(&error);
         state = flasher::ERROR;
     } else {
         ts = esp_timer_get_time() - ts;
@@ -108,7 +119,7 @@ void offline_flasher::on_detect()
     ESP_LOGI(TAG, "Detecting");
     auto ret = swd->init(asset);
     while (ret != ESP_OK) {
-        on_error();
+        ui_cmder->display_init();
         ESP_LOGE(TAG, "Detect failed, retrying");
         ret = swd->init(asset);
     }
@@ -118,7 +129,7 @@ void offline_flasher::on_detect()
 
 void offline_flasher::on_done()
 {
-
+    ui_cmder->display_done();
 }
 
 void offline_flasher::on_verify()
@@ -129,8 +140,17 @@ void offline_flasher::on_verify()
         return;
     }
 
-    if (swd->verify(crc, UINT32_MAX, written_len) != ESP_OK) {
+    ui_state::test_screen test = {};
+    test.done_test = 0;
+    test.total_test = 0;
+    strcpy(test.subtitle, "Verify prog");
+    ui_cmder->display_test(&test);
+    auto ret = swd->verify(crc, UINT32_MAX, written_len);
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to verify!");
+        ui_state::error_screen error = {};
+        snprintf(error.subtitle, sizeof(error.subtitle), "Verify failed\nCode: 0x%x", ret);
+        ui_cmder->display_error(&error);
         state = flasher::ERROR;
     } else {
         ESP_LOGI(TAG, "Firmware verified");
@@ -144,24 +164,31 @@ void offline_flasher::on_self_test()
     ESP_LOGI(TAG, "Run self test");
 
     const std::vector<flash_algo::test_item> &items = asset->get_test_items();
-    for (auto &item : items) {
-        uint32_t func_ret = UINT32_MAX;
-        auto ret = swd->self_test(item.id, nullptr, 0, &func_ret);
-        if (ret == ESP_ERR_NOT_SUPPORTED) {
-            ESP_LOGW(TAG, "No self test config found, skipping");
-            state = flasher::DONE;
-            return;
-        } else if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "Self test failed, host returned 0x%x, function returned 0x%lx", ret, func_ret);
-            state = flasher::ERROR;
-            return;
+    for (size_t idx = 0; idx < items.size(); idx += 1) {
+        ui_state::test_screen test = {};
+        test.total_test = items.size();
+        test.done_test = idx;
+        ui_cmder->display_test(&test);
+
+        if (items[idx].type == flash_algo::INTERNAL_SIMPLE_TEST) {
+            uint32_t func_ret = UINT32_MAX;
+            auto ret = swd->self_test(items[idx].id, nullptr, 0, &func_ret);
+            ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
+            if (ret == ESP_ERR_NOT_SUPPORTED) {
+                ESP_LOGW(TAG, "No self test config found, skipping");
+                state = flasher::DONE;
+                return;
+            } else if (ret != ESP_OK) {
+                ESP_LOGW(TAG, "Self test failed, host returned 0x%x, function returned 0x%lx", ret, func_ret);
+                state = flasher::ERROR;
+                return;
+            }
+        } else if (items[idx].type == flash_algo::INTERNAL_EXTEND_TEST) {
+            ESP_LOGW(TAG, "Unsupported InternalExtendTest type!");
+        } else if (items[idx].type == flash_algo::EXTERNAL_TEST) {
+            ESP_LOGW(TAG, "Unsupported ExternalTest type!");
         }
 
-        if (item.type == flash_algo::INTERNAL_SIMPLE_TEST) {
-
-        }
-
-        ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
     }
 
     swd_prog::trigger_nrst();

@@ -117,7 +117,7 @@ esp_err_t ui_composer_114::draw_flash(ui_state::queue_item *screen)
     }
 
     lv_label_set_text(top_label, "FLASH");
-    lv_label_set_text_fmt(bottom_label, "%d%%", screen->percentage);
+    lv_label_set_text(bottom_label, screen->comment);
     lv_obj_set_style_bg_color(bottom_sect, lv_color_make(226, 220, 0), 0); // Dark ish yellow
     return ESP_OK;
 }

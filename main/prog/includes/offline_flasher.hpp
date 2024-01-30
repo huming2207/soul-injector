@@ -40,7 +40,9 @@ private:
     uint32_t written_len = 0;
     offline_asset_manager *asset = offline_asset_manager::instance();
     swd_prog *swd = swd_prog::instance();
+
     display_manager *disp = display_manager::instance();
+    ui_commander *ui_cmder = ui_commander::instance();
     volatile flasher::pg_state state = flasher::DETECT;
 
     static const constexpr char *TAG = "local_flasher";

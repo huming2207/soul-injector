@@ -9,7 +9,9 @@ idf_component_register(
             "prog/self_test_runner.cpp" "prog/includes/self_test_runner.hpp"
             "misc/includes/file_utils.hpp"
             "comm/comm_msc.cpp" "comm/comm_msc.hpp"
+            "comm/wifi_manager.cpp" "comm/wifi_manager.hpp"
             "misc/includes/psram_json_allocator.hpp"
+            "misc/config_loader.cpp" "misc/includes/config_loader.hpp"
             "driver/button_manager.cpp" "driver/button_manager.hpp"
             "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
             "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
@@ -44,4 +46,5 @@ idf_component_register(
             "arduino_json"
             "esp_lcd"
             "wear_levelling"
+            "esp_wifi"
 )

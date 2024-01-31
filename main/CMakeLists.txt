@@ -12,6 +12,7 @@ idf_component_register(
             "comm/wifi_manager.cpp" "comm/wifi_manager.hpp"
             "misc/includes/psram_json_allocator.hpp"
             "misc/config_loader.cpp" "misc/includes/config_loader.hpp"
+            "misc/includes/json_file_reader.hpp"
             "driver/button_manager.cpp" "driver/button_manager.hpp"
             "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
             "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
@@ -20,6 +21,7 @@ idf_component_register(
             "ui/ui_if.hpp"
             "ui/ui_composer_114.cpp" "ui/ui_composer_114.hpp"
             "ui/ui_commander.cpp" "ui/ui_commander.hpp"
+
 
         INCLUDE_DIRS
             "."

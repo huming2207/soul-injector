@@ -1,6 +1,7 @@
 #include <esp_wifi.h>
 #include <esp_log.h>
 #include "wifi_manager.hpp"
+#include "config_loader.hpp"
 
 esp_err_t wifi_manager::init()
 {
@@ -24,7 +25,7 @@ esp_err_t wifi_manager::init()
     }
 
     wifi_config_t wifi_cfg = {};
-
+    config::wifi_cred wifi_cred = {};
 
     return ret;
 }

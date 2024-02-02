@@ -2,6 +2,7 @@
 
 #define ARDUINOJSON_ENABLE_STRING_VIEW 1
 #include <ArduinoJson.hpp>
+#include <esp_wifi_types.h>
 
 namespace config
 {
@@ -26,7 +27,7 @@ public:
 
 public:
     esp_err_t load();
-    esp_err_t get_wifi_cred(config::wifi_cred *cred);
+    esp_err_t get_wifi_cred(wifi_config_t *cred);
 
 private:
     config_loader() = default;

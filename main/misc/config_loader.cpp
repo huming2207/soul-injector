@@ -22,7 +22,7 @@ esp_err_t config_loader::load()
     return ESP_OK;
 }
 
-esp_err_t config_loader::get_wifi_cred(config::wifi_cred *cred)
+esp_err_t config_loader::get_wifi_cred(wifi_config_t *cred)
 {
     if (cred == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -30,7 +30,7 @@ esp_err_t config_loader::get_wifi_cred(config::wifi_cred *cred)
 
     const char *ssid_str = json_doc["wifi"]["ssid"];
     if (ssid_str != nullptr) {
-        strncpy(cred->ssid, ssid_str, sizeof(config::wifi_cred::ssid));
+        strncpy((char *)cred->sta.ssid, ssid_str, sizeof(wifi_sta_config_t::ssid));
     } else {
         ESP_LOGE(TAG, "No SSID found!");
         return ESP_ERR_NOT_FINISHED;
@@ -38,7 +38,7 @@ esp_err_t config_loader::get_wifi_cred(config::wifi_cred *cred)
 
     const char *pwd_str = json_doc["wifi"]["pwd"];
     if (pwd_str != nullptr) {
-        strncpy(cred->ssid, pwd_str, sizeof(config::wifi_cred::password));
+        strncpy((char *)cred->sta.password, ssid_str, sizeof(wifi_sta_config_t::password));
     }
 
     return ESP_OK;

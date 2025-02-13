@@ -15,7 +15,6 @@ public:
 
 private:
     lv_obj_t *base_obj = nullptr;
-    lv_obj_t *progress_bar = nullptr;
     lv_obj_t *header_label = nullptr;
     lv_obj_t *comment_label = nullptr;
 };

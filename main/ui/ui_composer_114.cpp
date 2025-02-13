@@ -90,10 +90,11 @@ esp_err_t ui_composer_114::display_test(uint8_t percentage, const char *test_msg
             return ESP_ERR_NO_MEM;
         } else {
             screen_state = ui_screen::PROGRESS;
-            progress_screen.set_header_text("TESTING");
-            progress_screen.set_progress_bar_color(lv_color_make(0xcb, 0xc3, 0xe3), lv_color_white()); // Light purple + white
         }
     }
+
+    progress_screen.set_header_text("TESTING");
+    progress_screen.set_progress_bar_color(lv_color_make(0xcb, 0xc3, 0xe3), lv_color_white()); // Light purple + white
 
     if (test_msg == nullptr) {
         char comment[32] = { 0 };
@@ -175,7 +176,7 @@ esp_err_t ui_composer_114::display_done()
 
     msg_screen.set_header_text("DONE");
     msg_screen.set_comment_text("Move to next one");
-    msg_screen.set_color(lv_color_make(0x88, 0xe7, 0x88), lv_color_black());
+    msg_screen.set_color(lv_color_make(0x10, 0xf0, 0x10), lv_color_black());
 
     set_ready();
     return ESP_OK;
@@ -198,9 +199,9 @@ esp_err_t ui_composer_114::display_error(const char *header, const char *err_msg
         }
     }
 
-    msg_screen.set_header_text("DONE");
-    msg_screen.set_comment_text("Move to next one");
-    msg_screen.set_color(lv_color_make(0x88, 0xe7, 0x88), lv_color_black());
+    msg_screen.set_header_text(header);
+    msg_screen.set_comment_text(err_msg);
+    msg_screen.set_color(lv_color_make(0xff, 0x10, 0x10), lv_color_black());
 
     set_ready();
     return ESP_OK;
@@ -261,7 +262,7 @@ esp_err_t ui_composer_114::display_current(float current_ua, float energy_mc, co
     return ESP_OK;
 }
 
-void ui_composer_114::wait_and_render()
+void ui_composer_114::wait_and_start_render()
 {
     xEventGroupWaitBits(evt_group, BIT_READY, pdTRUE, pdFALSE, portMAX_DELAY);
     xEventGroupClearBits(evt_group, BIT_NOT_RENDERING);
@@ -275,6 +276,8 @@ esp_err_t ui_composer_114::init()
         return ESP_ERR_NO_MEM;
     }
 
+    xEventGroupClearBits(evt_group, BIT_READY);
+    xEventGroupSetBits(evt_group, BIT_NOT_RENDERING);
     return ESP_OK;
 }
 
@@ -287,6 +290,16 @@ void ui_composer_114::reload_base_obj()
     }
 
     base_obj = lv_obj_create(lv_scr_act());
+    lv_obj_set_pos(base_obj, 0, 0);
+    lv_obj_set_size(base_obj, 240, 135);
+    lv_obj_set_style_bg_color(base_obj, lv_color_hex(0xff000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_left(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_right(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_top(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_bottom(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(base_obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
 void ui_composer_114::set_ready() const

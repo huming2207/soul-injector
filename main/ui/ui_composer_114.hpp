@@ -14,19 +14,19 @@ class ui_composer_114 : public ui_composer
 public:
     ui_composer_114() = default;
 
-    esp_err_t init();
-    esp_err_t display_init();
-    esp_err_t display_erase(uint8_t percentage);
-    esp_err_t display_test(uint8_t percentage, const char *test_msg);
-    esp_err_t display_program(uint8_t percentage);
-    esp_err_t display_done();
-    esp_err_t display_error(const char *header, const char *err_msg);
-    esp_err_t display_config();
-    esp_err_t display_current(float current_ua, float energy_mc, const char *state, lv_color_t state_color);
+    esp_err_t init() override;
+    esp_err_t display_init() override;
+    esp_err_t display_erase(uint8_t percentage) override;
+    esp_err_t display_test(uint8_t percentage, const char *test_msg) override;
+    esp_err_t display_program(uint8_t percentage) override;
+    esp_err_t display_done() override;
+    esp_err_t display_error(const char *header, const char *err_msg) override;
+    esp_err_t display_config() override;
+    esp_err_t display_current(float current_ua, float energy_mc, const char *state, lv_color_t state_color) override;
 
     esp_err_t wait_for_ui_mod(uint32_t wait_ticks = pdMS_TO_TICKS(1000)) const;
 
-    void wait_and_render() override;
+    void wait_and_start_render() override;
     void render_done() override;
     void reload_base_obj();
     void set_ready() const;

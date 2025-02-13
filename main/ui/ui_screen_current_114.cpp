@@ -9,38 +9,40 @@ esp_err_t ui_screen_current_114::init(lv_obj_t *_base_obj)
 
     base_obj = _base_obj;
 
+    lv_obj_set_style_bg_color(base_obj, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(base_obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     header_label = lv_label_create(base_obj);
     if (header_label == nullptr) {
         return ESP_ERR_NO_MEM;
     }
 
     lv_obj_set_pos(header_label, 0, 0);
-    lv_obj_set_size(header_label, 240, LV_SIZE_CONTENT);
+    lv_obj_set_size(header_label, 240, 36);
     lv_label_set_text(header_label, "Current Test");
     lv_obj_set_style_text_align(header_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(header_label, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(header_label, &lv_font_montserrat_32, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     current_label = lv_label_create(base_obj);
     if (current_label == nullptr) {
         return ESP_ERR_NO_MEM;
     }
 
-    lv_obj_set_pos(current_label, 0, 20);
-    lv_obj_set_size(current_label, 240, 32);
+    lv_obj_set_pos(current_label, 0, 50);
+    lv_obj_set_size(current_label, 240, 18);
     lv_label_set_text(current_label, "0.000000 uA");
     lv_obj_set_style_text_align(current_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(current_label, &lv_font_montserrat_28, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(current_label, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     energy_label = lv_label_create(base_obj);
     if (energy_label == nullptr) {
         return ESP_ERR_NO_MEM;
     }
 
-    lv_obj_set_pos(energy_label, 0, 56);
-    lv_obj_set_size(energy_label, 240, 31);
+    lv_obj_set_pos(energy_label, 0, 68);
+    lv_obj_set_size(energy_label, 240, 18);
     lv_label_set_text(energy_label, "123456.789 mC");
     lv_obj_set_style_text_align(energy_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(energy_label, &lv_font_montserrat_28, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(energy_label, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     state_label = lv_label_create(base_obj);
     if (state_label == nullptr) {

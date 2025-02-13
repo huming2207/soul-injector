@@ -10,6 +10,9 @@
 #include "disp_panel_if.hpp"
 #include "nfp114h_panel.hpp"
 #include "ui_composer_114.hpp"
+#include "ui_screen_current_114.hpp"
+#include "ui_screen_message_114.hpp"
+#include "ui_screen_progress_114.hpp"
 
 class display_manager
 {
@@ -54,6 +57,6 @@ private:
     StackType_t *lv_ui_task_stack_buf = nullptr;
     TaskHandle_t lv_ui_task_handle = nullptr;
     esp_timer_handle_t timer_handle = nullptr;
-    QueueHandle_t ui_queue = nullptr;
+    ui_screen::state ui_state = ui_screen::CLEAR;
 
 };

@@ -12,22 +12,16 @@ esp_err_t display_manager::init()
         return ret;
     }
 
-    ui_queue = xQueueCreate(3, sizeof(ui_state::queue_item));
-    if (ui_queue == nullptr) {
-        ESP_LOGE(TAG, "Failed to set up UI queue");
+    disp_buf_a = static_cast<uint8_t *>(heap_caps_malloc(CONFIG_SI_DISP_PANEL_BUFFER_SIZE * sizeof(lv_color_t), (MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM)));
+    if (disp_buf_a == nullptr) {
+        ESP_LOGE(TAG, "Failed to allocate display buffer A");
         deinit();
         return ESP_ERR_NO_MEM;
     }
 
-    disp_buf_a = static_cast<uint8_t *>(heap_caps_malloc(CONFIG_SI_DISP_PANEL_BUFFER_SIZE * sizeof(lv_color_t), MALLOC_CAP_DMA));
-    if (disp_buf_a == nullptr) {
-        ESP_LOGE(TAG, "Failed to allocate display buffer");
-        return ESP_ERR_NO_MEM;
-    }
-
-    disp_buf_b = static_cast<uint8_t *>(heap_caps_malloc(CONFIG_SI_DISP_PANEL_BUFFER_SIZE * sizeof(lv_color_t), MALLOC_CAP_DMA));
+    disp_buf_b = static_cast<uint8_t *>(heap_caps_malloc(CONFIG_SI_DISP_PANEL_BUFFER_SIZE * sizeof(lv_color_t), (MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM)));
     if (disp_buf_b == nullptr) {
-        ESP_LOGE(TAG, "Failed to allocate display buffer");
+        ESP_LOGE(TAG, "Failed to allocate display buffer B");
         deinit();
         return ESP_ERR_NO_MEM;
     }
@@ -77,13 +71,6 @@ esp_err_t display_manager::init()
         return ESP_ERR_NO_MEM;
     }
 
-    ret = composer.init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set up UI composer: 0x%x", ret);
-        deinit();
-        return ret;
-    }
-
     ESP_LOGI(TAG, "UI task init OK");
 
     return ret;
@@ -107,7 +94,7 @@ void display_manager::lv_ui_task(void *_ctx)
 
     auto *disp = ctx->get_panel()->get_lv_disp();
     while (true) {
-        ctx->composer.wait_and_draw();
+        ctx->composer.wait_and_render();
         do {
             ESP_LOGD(TAG, "UI: before handle: inv_p %u %lu", disp->inv_p, disp->inv_en_cnt);
             uint32_t next_delay = lv_task_handler();
@@ -117,11 +104,6 @@ void display_manager::lv_ui_task(void *_ctx)
 
         vTaskDelay(1);
     }
-}
-
-QueueHandle_t display_manager::get_ui_queue()
-{
-    return ui_queue;
 }
 
 void display_manager::deinit()
@@ -148,10 +130,5 @@ void display_manager::deinit()
     if (lv_ui_task_stack_buf != nullptr) {
         free(lv_ui_task_stack_buf);
         lv_ui_task_stack_buf = nullptr;
-    }
-
-    if (ui_queue != nullptr) {
-        vQueueDelete(ui_queue);
-        ui_queue = nullptr;
     }
 }

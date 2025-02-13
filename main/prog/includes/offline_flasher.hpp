@@ -42,7 +42,7 @@ private:
     swd_prog *swd = swd_prog::instance();
 
     display_manager *disp = display_manager::instance();
-    ui_commander *ui_cmder = ui_commander::instance();
+    ui_composer *composer = nullptr;
     volatile flasher::pg_state state = flasher::DETECT;
 
     static const constexpr char *TAG = "local_flasher";

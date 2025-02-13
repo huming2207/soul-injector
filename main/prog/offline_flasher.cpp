@@ -11,9 +11,8 @@
 esp_err_t offline_flasher::init()
 {
     auto ret = disp->init();
-    ret = ret ?: ui_cmder->init();
-
     if (ret != ESP_OK) return ret;
+    composer = disp->get_composer();
 
     while (true) {
         switch (state) {
@@ -65,15 +64,12 @@ void offline_flasher::on_error()
 void offline_flasher::on_erase()
 {
     ESP_LOGI(TAG, "Erasing");
-    ui_cmder->display_chip_erase();
+    composer->display_erase(UINT8_MAX);
     uint32_t start_addr = 0, end_addr = 0;
     auto ret = asset->get_flash_start_addr(&start_addr);
     ret = ret ?: asset->get_flash_end_addr(&end_addr);
     if (ret != ESP_OK) {
-        ui_state::error_screen error = {};
-        strcpy(error.comment, "No flash address");
-        ui_cmder->display_error(&error);
-
+        composer->display_error("CFG ERROR", "Flash address\nnot provided");
         state = flasher::ERROR;
         ESP_LOGE(TAG, "Failed to read flash addresses");
     } else {
@@ -83,9 +79,7 @@ void offline_flasher::on_erase()
         }
 
         if (ret != ESP_OK) {
-            ui_state::error_screen error = {};
-            snprintf(error.comment, sizeof(error.comment), "Erase failed\nCode: 0x%x", ret);
-            ui_cmder->display_error(&error);
+            composer->display_error("ERROR", "Cannot erase target!\nPlease try again!");
             state = flasher::ERROR;
         }
     }
@@ -97,13 +91,10 @@ void offline_flasher::on_program()
 {
     int64_t ts = esp_timer_get_time();
 
-    ui_state::flash_screen flash = {};
-    ui_cmder->display_flash(&flash);
     auto ret = swd->program_file(fw_asset_manager::FIRMWARE_PATH, &written_len);
     if (ret != ESP_OK) {
-        ui_state::error_screen error = {};
-        snprintf(error.comment, sizeof(error.comment), "Prog failed\nCode: 0x%x", ret);
-        ui_cmder->display_error(&error);
+        composer->display_error("ERROR", "Cannot program target!\nPlease try again!");
+        //ui_cmder->display_error(&error);
         state = flasher::ERROR;
     } else {
         ts = esp_timer_get_time() - ts;
@@ -117,9 +108,10 @@ void offline_flasher::on_program()
 void offline_flasher::on_detect()
 {
     ESP_LOGI(TAG, "Detecting");
+
+    composer->display_init();
     auto ret = swd->init(asset);
     while (ret != ESP_OK) {
-        ui_cmder->display_init();
         ESP_LOGE(TAG, "Detect failed, retrying");
         ret = swd->init(asset);
     }
@@ -129,29 +121,19 @@ void offline_flasher::on_detect()
 
 void offline_flasher::on_done()
 {
-    ui_cmder->display_done();
+    composer->display_done();
 }
 
 void offline_flasher::on_verify()
 {
     uint32_t crc = 0;
-    // TODO: move to normal memcmp()
-//    if (fw_asset_manager::instance()->get_fw_crc(&crc) != ESP_OK) {
-//        state = flasher::ERROR;
-//        return;
-//    }
 
-    ui_state::test_screen test = {};
-    test.done_test = 0;
-    test.total_test = 0;
-    strcpy(test.subtitle, "Verify prog");
-    ui_cmder->display_test(&test);
+    composer->display_program(100);
+    //ui_cmder->display_test(&test);
     auto ret = swd->verify(crc, UINT32_MAX, written_len);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to verify!");
-        ui_state::error_screen error = {};
-        snprintf(error.comment, sizeof(error.comment), "Verify failed\nCode: 0x%x", ret);
-        ui_cmder->display_error(&error);
+        composer->display_error("ERROR", "Failed to verify\nPlease try again");
         state = flasher::ERROR;
     } else {
         ESP_LOGI(TAG, "Firmware verified");
@@ -166,10 +148,7 @@ void offline_flasher::on_self_test()
 
     const std::vector<flash_algo::test_item> &items = asset->get_test_items();
     for (size_t idx = 0; idx < items.size(); idx += 1) {
-        ui_state::test_screen test = {};
-        test.total_test = items.size();
-        test.done_test = idx;
-        ui_cmder->display_test(&test);
+        composer->display_test(idx, (items.size() - 1), nullptr);
 
         if (items[idx].type == flash_algo::INTERNAL_SIMPLE_TEST) {
             uint32_t func_ret = UINT32_MAX;
@@ -181,6 +160,9 @@ void offline_flasher::on_self_test()
                 return;
             } else if (ret != ESP_OK) {
                 ESP_LOGW(TAG, "Self test failed, host returned 0x%x, function returned 0x%lx", ret, func_ret);
+                char msg[64] = { 0 };
+                snprintf(msg, sizeof(msg), "Test failed at\n%u of %u ID %u;\n%s", idx, items.size(), items[idx].id, items[idx].name);
+                composer->display_error("ERROR", msg);
                 state = flasher::ERROR;
                 return;
             }

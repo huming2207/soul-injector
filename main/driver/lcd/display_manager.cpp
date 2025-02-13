@@ -73,6 +73,13 @@ esp_err_t display_manager::init()
 
     ESP_LOGI(TAG, "UI task init OK");
 
+    ret = composer.init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set up UI composer 0x%x", ret);
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "Composer init OK");
     return ret;
 }
 
@@ -94,14 +101,15 @@ void display_manager::lv_ui_task(void *_ctx)
 
     auto *disp = ctx->get_panel()->get_lv_disp();
     while (true) {
-        ctx->composer.wait_and_render();
+        ctx->composer.wait_and_start_render();
         do {
-            ESP_LOGD(TAG, "UI: before handle: inv_p %u %lu", disp->inv_p, disp->inv_en_cnt);
+            ESP_LOGI(TAG, "UI: before handle: inv_p %u %lu", disp->inv_p, disp->inv_en_cnt);
             uint32_t next_delay = lv_task_handler();
             ESP_LOGI(TAG, "UI: wait %lu, inv_p %u last act %lu", next_delay, disp->inv_p, disp->last_activity_time);
             vTaskDelay(1);
         } while (disp->inv_p > 0);
 
+        ctx->composer.render_done();
         vTaskDelay(1);
     }
 }
@@ -131,4 +139,9 @@ void display_manager::deinit()
         free(lv_ui_task_stack_buf);
         lv_ui_task_stack_buf = nullptr;
     }
+}
+
+ui_composer *display_manager::get_composer()
+{
+    return &composer;
 }

@@ -29,7 +29,7 @@ public:
     esp_err_t init();
     void deinit();
     disp_panel_if *get_panel();
-    QueueHandle_t get_ui_queue();
+    ui_composer *get_composer();
 
 private:
     static void IRAM_ATTR lv_tick_cb(void *arg);

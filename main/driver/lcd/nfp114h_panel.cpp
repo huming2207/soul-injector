@@ -47,7 +47,7 @@ esp_err_t nfp114h_panel::init()
     io_cfg.cs_gpio_num = CONFIG_SI_DISP_PANEL_IO_CS;
 
 #ifndef CONFIG_SI_DISP_SLOW_CLK
-    io_cfg.pclk_hz = SPI_MASTER_FREQ_26M;
+    io_cfg.pclk_hz = SPI_MASTER_FREQ_40M;
 #else
     io_cfg.pclk_hz = SPI_MASTER_FREQ_8M;
 #endif
@@ -81,8 +81,9 @@ esp_err_t nfp114h_panel::init()
     ret = ret ?: esp_lcd_panel_init(panel_handle);
     ret = ret ?: esp_lcd_panel_disp_on_off(panel_handle, true);
     ret = ret ?: esp_lcd_panel_invert_color(panel_handle, true);
-    ret = ret ?: esp_lcd_panel_swap_xy(panel_handle, false);
-    ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 52, 40); // This is probably wrong - try 40, 53 and 52 combos
+    ret = ret ?: esp_lcd_panel_swap_xy(panel_handle, true); // Horizontal = true, Vertical = false
+    ret = ret ?: esp_lcd_panel_mirror(panel_handle, true, false);
+    ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 40, 53); // 52 & 40 for vertical, 40 & 53 for horizontal
     ret = ret ?: send_sequence(LCD_INIT_SEQ, sizeof(LCD_INIT_SEQ) / sizeof(nfp114h::seq_t));
     ret = ret ?: set_backlight(100);
 
@@ -118,12 +119,12 @@ esp_err_t nfp114h_panel::deinit()
 
 size_t nfp114h_panel::get_hor_size() const
 {
-    return 135;
+    return 240;
 }
 
 size_t nfp114h_panel::get_ver_size() const
 {
-    return 240;
+    return 135;
 }
 
 lv_disp_drv_t *nfp114h_panel::get_lv_disp_drv()

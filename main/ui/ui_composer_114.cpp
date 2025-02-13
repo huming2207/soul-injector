@@ -76,7 +76,7 @@ esp_err_t ui_composer_114::display_erase(uint8_t percentage)
     }
 }
 
-esp_err_t ui_composer_114::display_test(uint8_t percentage, const char *test_msg)
+esp_err_t ui_composer_114::display_test(size_t done, size_t total, const char *test_msg)
 {
     if (wait_for_ui_mod() != ESP_OK) {
         return ESP_ERR_TIMEOUT;
@@ -98,13 +98,13 @@ esp_err_t ui_composer_114::display_test(uint8_t percentage, const char *test_msg
 
     if (test_msg == nullptr) {
         char comment[32] = { 0 };
-        snprintf(comment, sizeof(comment), "%03u %%", percentage);
+        snprintf(comment, sizeof(comment), "%u of %u", done, total);
         progress_screen.set_comment_text(comment);
     } else {
         progress_screen.set_comment_text(test_msg);
     }
 
-    progress_screen.set_progress(percentage, 100);
+    progress_screen.set_progress(done, total);
     set_ready();
     return ESP_OK;
 }

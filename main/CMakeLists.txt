@@ -19,8 +19,11 @@ idf_component_register(
             "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
 #            "driver/lcd/nfp190b_panel.cpp" "driver/lcd/nfp190b_panel.hpp"
             "driver/lcd/nfp114h_panel.cpp" "driver/lcd/nfp114h_panel.hpp"
-            "ui/ui_composer_114.cpp" "ui/ui_composer_114.hpp"
             "ui/ui_commander.cpp" "ui/ui_commander.hpp"
+            "ui/ui_composer_114.cpp" "ui/ui_composer_114.hpp"
+            "ui/ui_screen_progress_114.cpp" "ui/ui_screen_progress_114.hpp"
+            "ui/ui_screen_message_114.cpp" "ui/ui_screen_message_114.hpp"
+            "ui/ui_screen_current_114.cpp" "ui/ui_screen_current_114.hpp"
 
 
         INCLUDE_DIRS

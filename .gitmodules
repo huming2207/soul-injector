@@ -26,3 +26,6 @@
 [submodule "components/soulinjector-sg"]
 	path = components/soulinjector-sg
 	url = https://gitlab.smartguide.com.au/jackson/soulinjector-sg.git
+[submodule "components/thumbconfig"]
+	path = components/thumbconfig
+	url = git@github.com:huming2207/thumbconfig.git

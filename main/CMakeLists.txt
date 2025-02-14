@@ -9,7 +9,6 @@ idf_component_register(
             "prog/flash_algo_parser.cpp" "prog/includes/flash_algo_parser.hpp"
             "prog/self_test_runner.cpp" "prog/includes/self_test_runner.hpp"
             "misc/includes/file_utils.hpp"
-            "comm/comm_msc.cpp" "comm/comm_msc.hpp"
             "comm/wifi_manager.cpp" "comm/wifi_manager.hpp"
             "bootstrap_fsm.cpp" "bootstrap_fsm.hpp"
             "misc/config_reader.cpp" "misc/includes/config_reader.hpp"
@@ -17,9 +16,7 @@ idf_component_register(
             "driver/button_manager.cpp" "driver/button_manager.hpp"
             "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
             "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
-#            "driver/lcd/nfp190b_panel.cpp" "driver/lcd/nfp190b_panel.hpp"
             "driver/lcd/nfp114h_panel.cpp" "driver/lcd/nfp114h_panel.hpp"
-            "ui/ui_commander.cpp" "ui/ui_commander.hpp"
             "ui/ui_composer_114.cpp" "ui/ui_composer_114.hpp"
             "ui/ui_screen_progress_114.cpp" "ui/ui_screen_progress_114.hpp"
             "ui/ui_screen_message_114.cpp" "ui/ui_screen_message_114.hpp"
@@ -54,4 +51,9 @@ idf_component_register(
             "esp-mqtt"
             "mbedtls"
             "soulinjector-common"
+            "app_update"
+
+        REQUIRES
+            "tinyusb"
+            "esp_tinyusb"
 )

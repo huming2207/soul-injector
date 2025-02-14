@@ -6,7 +6,6 @@
 #include <esp_err.h>
 #include <esp_timer.h>
 #include "lvgl.h"
-#include "nfp190b_panel.hpp"
 #include "disp_panel_if.hpp"
 #include "nfp114h_panel.hpp"
 #include "ui_composer_114.hpp"

@@ -1,9 +1,9 @@
 #include <cstring>
 #include <esp_log.h>
 #include "lcd/display_manager.hpp"
-#include "comm_msc.hpp"
 #include "button_manager.hpp"
-#include <runner/runner.hpp>
+#include "thumbconfig/tcfg_client.hpp"
+#include "thumbconfig/tcfg_wire_usb_cdc.hpp"
 
 extern "C" void app_main(void)
 {
@@ -25,39 +25,40 @@ extern "C" void app_main(void)
 //    ESP_ERROR_CHECK(local_mission_manager::instance().get_pc_init(&pc_init));
 //    ESP_LOGI(TAG, "pc_init: 0x%08lx", pc_init);
 //
+
+    auto *prov_client = tcfg_client::instance();
+    auto *usb_cdc = tcfg_wire_usb_cdc::instance();
+    ESP_ERROR_CHECK(usb_cdc->init());
+    ESP_ERROR_CHECK(prov_client->init(usb_cdc));
+
     auto *display = display_manager::instance();
     ESP_ERROR_CHECK(display->init());
 
-    auto *ui_cmder = ui_commander::instance();
-    ui_cmder->init();
-    ui_state::error_screen err = {};
-    snprintf(err.comment, sizeof(ui_state::error_screen::comment), "No banana!");
-    snprintf(err.qrcode, sizeof(ui_state::error_screen::qrcode), "No banananananananannanananananananananananananananannanananna");
-    ui_cmder->display_error(&err);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    ui_cmder->display_chip_erase();
-//
-//    for (uint32_t idx = 0; idx <= 100; idx += 1) {
-//        ui_state::flash_screen screen {};
-//        screen.percentage = idx;
-//        ui_cmder->display_flash(&screen);
-//        vTaskDelay(pdMS_TO_TICKS(60));
-//    }
+    auto *composer = display->get_composer();
+    ESP_ERROR_CHECK(composer->display_init());
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    ESP_ERROR_CHECK(composer->display_error("ERROR", "Stop eating banana"));
+
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    for (uint32_t idx = 0; idx <= 100; idx += 1) {
+        composer->display_program(idx);
+        vTaskDelay(pdMS_TO_TICKS(60));
+    }
+
+
+    vTaskDelay(pdMS_TO_TICKS(3000));
 //
 //
-//    for (uint32_t idx = 0; idx <= 32; idx += 1) {
-//        ui_state::test_screen screen {};
-//        screen.total_test = 32;
-//        screen.done_test = idx;
-//        strcpy(screen.subtitle, "Radio Tx");
-//        ui_cmder->display_test(&screen);
-//        vTaskDelay(pdMS_TO_TICKS(100));
-//    }
-//
-//    vTaskDelay(pdMS_TO_TICKS(3000));
-//    ui_cmder->display_done();
-//    vTaskDelay(pdMS_TO_TICKS(3000));
-//    ui_cmder->display_usb();
+    for (uint32_t idx = 0; idx <= 100; idx += 1) {
+        composer->display_test(idx, 100, "Something I don't know");
+        vTaskDelay(pdMS_TO_TICKS(80)) ;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    composer->display_done();
+
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    composer->display_current(3.23456, 567.890, "PASS", lv_color_make(0x00, 0xff, 0));
 
     vTaskDelay(portMAX_DELAY);
 }

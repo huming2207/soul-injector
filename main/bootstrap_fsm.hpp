@@ -5,6 +5,8 @@
 #include "wifi_manager.hpp"
 #include "mqtt_client.hpp"
 #include "cohere_flasher.hpp"
+#include "esp_littlefs.h"
+#include "display_manager.hpp"
 
 class bootstrap_fsm
 {
@@ -23,31 +25,26 @@ private:
 
 public:
     esp_err_t init();
-    esp_err_t handle_mqtt_cmd();
 
 private:
-    esp_err_t decode_mqtt_cmd_meta_fw(ArduinoJson::JsonDocument &doc);
-    esp_err_t decode_mqtt_cmd_meta_algo(ArduinoJson::JsonDocument &doc);
-    esp_err_t decode_mqtt_cmd_bin_fw(ArduinoJson::JsonDocument &doc);
-    esp_err_t decode_mqtt_cmd_bin_algo(ArduinoJson::JsonDocument &doc);
-    esp_err_t decode_mqtt_cmd_set_state(ArduinoJson::JsonDocument &doc);
-    esp_err_t decode_mqtt_cmd_read_mem(ArduinoJson::JsonDocument &doc);
-
-private:
-    esp_err_t init_load_config();
-    esp_err_t init_mq_client();
-    esp_err_t init_connect_wifi();
-    void run_fsm_task();
-    static void fsm_task_handler(void *_ctx);
+    static esp_err_t setup_storage();
 
 private:
     TaskHandle_t fsm_task = nullptr;
-    config_reader *cfg_reader = config_reader::instance();
+    display_manager *display = nullptr;
+    ui_composer *composer = nullptr;
     wifi_manager wifi = {};
-    mqtt_client mq_client = {};
-    cohere_flasher online_flasher = cohere_flasher();
 
 private:
     static const constexpr char TAG[] = "bootstrap_fsm";
+    static const constexpr esp_vfs_littlefs_conf_t lfs_cfg = {
+            .base_path = "/data",
+            .partition_label = "data",
+            .partition = nullptr,
+            .format_if_mount_failed = true,
+            .read_only = false,
+            .dont_mount = false,
+            .grow_on_mount = false,
+    };
 };
 

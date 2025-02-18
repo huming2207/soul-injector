@@ -49,7 +49,6 @@ private:
     uint32_t ram_addr = 0;
     uint32_t stack_size = 0;
     size_t algo_bin_len = 0;
-    fw_asset_manager *fw_mgr = nullptr;
     led_ctrl &led = led_ctrl::instance();
 
     static const uint32_t header_blob[];
@@ -61,7 +60,7 @@ private:
     esp_err_t run_algo_uninit(swd_def::init_mode mode);
 
 public:
-    esp_err_t init(fw_asset_manager *algo, uint32_t ram_addr = 0x20000000, uint32_t _stack_size = 0x2000);
+    esp_err_t init(uint32_t ram_addr = 0x20000000, uint32_t _stack_size = 0x2000);
     esp_err_t erase_chip();
     esp_err_t erase_sector(uint32_t start_addr, uint32_t end_addr);
     esp_err_t program_page(const uint8_t *buf, size_t len, uint32_t start_addr = UINT32_MAX);

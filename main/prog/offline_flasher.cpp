@@ -3,6 +3,7 @@
 #include <esp_err.h>
 #include <esp_log.h>
 #include <led_ctrl.hpp>
+#include <fw_asset_manager.hpp>
 #include <esp_crc.h>
 #include <esp_timer.h>
 
@@ -10,9 +11,8 @@
 
 esp_err_t offline_flasher::init()
 {
-    auto ret = disp->init();
-    if (ret != ESP_OK) return ret;
-    composer = disp->get_composer();
+    display = display_manager::instance();
+    composer = display->get_composer();
 
     while (true) {
         switch (state) {
@@ -53,7 +53,7 @@ esp_err_t offline_flasher::init()
         }
     }
 
-    return ret;
+    return ESP_OK;
 }
 
 void offline_flasher::on_error()
@@ -66,6 +66,7 @@ void offline_flasher::on_erase()
     ESP_LOGI(TAG, "Erasing");
     composer->display_erase(UINT8_MAX);
     uint32_t start_addr = 0, end_addr = 0;
+    auto *asset = fw_asset_manager::instance();
     auto ret = asset->get_flash_start_addr(&start_addr);
     ret = ret ?: asset->get_flash_end_addr(&end_addr);
     if (ret != ESP_OK) {
@@ -110,10 +111,10 @@ void offline_flasher::on_detect()
     ESP_LOGI(TAG, "Detecting");
 
     composer->display_init();
-    auto ret = swd->init(asset);
+    auto ret = swd->init();
     while (ret != ESP_OK) {
         ESP_LOGE(TAG, "Detect failed, retrying");
-        ret = swd->init(asset);
+        ret = swd->init();
     }
 
     state = flasher::ERASE; // To erase
@@ -146,6 +147,7 @@ void offline_flasher::on_self_test()
 {
     ESP_LOGI(TAG, "Run self test");
 
+    auto *asset = fw_asset_manager::instance();
     const std::vector<flash_algo::test_item> &items = asset->get_test_items();
     for (size_t idx = 0; idx < items.size(); idx += 1) {
         composer->display_test(idx, (items.size() - 1), nullptr);

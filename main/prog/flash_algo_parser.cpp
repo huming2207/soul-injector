@@ -64,7 +64,7 @@ esp_err_t flash_algo_parser::get_test_description(flash_algo::test_description *
         memcpy(&item, item_ptr, sizeof(flash_algo::test_item));
         item.name[sizeof(item.name) - 1] = '\0';
 
-        if (item.id == UINT16_MAX) {
+        if (item.type == flash_algo::END_MARK) {
             ESP_LOGI(TAG, "End of test item detected, got %u items", test_items.size());
             break;
         }

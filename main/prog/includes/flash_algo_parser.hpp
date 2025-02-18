@@ -61,9 +61,9 @@ namespace flash_algo
     struct __attribute__((packed)) test_description
     {
         uint32_t magic;
-        uint32_t test_cnt;
         uint32_t ram_start_addr;
         uint32_t ram_end_addr;
+        uint32_t test_cnt;
     };
 
     static const constexpr uint32_t SELF_TEST_MAGIC = 0x536f756c; // "Soul"

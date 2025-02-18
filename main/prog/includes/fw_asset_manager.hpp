@@ -72,7 +72,7 @@ public:
 
     static const constexpr char BASE_PATH[] = "/data";
     static const constexpr char ALGO_ELF_PATH[] = "/data/algo.elf";
-    static const constexpr char FIRMWARE_PATH[] = "/data/fw.bin";
+    static const constexpr char FIRMWARE_PATH[] = "/data/firmware.bin";
 
 private:
     static const constexpr char FUNC_NAME_INIT[] = "Init";
@@ -91,9 +91,6 @@ private:
     std::unique_ptr<nvs::NVSHandle> nvs_handle = {};
 
     static const constexpr char *TAG = "asset_mgr";
-    static const constexpr char *METADATA_NVS_NS = "fw_meta";
-    static const constexpr char *METADATA_NVS_KEY_FW_HASH = "fw_hash";
-    static const constexpr char *METADATA_NVS_KEY_ALGO_HASH = "algo_hash";
 
 private:
     fw_asset_manager() = default;

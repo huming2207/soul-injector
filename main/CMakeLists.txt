@@ -13,7 +13,6 @@ idf_component_register(
             "bootstrap_fsm.cpp" "bootstrap_fsm.hpp"
             "misc/config_reader.cpp" "misc/includes/config_reader.hpp"
             "misc/includes/json_file_reader.hpp"
-            "driver/button_manager.cpp" "driver/button_manager.hpp"
             "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
             "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
             "driver/lcd/nfp114h_panel.cpp" "driver/lcd/nfp114h_panel.hpp"

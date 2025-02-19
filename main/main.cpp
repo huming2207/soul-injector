@@ -1,7 +1,6 @@
 #include <cstring>
 #include <esp_log.h>
 #include "lcd/display_manager.hpp"
-#include "button_manager.hpp"
 #include "thumbconfig/tcfg_client.hpp"
 #include "thumbconfig/tcfg_wire_usb_cdc.hpp"
 #include "esp_littlefs.h"
@@ -34,21 +33,6 @@ extern "C" void app_main(void)
     auto *composer = display->get_composer();
     ESP_ERROR_CHECK(composer->display_init());
 
-    if (mount_data_partition() != ESP_OK) {
-        ESP_LOGE(TAG, "Can't mount data partition");
-        ESP_ERROR_CHECK(composer->display_error("ERROR", "Failed to load resource\nContact maintainer\nif issue persists"));
-        vTaskDelay(portMAX_DELAY);
-    } else {
-        ESP_LOGI(TAG, "Data partition mounted");
-    }
-
-    if (setup_nvs() != ESP_OK) {
-        ESP_LOGE(TAG, "Can't setup NVS");
-        ESP_ERROR_CHECK(composer->display_error("ERROR", "Failed to load config\nContact maintainer\nif issue persists"));
-        vTaskDelay(portMAX_DELAY);
-    } else {
-        ESP_LOGI(TAG, "NVS partition setup OK");
-    }
 
     auto *prov_client = tcfg_client::instance();
     auto *usb_cdc = tcfg_wire_usb_cdc::instance();

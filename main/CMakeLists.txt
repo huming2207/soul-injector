@@ -27,7 +27,7 @@ idf_component_register(
             "."
             "misc/includes"
             "prog/includes"
-            "comm" "comm/usb"
+            "comm"
             "driver" "driver/lcd"
             "external/elfio"
             "ui"

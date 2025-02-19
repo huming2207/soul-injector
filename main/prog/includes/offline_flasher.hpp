@@ -45,7 +45,8 @@ private:
     static const constexpr char *TAG = "local_flasher";
 
 public:
-    esp_err_t init();
+    void init();
+    esp_err_t handle_states();
 
 private:
     void on_detect();

@@ -9,51 +9,11 @@
 
 #include "offline_flasher.hpp"
 
-esp_err_t offline_flasher::init()
+void offline_flasher::init()
 {
     display = display_manager::instance();
     composer = display->get_composer();
-
-    while (true) {
-        switch (state) {
-            case flasher::DETECT: {
-                on_detect();
-                break;
-            }
-
-            case flasher::ERASE: {
-                on_erase();
-                break;
-            }
-
-            case flasher::PROGRAM: {
-                on_program();
-                break;
-            }
-
-            case flasher::ERROR: {
-                on_error();
-                break;
-            }
-
-            case flasher::DONE: {
-                on_done();
-                break;
-            }
-
-            case flasher::VERIFY: {
-                on_verify();
-                break;
-            }
-
-            case flasher::SELF_TEST: {
-                on_self_test();
-                break;
-            }
-        }
-    }
-
-    return ESP_OK;
+    state = flasher::DETECT;
 }
 
 void offline_flasher::on_error()
@@ -179,4 +139,46 @@ void offline_flasher::on_self_test()
     swd_prog::trigger_nrst();
 
     state = flasher::DONE;
+}
+
+esp_err_t offline_flasher::handle_states()
+{
+    switch (state) {
+        case flasher::DETECT: {
+            on_detect();
+            break;
+        }
+
+        case flasher::ERASE: {
+            on_erase();
+            break;
+        }
+
+        case flasher::PROGRAM: {
+            on_program();
+            break;
+        }
+
+        case flasher::ERROR: {
+            on_error();
+            return ESP_FAIL;
+        }
+
+        case flasher::DONE: {
+            on_done();
+            return ESP_OK;
+        }
+
+        case flasher::VERIFY: {
+            on_verify();
+            break;
+        }
+
+        case flasher::SELF_TEST: {
+            on_self_test();
+            break;
+        }
+    }
+
+    return ESP_ERR_NOT_FINISHED;
 }

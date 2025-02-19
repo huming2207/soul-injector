@@ -5,6 +5,7 @@
 #include "http_downloader.hpp"
 #include "thumbconfig/tcfg_client.hpp"
 #include "thumbconfig/tcfg_wire_usb_cdc.hpp"
+#include "offline_flasher.hpp"
 
 esp_err_t bootstrap_fsm::init()
 {
@@ -43,6 +44,40 @@ esp_err_t bootstrap_fsm::init()
         return ret;
     }
 
+    ESP_LOGI(TAG, "Setting up detection pin");
+    gpio_config_t det_io_cfg = {};
+    det_io_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    det_io_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    det_io_cfg.pin_bit_mask = (1 << GPIO_NUM_0);
+    det_io_cfg.intr_type = GPIO_INTR_ANYEDGE;
+    det_io_cfg.mode = GPIO_MODE_INPUT;
+
+    BaseType_t task_ret = xTaskCreate(fsm_task_handler, "flasher", 8192, this, tskIDLE_PRIORITY + 10, &fsm_task);
+    if (task_ret != pdPASS) {
+        ESP_LOGE(TAG, "Can't create FSM task");
+        return ESP_FAIL;
+    }
+
+    det_debounce_timer = xTimerCreate("target_det", pdMS_TO_TICKS(50), pdFALSE, this, det_pin_debounce_timer);
+    if (det_debounce_timer == nullptr) {
+        ESP_LOGE(TAG, "Can't create debounce timer");
+        return ESP_FAIL;
+    }
+
+    evt_group = xEventGroupCreate();
+    if (evt_group == nullptr) {
+        ESP_LOGE(TAG, "Can't create event group");
+        return ESP_FAIL;
+    }
+
+    ret = gpio_config(&det_io_cfg);
+    gpio_install_isr_service(0);
+    ret = ret ?: gpio_isr_handler_add(DET_IO_PIN, det_io_isr_handler, det_debounce_timer);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Button setup failed: 0x%x", ret);
+        return ret;
+    }
+
     return ESP_OK;
 }
 
@@ -68,3 +103,67 @@ esp_err_t bootstrap_fsm::setup_storage()
     return ret;
 }
 
+void bootstrap_fsm::start_offline_flasher()
+{
+    offline_flasher::instance()->init();
+}
+
+void bootstrap_fsm::fsm_task_handler(void *_ctx)
+{
+    if (_ctx == nullptr) {
+        return;
+    }
+
+    auto *ctx = (bootstrap_fsm *)_ctx;
+
+    while (true) {
+        ctx->run_fsm_task();
+        vTaskDelay(1);
+    }
+}
+
+void bootstrap_fsm::run_fsm_task()
+{
+    auto *flasher = offline_flasher::instance();
+    auto ret = flasher->handle_states();
+    if (ret == ESP_FAIL) {
+        ESP_LOGE(TAG, "Something went wrong");
+        xEventGroupWaitBits(evt_group, BIT_TARGET_DISCONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
+        xEventGroupWaitBits(evt_group, BIT_TARGET_CONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
+        flasher->init();
+    } else if (ret == ESP_ERR_NOT_FINISHED) {
+        return; // Continue...
+    } else {
+        ESP_LOGI(TAG, "Done flashing!");
+        xEventGroupWaitBits(evt_group, BIT_TARGET_DISCONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
+        flasher->init();
+    }
+}
+
+void bootstrap_fsm::det_io_isr_handler(void *_ctx)
+{
+    auto *timer = (TimerHandle_t)_ctx;
+    BaseType_t higher_priority_waken = pdFALSE;
+    xTimerStartFromISR(timer, &higher_priority_waken);
+
+    if (higher_priority_waken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+
+void bootstrap_fsm::det_pin_debounce_timer(TimerHandle_t timer_handle)
+{
+    auto *ctx = (bootstrap_fsm *) pvTimerGetTimerID(timer_handle);
+    bool state = gpio_get_level(DET_IO_PIN);
+    if (state == ctx->last_det_state) {
+        if (!state) {
+            xEventGroupSetBits(ctx->evt_group, BIT_TARGET_CONNECTED);
+            xEventGroupClearBits(ctx->evt_group, BIT_TARGET_DISCONNECTED);
+        } else {
+            xEventGroupSetBits(ctx->evt_group, BIT_TARGET_DISCONNECTED);
+            xEventGroupClearBits(ctx->evt_group, BIT_TARGET_CONNECTED);
+        }
+    }
+
+    ctx->last_det_state = state;
+}

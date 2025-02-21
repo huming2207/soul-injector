@@ -21,7 +21,7 @@ esp_err_t ui_composer_114::display_init()
     }
 
     msg_screen.set_header_text("READY");
-    msg_screen.set_comment_text("Please connect target");
+    msg_screen.set_comment_text("Detecting target");
     msg_screen.set_color(lv_color_white(), lv_color_black());
 
     set_ready();

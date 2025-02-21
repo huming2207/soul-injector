@@ -11,9 +11,9 @@ esp_err_t bootstrap_fsm::init()
 {
     ESP_LOGI(TAG, "Setting up display");
     display = display_manager::instance();
-    composer = display->get_composer();
     esp_err_t ret = display->init();
-    ret = ret ?: composer->display_init();
+    composer = display->get_composer();
+    ret = ret ?: composer->init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up display: 0x%x %s", ret, esp_err_to_name(ret));
         return ret;
@@ -115,6 +115,8 @@ void bootstrap_fsm::fsm_task_handler(void *_ctx)
     }
 
     auto *ctx = (bootstrap_fsm *)_ctx;
+
+    ctx->start_offline_flasher();
 
     while (true) {
         ctx->run_fsm_task();

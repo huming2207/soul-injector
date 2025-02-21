@@ -5,6 +5,7 @@
 #include "thumbconfig/tcfg_wire_usb_cdc.hpp"
 #include "esp_littlefs.h"
 #include "fw_asset_manager.hpp"
+#include "bootstrap_fsm.hpp"
 
 extern "C" void app_main(void)
 {
@@ -27,23 +28,8 @@ extern "C" void app_main(void)
 //    ESP_LOGI(TAG, "pc_init: 0x%08lx", pc_init);
 //
 
-    auto *display = display_manager::instance();
-    ESP_ERROR_CHECK(display->init());
-
-    auto *composer = display->get_composer();
-    ESP_ERROR_CHECK(composer->display_init());
-
-
-    auto *prov_client = tcfg_client::instance();
-    auto *usb_cdc = tcfg_wire_usb_cdc::instance();
-    ESP_ERROR_CHECK(usb_cdc->init());
-    ESP_ERROR_CHECK(prov_client->init(usb_cdc));
-
-    auto *asset = fw_asset_manager::instance();
-    ESP_ERROR_CHECK(asset->init());
-    for (auto &it : asset->get_test_items()) {
-        ESP_LOGI(TAG, "Test item type %u: %u %s", it.type, it.id, it.name);
-    }
+    auto *main_fsm = bootstrap_fsm::instance();
+    main_fsm->init();
 
 //
 //

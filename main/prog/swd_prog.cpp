@@ -38,7 +38,6 @@ esp_err_t swd_prog::load_flash_algorithm()
         return ESP_ERR_INVALID_STATE;
     }
 
-    // Mem structure: 512 bytes stack + flash algorithm binary + buffer
     ret = swd_write_memory(code_start, (uint8_t *)header_blob, sizeof(header_blob));
     if (ret < 1) {
         ESP_LOGE(TAG, "Failed when writing flash algorithm header");
@@ -53,25 +52,25 @@ esp_err_t swd_prog::load_flash_algorithm()
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < est_algo_len) {
-        ESP_LOGE(TAG, "Flash algo is too huge");
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) < est_algo_len) {
+        ESP_LOGE(TAG, "Flash algo is too huge: %lu", est_algo_len);
         return ESP_ERR_NO_MEM;
     }
 
-    auto *algo_bin = static_cast<uint8_t *>(heap_caps_malloc(est_algo_len, MALLOC_CAP_INTERNAL));
+    auto *algo_bin = static_cast<uint8_t *>(heap_caps_malloc(est_algo_len, MALLOC_CAP_SPIRAM));
     if (algo_bin == nullptr) {
         ESP_LOGE(TAG, "Failed to allocate flash algo bin buffer");
         return ESP_ERR_NO_MEM;
     }
 
     ESP_LOGI(TAG, "Allocated est algo (RAM size) = %lu", est_algo_len);
-    if (asset->get_algo_bin(algo_bin, est_algo_len, &algo_bin_len) != ESP_OK) {
+    if (asset->get_algo_bin(algo_bin, est_algo_len, &algo_bin_len, &code_start) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read algo bin");
         free(algo_bin);
         return ESP_ERR_INVALID_STATE;
     }
 
-    ret = swd_write_memory(code_start + sizeof(header_blob), algo_bin, algo_bin_len);
+    ret = swd_write_memory(code_start, algo_bin, algo_bin_len);
     if (ret < 1) {
         ESP_LOGE(TAG, "Failed when writing main flash algorithm");
         state = swd_def::UNKNOWN;
@@ -123,11 +122,11 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
             return ESP_ERR_INVALID_STATE;
         }
 
-        ESP_LOGI(TAG, "Flash start addr = 0x%lx, pc_init = 0x%lx", flash_start_addr, func_offset + pc_init);
+        ESP_LOGI(TAG, "Flash start addr = 0x%lx, pc_init = 0x%lx", flash_start_addr, pc_init);
 
         ret = swd_flash_syscall_exec(
                 &syscall,
-                func_offset + pc_init, // Init PC (usually) = 1, +0x20 for header (but somehow actually 0?)
+                pc_init, // Init PC (usually) = 1, +0x20 for header (but somehow actually 0?)
                 flash_start_addr, // r0 = flash base addr
                 0, // r1 = ignored
                 mode, 0, // r2 = mode, r3 ignored
@@ -137,9 +136,10 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
 
         if (ret < 1) {
             ESP_LOGW(TAG, "Failed when init algorithm, returned %d, retrying...", ret);
-            init(ram_addr, stack_size); // Re-init SWD as well (so that target will reset)
+            init(ram_start_addr, stack_size); // Re-init SWD as well (so that target will reset)
             retry_cnt -= 1;
         } else {
+            ESP_LOGI(TAG, "Init() OK");
             state = swd_def::FLASH_ALG_INITED;
             return ESP_OK;
         }
@@ -172,9 +172,10 @@ esp_err_t swd_prog::run_algo_uninit(swd_def::init_mode mode)
         return ESP_ERR_INVALID_STATE;
     }
 
+    ESP_LOGI(TAG, "Calling uninit, pc=0x%08lx", pc_uninit);
     ret = swd_flash_syscall_exec(
             &syscall,
-            func_offset + pc_uninit, // UnInit PC = 61
+            pc_uninit, // UnInit PC = 61
             mode,
             0, 0, 0, // r2, r3 = ignored
             FLASHALGO_RETURN_BOOL,
@@ -214,7 +215,7 @@ esp_err_t swd_prog::init(uint32_t _ram_addr, uint32_t _stack_size)
         return ESP_ERR_INVALID_ARG;
     }
 
-    ram_addr = _ram_addr;
+    ram_start_addr = _ram_addr;
     stack_size = _stack_size;
 
     ESP_LOGI(TAG, "Init target");
@@ -240,23 +241,15 @@ esp_err_t swd_prog::init(uint32_t _ram_addr, uint32_t _stack_size)
         return ESP_ERR_INVALID_STATE;
     }
 
+    if (load_flash_algorithm() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed when loading flash algorithm");
+        return ESP_FAIL;
+    }
+
     // We are using probe-rs style flash algorithm
     uint32_t offset = 0;
-    offset += sizeof(header_blob);
-    code_start = ram_addr;
-
+    offset += sizeof(header_blob); // Header blob for halting the target uC
     offset += algo_bin_len; // Add the actual algorithm binary length
-    stack_offset = ram_addr + offset + stack_size + sizeof(header_blob);
-    stack_bottom = stack_offset - stack_size; // It's 2024, no one uses 8051; so the stack must've been growing backwards/downwards, right...?
-    stack_canary = esp_random();
-
-    ESP_LOGI(TAG, "Stack: top=0x%08lx, bottom=0x%08lx, canary=0x%08lx", stack_offset, stack_bottom, stack_canary);
-    ret = swd_write_word(stack_bottom, stack_canary);
-    if (ret < 1) {
-        ESP_LOGE(TAG, "Timeout when writing stack canary!");
-        state = swd_def::UNKNOWN;
-        return ESP_ERR_INVALID_STATE;
-    }
 
     uint32_t data_section_offset = 0;
 
@@ -266,14 +259,24 @@ esp_err_t swd_prog::init(uint32_t _ram_addr, uint32_t _stack_size)
         return ESP_ERR_INVALID_STATE;
     }
 
-    syscall.breakpoint = code_start + 1; // This is ARM
-    syscall.static_base = data_section_offset + sizeof(header_blob); // Length = 512, header = 32 bytes
+    stack_offset = ram_start_addr + offset + stack_size;
+    stack_bottom = stack_offset - stack_size; // It's 2024, no one uses 8051; so the stack must've been growing backwards/downwards, right...?
+    stack_canary = esp_random();
+
+    ESP_LOGI(TAG, "Stack: size=%lu top=0x%08lx, bottom=0x%08lx, canary=0x%08lx", stack_size, stack_offset, stack_bottom, stack_canary);
+//    ret = swd_write_word(stack_bottom, stack_canary);
+//    if (ret < 1) {
+//        ESP_LOGE(TAG, "Timeout when writing stack canary!");
+//        state = swd_def::UNKNOWN;
+//        return ESP_ERR_INVALID_STATE;
+//    }
+
+    syscall.breakpoint = ram_start_addr + 1; // This is ARM
+    syscall.static_base = data_section_offset; // BSS, also don't forget the header = 32 bytes
     syscall.stack_pointer = stack_offset;
 
-    func_offset = ram_addr + sizeof(header_blob);
-
-    ESP_LOGI(TAG, "Addr: code_start: 0x%08lx; data_section: 0x%08lx", code_start, data_section_offset);
-    ESP_LOGI(TAG, "Addr: stack top: 0x%08lx; bkpt: 0x%08lx; func_offset: 0x%08lx", stack_offset, syscall.breakpoint, func_offset);
+    ESP_LOGI(TAG, "Addr: ram_start_addr: 0x%08lx; data_section: 0x%08lx", ram_start_addr, data_section_offset);
+    ESP_LOGI(TAG, "Addr: stack top: 0x%08lx; bkpt: 0x%08lx", stack_offset, syscall.breakpoint);
 
     state = swd_def::INITIALISED;
     return ESP_OK;
@@ -315,7 +318,7 @@ esp_err_t swd_prog::erase_chip()
 
     swd_ret = swd_flash_syscall_exec(
             &syscall,
-            func_offset + pc_erase_all,
+            pc_erase_all,
             0, // No arguments
             0, 0, 0, // r1, r2 = ignored
             FLASHALGO_RETURN_BOOL,
@@ -372,7 +375,7 @@ esp_err_t swd_prog::self_test(uint16_t test_id, uint8_t *readout_buf, size_t rea
 
     swd_ret = swd_flash_syscall_exec(
             &syscall,
-            func_offset + pc_verify,
+            pc_verify,
             test_id + 0xfffff000, // r0 is addr, for SI's algo executing 0xfffff000+ to trigger self test
             readout_buf_len, // r1 indicates self test result RAM buffer size (or 0 if not used)
             0, // r2 indicates self test result RAM buffer pointer (or 0, aka. null, if not used) - TODO: need to implement readout buffer copy
@@ -433,7 +436,7 @@ esp_err_t swd_prog::erase_sector(uint32_t start_addr, uint32_t end_addr)
     for (uint32_t idx = 0; idx < sector_cnt - 1; idx += 1) {
         swd_ret = swd_flash_syscall_exec(
                 &syscall,
-                func_offset + pc_erase_sector, // ErasePage PC = 173
+                pc_erase_sector, // ErasePage PC = 173
                 flash_start_addr + (idx * flash_sector_size), // r0 = flash base addr
                 0, 0, 0, // r1, r2 = ignored
                 FLASHALGO_RETURN_BOOL,
@@ -514,7 +517,7 @@ esp_err_t swd_prog::program_page(const uint8_t *buf, size_t len, uint32_t start_
         ESP_LOGD(TAG, "Writing page 0x%lx, size %lu", 0x08000000 + (page_idx * page_size), write_size);
         swd_ret = swd_flash_syscall_exec(
                 &syscall,
-                func_offset + pc_program_page, // ErasePage PC = 305
+                pc_program_page, // ErasePage PC = 305
                 addr_offset + (page_idx * page_size), // r0 = flash base addr
                 write_size,
                 syscall.static_base, 0, // r1 = len, r2 = buf addr
@@ -630,7 +633,7 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
         ESP_LOGD(TAG, "Writing page 0x%lx, size %lu from RAM 0x%lx", addr_offset + (page_idx * page_size), write_size, syscall.static_base + stack_size);
         swd_ret = swd_flash_syscall_exec(
                 &syscall,
-                func_offset + pc_program_page, // ErasePage PC = 305
+                pc_program_page, // ErasePage PC = 305
                 addr_offset + (page_idx * page_size), // r0 = flash base addr
                 write_size,
                 syscall.static_base + stack_size, 0, // r1 = len, r2 = buf addr

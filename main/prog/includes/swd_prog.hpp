@@ -46,7 +46,7 @@ private:
     uint32_t stack_offset = 0; // Offset of stack top
     uint32_t stack_canary = 0; // Random 32-bit word generated on every init
     uint32_t func_offset = 0;
-    uint32_t ram_addr = 0;
+    uint32_t ram_start_addr = 0;
     uint32_t stack_size = 0;
     size_t algo_bin_len = 0;
     led_ctrl &led = led_ctrl::instance();

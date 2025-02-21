@@ -42,8 +42,9 @@ private:
     swd_def::state state = swd_def::UNKNOWN;
     program_syscall_t syscall = {};
     uint32_t code_start = 0;
+    uint32_t code_end = 0;
     uint32_t stack_bottom = 0; // Offset of stack bottom
-    uint32_t stack_offset = 0; // Offset of stack top
+    uint32_t stack_top = 0; // Offset of stack top
     uint32_t stack_canary = 0; // Random 32-bit word generated on every init
     uint32_t func_offset = 0;
     uint32_t ram_start_addr = 0;
@@ -52,12 +53,14 @@ private:
     led_ctrl &led = led_ctrl::instance();
 
     static const uint32_t header_blob[];
+    static const constexpr uint32_t halt_header = 0xBE00BE00; // Two breakpoint instructions. See https://github.com/probe-rs/probe-rs/pull/2883
 
 private:
     swd_prog() = default;
     esp_err_t load_flash_algorithm();
     esp_err_t run_algo_init(swd_def::init_mode mode);
     esp_err_t run_algo_uninit(swd_def::init_mode mode);
+    static inline uint32_t next_multiple_of(uint32_t input, uint32_t of);
 
 public:
     esp_err_t init(uint32_t ram_addr = 0x20000000, uint32_t _stack_size = 0x2000);

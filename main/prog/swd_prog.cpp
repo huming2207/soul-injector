@@ -38,13 +38,6 @@ esp_err_t swd_prog::load_flash_algorithm()
         return ESP_ERR_INVALID_STATE;
     }
 
-    ret = swd_write_memory(code_start, (uint8_t *)header_blob, sizeof(header_blob));
-    if (ret < 1) {
-        ESP_LOGE(TAG, "Failed when writing flash algorithm header");
-        state = swd_def::UNKNOWN;
-        return ESP_FAIL;
-    }
-
     uint32_t est_algo_len = 0;
     auto *asset = fw_asset_manager::instance();
     if (asset->get_ram_size_byte(&est_algo_len) != ESP_OK) {
@@ -68,6 +61,15 @@ esp_err_t swd_prog::load_flash_algorithm()
         ESP_LOGE(TAG, "Failed to read algo bin");
         free(algo_bin);
         return ESP_ERR_INVALID_STATE;
+    }
+
+    code_end = next_multiple_of((code_start + algo_bin_len), 8); // Force align to 8, for 32-bit ARM Cortex-M. I don't know why but probe-rs did this.
+
+    ret = swd_write_word(code_start - sizeof(uint32_t), halt_header);
+    if (ret < 1) {
+        ESP_LOGE(TAG, "Failed when writing flash algorithm header");
+        state = swd_def::UNKNOWN;
+        return ESP_FAIL;
     }
 
     ret = swd_write_memory(code_start, algo_bin, algo_bin_len);
@@ -247,10 +249,6 @@ esp_err_t swd_prog::init(uint32_t _ram_addr, uint32_t _stack_size)
     }
 
     // We are using probe-rs style flash algorithm
-    uint32_t offset = 0;
-    offset += sizeof(header_blob); // Header blob for halting the target uC
-    offset += algo_bin_len; // Add the actual algorithm binary length
-
     uint32_t data_section_offset = 0;
 
     auto *asset = fw_asset_manager::instance();
@@ -259,24 +257,30 @@ esp_err_t swd_prog::init(uint32_t _ram_addr, uint32_t _stack_size)
         return ESP_ERR_INVALID_STATE;
     }
 
-    stack_offset = ram_start_addr + offset + stack_size;
-    stack_bottom = stack_offset - stack_size; // It's 2024, no one uses 8051; so the stack must've been growing backwards/downwards, right...?
+    uint32_t flash_page_size = 0;
+    if (asset->get_page_size(&flash_page_size) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read flash page size");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    stack_bottom = next_multiple_of((code_end + flash_page_size * 2), 8); // We only consider the RAM is enough to fit contiguous stuff of .text, .bss and .data for now.
+    stack_top = stack_bottom + stack_size;
     stack_canary = esp_random();
 
-    ESP_LOGI(TAG, "Stack: size=%lu top=0x%08lx, bottom=0x%08lx, canary=0x%08lx", stack_size, stack_offset, stack_bottom, stack_canary);
-//    ret = swd_write_word(stack_bottom, stack_canary);
-//    if (ret < 1) {
-//        ESP_LOGE(TAG, "Timeout when writing stack canary!");
-//        state = swd_def::UNKNOWN;
-//        return ESP_ERR_INVALID_STATE;
-//    }
+    ESP_LOGI(TAG, "Stack: size=%lu top=0x%08lx, bottom=0x%08lx, canary=0x%08lx", stack_size, stack_top, stack_bottom, stack_canary);
+    ret = swd_write_word(stack_bottom, stack_canary);
+    if (ret < 1) {
+        ESP_LOGE(TAG, "Timeout when writing stack canary!");
+        state = swd_def::UNKNOWN;
+        return ESP_ERR_INVALID_STATE;
+    }
 
-    syscall.breakpoint = ram_start_addr + 1; // This is ARM
+    syscall.breakpoint = code_start - sizeof(uint32_t) + 1; // Breakpoint is where the halt word (2x of breakpoint instructions) + 1 byte for thumb mode
     syscall.static_base = data_section_offset; // BSS, also don't forget the header = 32 bytes
-    syscall.stack_pointer = stack_offset;
+    syscall.stack_pointer = stack_top;
 
     ESP_LOGI(TAG, "Addr: ram_start_addr: 0x%08lx; data_section: 0x%08lx", ram_start_addr, data_section_offset);
-    ESP_LOGI(TAG, "Addr: stack top: 0x%08lx; bkpt: 0x%08lx", stack_offset, syscall.breakpoint);
+    ESP_LOGI(TAG, "Addr: stack top: 0x%08lx; bkpt: 0x%08lx", stack_top, syscall.breakpoint);
 
     state = swd_def::INITIALISED;
     return ESP_OK;
@@ -718,5 +722,13 @@ esp_err_t swd_prog::verify(uint32_t expected_crc, uint32_t start_addr, size_t le
 void swd_prog::trigger_nrst()
 {
     swd_trigger_nrst();
+}
+
+uint32_t swd_prog::next_multiple_of(uint32_t input, uint32_t of)
+{
+    if (of == 0) {
+        return 0;
+    }
+    return ((input + of - 1) / of) * of;
 }
 

@@ -23,7 +23,7 @@ public:
     void operator=(fw_asset_manager const &) = delete;
 
     esp_err_t init();
-    esp_err_t get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len = nullptr);
+    esp_err_t get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len = nullptr, uint32_t *code_start_addr = nullptr);
     esp_err_t get_ram_size_byte(uint32_t *out) const;
     esp_err_t get_flash_size_byte(uint32_t *out);
     esp_err_t get_pc_init(uint32_t *out);

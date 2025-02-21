@@ -137,14 +137,19 @@ esp_err_t flash_algo_parser::get_dev_description(flash_algo::dev_description *de
     return ret;
 }
 
-esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, size_t *actual_len) const
+esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, size_t *actual_len, uint32_t *code_start_addr) const
 {
     size_t out_len = 0, curr_pos = 0, actual_len_cnt = 0;
-    auto ret = get_section_data(buf_out, ALGO_BIN_CODE_SECTION_NAME, buf_len - curr_pos, &out_len, 0);
+    uint32_t start_addr = 0;
+    auto ret = get_section_data(buf_out, ALGO_BIN_CODE_SECTION_NAME, buf_len - curr_pos, &out_len, 0, &start_addr);
 
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get section data for PrgCode: 0x%x", ret);
         return ret;
+    }
+
+    if (code_start_addr != nullptr) {
+        *code_start_addr = start_addr;
     }
 
     if (curr_pos > buf_len) {
@@ -152,46 +157,59 @@ esp_err_t flash_algo_parser::get_flash_algo(uint8_t *buf_out, size_t buf_len, si
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "Got PrgCode length: %u", out_len);
+    ESP_LOGI(TAG, "Got PrgCode length: %u, start at 0x%08lx", out_len, start_addr);
 
     actual_len_cnt += out_len;
     curr_pos += out_len;
+
+    out_len = 0;
     ret = ret ?: get_section_data(buf_out + curr_pos, ALGO_BIN_DATA_SECTION_NAME, buf_len - curr_pos, &out_len, 0);
 
-    if (ret != ESP_OK) {
+    if (ret == ESP_ERR_NOT_FOUND) {
+        ESP_LOGW(TAG, "No PrgData .data section found, skipping");
+    } else if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get section data for PrgData: 0x%x", ret);
         return ret;
+    } else {
+        if (curr_pos > buf_len) {
+            ESP_LOGW(TAG, "No space left for PrgData: buf @ %p, got %u, need %u", buf_out, buf_len, curr_pos);
+            return ESP_ERR_NO_MEM;
+        }
+
+        ESP_LOGI(TAG, "Got PrgData length: %u", out_len);
+
+        actual_len_cnt += out_len;
+        curr_pos += out_len;
     }
 
-    if (curr_pos > buf_len) {
-        ESP_LOGW(TAG, "No space left for PrgData: buf @ %p, got %u, need %u", buf_out, buf_len, curr_pos);
-        return ESP_ERR_NO_MEM;
-    }
-
-    ESP_LOGI(TAG, "Got PrgData length: %u", out_len);
-
-    actual_len_cnt += out_len;
-    curr_pos += out_len;
     size_t bss_len = 0;
-    ret = ret ?: get_section_length(ALGO_BIN_BSS_SECTION_NAME, &bss_len);
+    ret = get_section_length(ALGO_BIN_BSS_SECTION_NAME, &bss_len);
 
-    if (curr_pos + bss_len > buf_len) {
-        ESP_LOGE(TAG, "Insufficient place for BSS, need %u, got only %u", curr_pos + bss_len, buf_len);
+    if (ret == ESP_ERR_NOT_FOUND) {
+        ESP_LOGW(TAG, "PrgData BSS section not found, skipping");
+    } else if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read size of PrgData BSS, abort");
+        return ret;
+    } else {
+        if (curr_pos + bss_len > buf_len) {
+            ESP_LOGE(TAG, "Insufficient place for BSS, need %u, got only %u", curr_pos + bss_len, buf_len);
+        }
+
+        memset(buf_out + curr_pos, 0, bss_len); // Wipe the RAM for BSS
+        actual_len_cnt += bss_len;
+        ESP_LOGI(TAG, "Zeroed BSS length = %u", bss_len);
     }
 
-    memset(buf_out + curr_pos, 0, bss_len); // Wipe the RAM for BSS
-    actual_len_cnt += bss_len;
-    ESP_LOGI(TAG, "Zeroed BSS length = %u", bss_len);
-    ESP_LOGI(TAG, "Total algo bin len = %u", actual_len_cnt);
-
+    ESP_LOGI(TAG, "Algo load OK, total algo bin len = %u", actual_len_cnt);
     if (actual_len != nullptr) {
         *actual_len = actual_len_cnt;
     }
 
-    return ret;
+    return ESP_OK;
 }
 
-esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *section_name, size_t min_size, size_t *actual_size, uint32_t offset) const
+esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *section_name, size_t min_size,
+                                              size_t *actual_size, uint32_t offset, uint32_t *start_addr) const
 {
     if (section_name == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -218,13 +236,17 @@ esp_err_t flash_algo_parser::get_section_data(void *data_out, const char *sectio
                 *actual_size = curr_section->get_size() - offset;
             }
 
+            if (start_addr != nullptr) {
+                *start_addr = (uint32_t)curr_section->get_address();
+            }
+
             return ESP_OK;
         } else {
             continue;
         }
     }
 
-    ESP_LOGE(TAG, "Section '%s' not found!", section_name);
+    ESP_LOGW(TAG, "Section '%s' not found!", section_name);
     return ESP_ERR_NOT_FOUND;
 }
 
@@ -254,7 +276,7 @@ esp_err_t flash_algo_parser::get_section_length(const char *section_name, size_t
         }
     }
 
-    ESP_LOGE(TAG, "BSS '%s' not found!", section_name);
+    ESP_LOGW(TAG, "BSS '%s' not found!", section_name);
     return ESP_ERR_NOT_FOUND;
 }
 
@@ -284,7 +306,7 @@ esp_err_t flash_algo_parser::get_section_addr(const char *section_name, uint32_t
         }
     }
 
-    ESP_LOGE(TAG, "BSS '%s' not found!", section_name);
+    ESP_LOGW(TAG, "BSS '%s' not found!", section_name);
     return ESP_ERR_NOT_FOUND;
 }
 

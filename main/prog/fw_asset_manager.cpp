@@ -30,9 +30,9 @@ esp_err_t fw_asset_manager::init()
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len)
+esp_err_t fw_asset_manager::get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len, uint32_t *start_addr)
 {
-    return algo_parser.get_flash_algo(algo, len, actual_len);
+    return algo_parser.get_flash_algo(algo, len, actual_len, start_addr);
 }
 
 esp_err_t fw_asset_manager::get_ram_size_byte(uint32_t *out) const

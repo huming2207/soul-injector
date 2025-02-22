@@ -46,13 +46,13 @@ private:
     uint32_t stack_bottom = 0; // Offset of stack bottom
     uint32_t stack_top = 0; // Offset of stack top
     uint32_t stack_canary = 0; // Random 32-bit word generated on every init
-    uint32_t func_offset = 0;
     uint32_t ram_start_addr = 0;
     uint32_t stack_size = 0;
     size_t algo_bin_len = 0;
     led_ctrl &led = led_ctrl::instance();
+    uint8_t programmed_hash[32] = {}; // SHA256 for the stuff programmed?
 
-    static const uint32_t header_blob[];
+private:
     static const constexpr uint32_t halt_header = 0xBE00BE00; // Two breakpoint instructions. See https://github.com/probe-rs/probe-rs/pull/2883
 
 private:
@@ -68,7 +68,7 @@ public:
     esp_err_t erase_sector(uint32_t start_addr, uint32_t end_addr);
     esp_err_t program_page(const uint8_t *buf, size_t len, uint32_t start_addr = UINT32_MAX);
     esp_err_t program_file(const char *path, uint32_t *len_written = nullptr, uint32_t start_addr = UINT32_MAX);
-    esp_err_t verify(uint32_t expected_crc, uint32_t start_addr = UINT32_MAX, size_t len = 0);
+    esp_err_t verify(const char *path, uint32_t start_addr = UINT32_MAX, size_t len = 0);
     esp_err_t self_test(uint16_t test_id, uint8_t *readout_buf, size_t readout_buf_len = 0, uint32_t *func_return_val = nullptr);
     static void trigger_nrst();
 };

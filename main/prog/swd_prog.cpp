@@ -4,23 +4,11 @@
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <cstring>
-#include <esp_crc.h>
 #include <algorithm>
 #include <esp_random.h>
 #include "swd_prog.hpp"
 
 #define TAG "swd_prog"
-
-const uint32_t swd_prog::header_blob[] = {
-        0xE00ABE00,
-        0x062D780D,
-        0x24084068,
-        0xD3000040,
-        0x1E644058,
-        0x1C49D1FA,
-        0x2A001E52,
-        0x04770D1F,
-};
 
 esp_err_t swd_prog::load_flash_algorithm()
 {
@@ -88,7 +76,7 @@ esp_err_t swd_prog::load_flash_algorithm()
 
 esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
 {
-    ESP_LOGI(TAG, "Running init, load_addr: 0x%lx, stack_ptr: 0x%lx, static_base: 0x%lx", syscall.breakpoint, syscall.stack_pointer, syscall.static_base);
+    ESP_LOGD(TAG, "Running init, load_addr: 0x%lx, stack_ptr: 0x%lx, static_base: 0x%lx", syscall.breakpoint, syscall.stack_pointer, syscall.static_base);
     uint32_t retry_cnt = 3;
     auto *asset = fw_asset_manager::instance();
     while (retry_cnt > 0) {
@@ -124,7 +112,7 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
             return ESP_ERR_INVALID_STATE;
         }
 
-        ESP_LOGI(TAG, "Flash start addr = 0x%lx, pc_init = 0x%lx", flash_start_addr, pc_init);
+        ESP_LOGD(TAG, "Flash start addr = 0x%lx, pc_init = 0x%lx", flash_start_addr, pc_init);
 
         ret = swd_flash_syscall_exec(
                 &syscall,
@@ -141,7 +129,7 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
             init(ram_start_addr, stack_size); // Re-init SWD as well (so that target will reset)
             retry_cnt -= 1;
         } else {
-            ESP_LOGI(TAG, "Init() OK");
+            ESP_LOGD(TAG, "Init() OK");
             state = swd_def::FLASH_ALG_INITED;
             return ESP_OK;
         }
@@ -263,6 +251,7 @@ esp_err_t swd_prog::init(uint32_t _ram_addr, uint32_t _stack_size)
         return ESP_ERR_INVALID_STATE;
     }
 
+    // TODO: stack_bottom still may not be correct, it probably should consider the SelfTestInfo section, not just simply add two flash pages.
     stack_bottom = next_multiple_of((code_end + flash_page_size * 2), 8); // We only consider the RAM is enough to fit contiguous stuff of .text, .bss and .data for now.
     stack_top = stack_bottom + stack_size;
     stack_canary = esp_random();
@@ -280,7 +269,8 @@ esp_err_t swd_prog::init(uint32_t _ram_addr, uint32_t _stack_size)
     syscall.stack_pointer = stack_top;
 
     ESP_LOGI(TAG, "Addr: ram_start_addr: 0x%08lx; data_section: 0x%08lx", ram_start_addr, data_section_offset);
-    ESP_LOGI(TAG, "Addr: stack top: 0x%08lx; bkpt: 0x%08lx", stack_top, syscall.breakpoint);
+    ESP_LOGI(TAG, "Addr: stack top: 0x%08lx, bottom: 0x%08lx breakpoint: 0x%08lx, static_base: 0x%08lx",
+             stack_top, stack_bottom, syscall.breakpoint, syscall.static_base);
 
     state = swd_def::INITIALISED;
     return ESP_OK;
@@ -320,6 +310,8 @@ esp_err_t swd_prog::erase_chip()
 
     led.set_color(0, 0, 60, 1);
 
+    ESP_LOGI(TAG, "Calling chip erase...");
+
     swd_ret = swd_flash_syscall_exec(
             &syscall,
             pc_erase_all,
@@ -336,6 +328,8 @@ esp_err_t swd_prog::erase_chip()
         if (ret != ESP_OK) return ret;
 
         return ESP_FAIL;
+    } else {
+        ESP_LOGI(TAG, "Chip erase OK!");
     }
 
     // Maybe no need to uninit here??
@@ -626,7 +620,7 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
             write_size = read_len;
         }
 
-        swd_ret = swd_write_memory(syscall.static_base + stack_size, (uint8_t *)buf, write_size); // TODO: temp fix
+        swd_ret = swd_write_memory(syscall.static_base + stack_size, (uint8_t *)buf, write_size);
         if (swd_ret < 1) {
             ESP_LOGE(TAG, "Failed when writing RAM cache");
             delete[] buf;
@@ -670,7 +664,7 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
     return ret;
 }
 
-esp_err_t swd_prog::verify(uint32_t expected_crc, uint32_t start_addr, size_t len)
+esp_err_t swd_prog::verify(const char *path, uint32_t start_addr, size_t len)
 {
     auto swd_ret = swd_halt_target();
     if (swd_ret < 1) {
@@ -695,27 +689,42 @@ esp_err_t swd_prog::verify(uint32_t expected_crc, uint32_t start_addr, size_t le
     size_t remain_len = actual_len;
     uint32_t offset = 0;
 
+    FILE *file = fopen(path, "rb");
+    if (file == nullptr) {
+        ESP_LOGE(TAG, "Original firmware does not exist");
+        return ESP_ERR_NOT_FOUND;
+    }
+
     while(remain_len > 0) {
-        uint8_t buf[1024] = { 0 };
-        uint32_t read_len = std::min(sizeof(buf), remain_len);
-        swd_ret = swd_read_memory((actual_read_addr + offset), buf, read_len);
+        uint8_t target_buf[512] = { 0 };
+        uint8_t orig_buf[512] = { 0 };
+        uint32_t read_len = std::min(sizeof(target_buf), remain_len);
+        swd_ret = swd_read_memory((actual_read_addr + offset), target_buf, read_len);
         if (swd_ret < 1) {
             ESP_LOGE(TAG, "Failed when reading flash");
+            fclose(file);
             return ESP_ERR_INVALID_STATE;
         }
 
-        actual_crc = esp_crc32_le(actual_crc, buf, read_len);
+        size_t orig_read_len = fread(orig_buf, 1, read_len, file);
+        if (orig_read_len < read_len) {
+            ESP_LOGE(TAG, "Read failed, orig read %u expect %lu", orig_read_len, read_len);
+            fclose(file);
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        if (memcmp(orig_buf, target_buf, read_len) != 0) {
+            ESP_LOGE(TAG, "Verify failed at addr 0x%08lx, read len %lu", (actual_read_addr + offset), read_len);
+            fclose(file);
+            return ESP_ERR_INVALID_CRC;
+        }
+
         offset += read_len;
         remain_len -= read_len;
     }
 
-    if (expected_crc != actual_crc) {
-        ESP_LOGE(TAG, "CRC mismatched, expected 0x%lx, actual 0x%lx", expected_crc, actual_crc);
-        return ESP_ERR_INVALID_CRC;
-    } else {
-        ESP_LOGI(TAG, "CRC matched, expected 0x%lx, actual 0x%lx", expected_crc, actual_crc);
-    }
-
+    ESP_LOGI(TAG, "verify: OK");
+    fclose(file);
     return ESP_OK;
 }
 

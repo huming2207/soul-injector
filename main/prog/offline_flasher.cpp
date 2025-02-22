@@ -87,11 +87,9 @@ void offline_flasher::on_done()
 
 void offline_flasher::on_verify()
 {
-    uint32_t crc = 0;
-
     composer->display_program(100);
     //ui_cmder->display_test(&test);
-    auto ret = swd->verify(crc, UINT32_MAX, written_len);
+    auto ret = swd->verify(fw_asset_manager::FIRMWARE_PATH, UINT32_MAX, written_len);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to verify!");
         composer->display_error("ERROR", "Failed to verify\nPlease try again");

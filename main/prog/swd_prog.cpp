@@ -609,8 +609,11 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
     auto *buf = new uint8_t[page_size];
     memset(buf, 0, page_size);
 
-    ESP_LOGI(TAG, "program_file: page_size: %lu, pc_prg_page=0x%lx, flash_start_addr=0x%lx", page_size, pc_program_page, flash_start_addr);
+    ESP_LOGD(TAG, "program_file: page_size: %lu, pc_prg_page=0x%lx, flash_start_addr=0x%lx", page_size, pc_program_page, flash_start_addr);
 
+    uint8_t curr_buf = 0;
+    uint32_t curr_buf_addr = stack_top + stack_size;
+    uint32_t last_page_addr = 0;
     for (uint32_t page_idx = 0; page_idx < ((len / page_size) + ((len % page_size != 0) ? 1 : 0)); page_idx += 1) {
         uint32_t write_size = std::min(page_size, remain_len);
         size_t read_len = fread(buf, 1, write_size, file);
@@ -620,7 +623,8 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
             write_size = read_len;
         }
 
-        swd_ret = swd_write_memory(syscall.static_base + stack_size, (uint8_t *)buf, write_size);
+        curr_buf_addr = curr_buf == 0 ? (stack_top + stack_size) : (stack_top + stack_size + page_size);
+        swd_ret = swd_write_memory(curr_buf_addr, (uint8_t *)buf, write_size);
         if (swd_ret < 1) {
             ESP_LOGE(TAG, "Failed when writing RAM cache");
             delete[] buf;
@@ -628,16 +632,31 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
             return ESP_ERR_INVALID_STATE;
         }
 
-        ESP_LOGD(TAG, "Writing page 0x%lx, size %lu from RAM 0x%lx", addr_offset + (page_idx * page_size), write_size, syscall.static_base + stack_size);
-        swd_ret = swd_flash_syscall_exec(
+        swd_ret = swd_flash_syscall_wait_result(FLASHALGO_RETURN_BOOL, nullptr);
+        if (swd_ret < 1) {
+            ESP_LOGE(TAG, "Failed when checking programming state");
+            delete[] buf;
+            state = swd_def::UNKNOWN;
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        ESP_LOGI(TAG, "Writing page 0x%08lx, size %lu from RAM 0x%08lx", addr_offset + (page_idx * page_size), write_size, curr_buf_addr);
+        swd_ret = swd_flash_syscall_exec_async(
                 &syscall,
-                pc_program_page, // ErasePage PC = 305
+                pc_program_page,
                 addr_offset + (page_idx * page_size), // r0 = flash base addr
-                write_size,
-                syscall.static_base + stack_size, 0, // r1 = len, r2 = buf addr
-                FLASHALGO_RETURN_BOOL,
-                nullptr
+                write_size, // r1 = length
+                curr_buf_addr, 0 // r2 = buf addr
         );
+
+        if (swd_ret < 1) {
+            ESP_LOGE(TAG, "Failed when programming data to target");
+            delete[] buf;
+            state = swd_def::UNKNOWN;
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        curr_buf = (curr_buf == 1) ? 0 : 1; // Rotate buffer
 
         if(page_idx % 2 == 0) {
             led.set_color(50, 50, 0, 20);
@@ -649,6 +668,14 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
     }
 
     delete[] buf;
+
+    swd_ret = swd_flash_syscall_wait_result(FLASHALGO_RETURN_BOOL, nullptr);
+    if (swd_ret < 1) {
+        ESP_LOGE(TAG, "Failed when checking programming state after finish");
+        delete[] buf;
+        state = swd_def::UNKNOWN;
+        return ESP_ERR_INVALID_STATE;
+    }
 
     if (swd_ret < 1) {
         ESP_LOGE(TAG, "Program function returned an unknown error");

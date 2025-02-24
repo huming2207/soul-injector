@@ -35,6 +35,17 @@ esp_err_t fw_asset_manager::get_algo_bin(uint8_t *algo, size_t len, size_t *actu
     return algo_parser.get_flash_algo(algo, len, actual_len, start_addr);
 }
 
+esp_err_t fw_asset_manager::get_ram_start_addr(uint32_t *out) const
+{
+    if (out != nullptr) {
+        *out = test_descr.ram_start_addr;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK;
+}
+
 esp_err_t fw_asset_manager::get_ram_size_byte(uint32_t *out) const
 {
     if (out != nullptr) {

@@ -7,10 +7,6 @@
 #include <nvs_handle.hpp>
 #include "flash_algo_parser.hpp"
 
-#define CFG_MGR_PKT_MAGIC 0x4a485349
-#define CFG_MGR_FLASH_ALGO_MAX_SIZE  32768
-#define CFG_MGR_FW_MAX_SIZE 1048576
-
 class fw_asset_manager
 {
 public:
@@ -24,6 +20,7 @@ public:
 
     esp_err_t init();
     esp_err_t get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len = nullptr, uint32_t *code_start_addr = nullptr);
+    esp_err_t get_ram_start_addr(uint32_t *out) const;
     esp_err_t get_ram_size_byte(uint32_t *out) const;
     esp_err_t get_flash_size_byte(uint32_t *out);
     esp_err_t get_pc_init(uint32_t *out);

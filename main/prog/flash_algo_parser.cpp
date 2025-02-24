@@ -77,6 +77,7 @@ esp_err_t flash_algo_parser::get_test_description(flash_algo::test_description *
     }
 
     free(items_buf);
+    ESP_LOGI(TAG, "Total test items %u", test_items.size());
 
     return ret;
 }

@@ -50,12 +50,11 @@ void offline_flasher::on_erase()
 
 void offline_flasher::on_program()
 {
+    composer->display_program(100);
     int64_t ts = esp_timer_get_time();
-
     auto ret = swd->program_file(fw_asset_manager::FIRMWARE_PATH, &written_len);
     if (ret != ESP_OK) {
         composer->display_error("ERROR", "Cannot program target!\nPlease try again!");
-        //ui_cmder->display_error(&error);
         state = flasher::ERROR;
     } else {
         ts = esp_timer_get_time() - ts;
@@ -112,20 +111,33 @@ void offline_flasher::on_self_test()
 
         if (items[idx].type == flash_algo::INTERNAL_SIMPLE_TEST) {
             uint32_t func_ret = UINT32_MAX;
+            ESP_LOGW(TAG, "Self test: %u, %s type %u", items[idx].id, items[idx].name, items[idx].type);
             auto ret = swd->self_test(items[idx].id, nullptr, 0, &func_ret);
-            ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
             if (ret == ESP_ERR_NOT_SUPPORTED) {
                 ESP_LOGW(TAG, "No self test config found, skipping");
                 state = flasher::DONE;
                 return;
             } else if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "Self test failed, host returned 0x%x, function returned 0x%lx", ret, func_ret);
+                ESP_LOGW(TAG, "Self test failed, host error 0x%x, function returned 0x%lx", ret, func_ret);
                 char msg[128] = { 0 };
-                snprintf(msg, sizeof(msg), "Test failed at\n%u of %u ID %u;\n%s", idx, items.size(), items[idx].id, items[idx].name);
+                snprintf(msg, sizeof(msg), "Test failed at\n%u of %u ID %u;\n%s", idx + 1, items.size(), items[idx].id, items[idx].name);
                 composer->display_error("ERROR", msg);
                 state = flasher::ERROR;
                 return;
             }
+
+            if (func_ret != 0) {
+                ESP_LOGW(TAG, "Self test failed, host returned 0x%x, target returned error 0x%lx", ret, func_ret);
+                char msg[128] = { 0 };
+                snprintf(msg, sizeof(msg), "Test failed at ID %u;\n%s\nRet=%lu", items[idx].id, items[idx].name, func_ret);
+                composer->display_error("ERROR", msg);
+                state = flasher::ERROR;
+                return;
+            }
+
+
+            ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
+
         } else if (items[idx].type == flash_algo::INTERNAL_EXTEND_TEST) {
             ESP_LOGW(TAG, "Unsupported InternalExtendTest type!");
         } else if (items[idx].type == flash_algo::EXTERNAL_TEST) {

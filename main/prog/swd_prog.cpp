@@ -771,8 +771,6 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
         remain_len -= write_size;
     }
 
-    free(buf);
-
     swd_ret = swd_flash_syscall_wait_result(FLASHALGO_RETURN_BOOL, nullptr);
     if (swd_ret < 1) {
         ESP_LOGE(TAG, "Failed when checking programming state after finish");
@@ -780,7 +778,8 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
     }
-    
+
+    free(buf);
     return ESP_OK;
 }
 

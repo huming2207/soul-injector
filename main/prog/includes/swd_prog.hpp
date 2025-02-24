@@ -47,6 +47,7 @@ private:
     uint32_t stack_top = 0; // Offset of stack top
     uint32_t stack_canary = 0; // Random 32-bit word generated on every init
     uint32_t ram_start_addr = 0;
+    uint32_t ram_size = 0;
     uint32_t stack_size = 0;
     size_t algo_bin_len = 0;
     led_ctrl &led = led_ctrl::instance();
@@ -61,9 +62,11 @@ private:
     esp_err_t run_algo_init(swd_def::init_mode mode);
     esp_err_t run_algo_uninit(swd_def::init_mode mode);
     static inline uint32_t next_multiple_of(uint32_t input, uint32_t of);
+    inline esp_err_t perform_double_buffered_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset);
+    inline esp_err_t perform_simple_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset);
 
 public:
-    esp_err_t init(uint32_t ram_addr = 0x20000000, uint32_t _stack_size = 0x2000);
+    esp_err_t init(uint32_t _stack_size = 0x2000);
     esp_err_t erase_chip();
     esp_err_t erase_sector(uint32_t start_addr, uint32_t end_addr);
     esp_err_t program_page(const uint8_t *buf, size_t len, uint32_t start_addr = UINT32_MAX);

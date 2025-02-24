@@ -744,7 +744,7 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
             return ESP_ERR_INVALID_STATE;
         }
 
-        ESP_LOGI(TAG, "Writing page 0x%08lx, size %lu from RAM 0x%08lx", addr_offset + (page_idx * page_size), write_size, curr_buf_addr);
+        ESP_LOGD(TAG, "Writing page 0x%08lx, size %lu from RAM 0x%08lx", addr_offset + (page_idx * page_size), write_size, curr_buf_addr);
         swd_ret = swd_flash_syscall_exec_async(
                 &syscall,
                 pc_program_page,

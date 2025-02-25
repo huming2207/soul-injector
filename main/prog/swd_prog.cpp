@@ -381,7 +381,7 @@ esp_err_t swd_prog::self_test(uint16_t test_id, uint8_t *readout_buf, size_t rea
     swd_ret = swd_flash_syscall_exec(
             &syscall,
             pc_verify,
-            test_id + 0xfffff000, // r0 is addr, for SI's algo executing 0xfffff000+ to trigger self test
+            test_id, // r0 is addr
             readout_buf_len, // r1 indicates self test result RAM buffer size (or 0 if not used)
             0, // r2 indicates self test result RAM buffer pointer (or 0, aka. null, if not used) - TODO: need to implement readout buffer copy
             0, // r3 unused

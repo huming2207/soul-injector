@@ -118,7 +118,7 @@ void offline_flasher::on_self_test()
                 state = flasher::DONE;
                 return;
             } else if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "Self test failed, host error 0x%x, function returned 0x%lx", ret, func_ret);
+                ESP_LOGW(TAG, "Self test #%u failed, host error 0x%x, function returned 0x%lx", items[idx].id, ret, func_ret);
                 char msg[128] = { 0 };
                 snprintf(msg, sizeof(msg), "Test failed at\n%u of %u ID %u;\n%s", idx + 1, items.size(), items[idx].id, items[idx].name);
                 composer->display_error("ERROR", msg);

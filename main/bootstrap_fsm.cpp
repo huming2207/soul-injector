@@ -6,6 +6,7 @@
 #include "thumbconfig/tcfg_client.hpp"
 #include "thumbconfig/tcfg_wire_usb_cdc.hpp"
 #include "offline_flasher.hpp"
+#include "soulinjector-sg/sg_bootstrap.hpp"
 
 esp_err_t bootstrap_fsm::init()
 {
@@ -71,6 +72,15 @@ esp_err_t bootstrap_fsm::init()
         ESP_LOGE(TAG, "Can't create event group");
         return ESP_FAIL;
     }
+
+#ifdef CONFIG_SI_SG_PROG_RIG
+    ESP_LOGI(TAG, "Set up SG stuff");
+    ret = sg_bootstrap::instance()->init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "SG stuff init failed");
+        return ret;
+    }
+#endif
 
     ret = gpio_config(&det_io_cfg);
     gpio_install_isr_service(0);

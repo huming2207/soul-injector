@@ -212,4 +212,10 @@ menu "Soul Injector Configuration"
         help
             General receive timeout in millisecond, used in MQ command queue
 
+    config SI_SG_PROG_RIG
+        bool "SmartGuide Programming Rig"
+        default n
+        help
+            Include SmartGuide secret stuff
+
 endmenu

@@ -22,7 +22,7 @@ public:
     esp_err_t display_done() override;
     esp_err_t display_error(const char *header, const char *err_msg) override;
     esp_err_t display_config() override;
-    esp_err_t display_current(float current_ua, float energy_mc, const char *state, lv_color_t state_color) override;
+    esp_err_t display_current(double min_ua, double max_ua, double avg_ua, const char *state, lv_color_t state_color) override;
 
     esp_err_t wait_for_ui_mod(uint32_t wait_ticks = pdMS_TO_TICKS(1000)) const;
 

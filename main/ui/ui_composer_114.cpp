@@ -232,7 +232,7 @@ esp_err_t ui_composer_114::display_config()
     return ESP_OK;
 }
 
-esp_err_t ui_composer_114::display_current(float current_ua, float energy_mc, const char *state, lv_color_t state_color)
+esp_err_t ui_composer_114::display_current(double min_ua, double max_ua, double avg_ua, const char *state, lv_color_t state_color)
 {
     if (wait_for_ui_mod() != ESP_OK) {
         return ESP_ERR_TIMEOUT;
@@ -249,13 +249,9 @@ esp_err_t ui_composer_114::display_current(float current_ua, float energy_mc, co
         }
     }
 
-    char i_reading[32] = { 0 };
-    snprintf(i_reading, sizeof(i_reading), "%.3f uA", current_ua);
-    current_screen.set_current(i_reading);
-
-    char e_reading[32] = { 0 };
-    snprintf(e_reading, sizeof(e_reading), "%.3f mC", energy_mc);
-    current_screen.set_energy(e_reading);
+    char i_reading[128] = { 0 };
+    snprintf(i_reading, sizeof(i_reading), "Avg %.3f uA\nMin %.3f uA\nMax %.3f uA", avg_ua, min_ua, max_ua);
+    current_screen.set_current_main(i_reading);
     current_screen.set_state(state, state_color);
 
     set_ready();

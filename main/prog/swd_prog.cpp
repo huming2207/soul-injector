@@ -840,3 +840,8 @@ esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t pa
     return ESP_OK;
 }
 
+void swd_prog::reset_gpio()
+{
+    swd_off();
+}
+

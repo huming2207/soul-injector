@@ -8,6 +8,7 @@
 #include <esp_timer.h>
 
 #include "offline_flasher.hpp"
+#include "soulinjector-sg/sg_bootstrap.hpp"
 
 void offline_flasher::init()
 {
@@ -148,8 +149,30 @@ void offline_flasher::on_self_test()
 
     swd_prog::trigger_nrst();
 
+#ifndef CONFIG_SI_SG_PROG_RIG
     state = flasher::DONE;
+#else
+    state = flasher::SG_CURRENT_TEST;
+#endif
 }
+
+
+#ifdef CONFIG_SI_SG_PROG_RIG
+void offline_flasher::on_current_test()
+{
+    // Shut up the SWD to run firmware
+    swd_prog::reset_gpio();
+
+    auto *pwr_test = sg_bootstrap::instance();
+
+    double min = 0, max = 0, avg = 0;
+    auto ret = pwr_test->pwr_tester()->start_testing(3000, &max, &min, &avg);
+    ESP_LOGI(TAG, "Min=%.6f Max=%.6f, Avg=%.6f, ret=0x%x", min * 1000, max * 1000, avg * 1000, ret);
+    composer->display_current(min * 1000000, max * 1000000, avg * 1000000, "OK", lv_color_make(0, 0xff, 0));
+    state = flasher::DONE;
+    vTaskDelay(pdMS_TO_TICKS(10000));
+}
+#endif
 
 esp_err_t offline_flasher::handle_states()
 {
@@ -188,6 +211,13 @@ esp_err_t offline_flasher::handle_states()
             on_self_test();
             break;
         }
+
+#ifdef CONFIG_SI_SG_PROG_RIG
+        case flasher::SG_CURRENT_TEST: {
+            on_current_test();
+            break;
+        }
+#endif
     }
 
     return ESP_ERR_NOT_FINISHED;

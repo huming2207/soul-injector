@@ -49,9 +49,9 @@ esp_err_t bootstrap_fsm::init()
 
     ESP_LOGI(TAG, "Setting up detection pin");
     gpio_config_t det_io_cfg = {};
-    det_io_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    det_io_cfg.pull_up_en = GPIO_PULLUP_DISABLE;
     det_io_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    det_io_cfg.pin_bit_mask = (1 << GPIO_NUM_0);
+    det_io_cfg.pin_bit_mask = (1 << DET_IO_PIN);
     det_io_cfg.intr_type = GPIO_INTR_ANYEDGE;
     det_io_cfg.mode = GPIO_MODE_INPUT;
 
@@ -84,12 +84,15 @@ esp_err_t bootstrap_fsm::init()
 
     ret = gpio_config(&det_io_cfg);
     gpio_install_isr_service(0);
+    ret = ret ?: gpio_set_intr_type(DET_IO_PIN, GPIO_INTR_ANYEDGE);
+    ret = ret ?: gpio_intr_enable(DET_IO_PIN);
     ret = ret ?: gpio_isr_handler_add(DET_IO_PIN, det_io_isr_handler, det_debounce_timer);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Button setup failed: 0x%x", ret);
         return ret;
     }
 
+    ESP_LOGI(TAG, "Bootstrap init OK");
     return ESP_OK;
 }
 
@@ -160,6 +163,7 @@ void bootstrap_fsm::det_io_isr_handler(void *_ctx)
     BaseType_t higher_priority_waken = pdFALSE;
     xTimerStartFromISR(timer, &higher_priority_waken);
 
+
     if (higher_priority_waken == pdTRUE) {
         portYIELD_FROM_ISR();
     }
@@ -171,9 +175,11 @@ void bootstrap_fsm::det_pin_debounce_timer(TimerHandle_t timer_handle)
     bool state = gpio_get_level(DET_IO_PIN);
     if (state == ctx->last_det_state) {
         if (!state) {
+            ESP_LOGW(TAG, "Tag connected!");
             xEventGroupSetBits(ctx->evt_group, BIT_TARGET_CONNECTED);
             xEventGroupClearBits(ctx->evt_group, BIT_TARGET_DISCONNECTED);
         } else {
+            ESP_LOGW(TAG, "Tag DISCONNECTED!");
             xEventGroupSetBits(ctx->evt_group, BIT_TARGET_DISCONNECTED);
             xEventGroupClearBits(ctx->evt_group, BIT_TARGET_CONNECTED);
         }

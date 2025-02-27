@@ -163,10 +163,11 @@ void offline_flasher::on_current_test()
     // Shut up the SWD to run firmware
     swd_prog::reset_gpio();
 
-    auto *pwr_test = sg_bootstrap::instance();
+    auto *sg = sg_bootstrap::instance();
 
     double min = 0, max = 0, avg = 0;
-    auto ret = pwr_test->pwr_tester()->start_testing(3000, &max, &min, &avg);
+    sg->reload_pwr_tester();
+    auto ret = sg->pwr_tester()->start_testing(3000, &max, &min, &avg);
     ESP_LOGI(TAG, "Min=%.6f Max=%.6f, Avg=%.6f, ret=0x%x", min * 1000, max * 1000, avg * 1000, ret);
     composer->display_current(min * 1000000, max * 1000000, avg * 1000000, "OK", lv_color_make(0, 0xff, 0));
     state = flasher::DONE;

@@ -51,6 +51,7 @@ idf_component_register(
             "mbedtls"
             "soulinjector-common"
             "app_update"
+            "ina228"
 
         REQUIRES
             "tinyusb"

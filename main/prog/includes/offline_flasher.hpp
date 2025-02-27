@@ -18,6 +18,9 @@ namespace flasher
         VERIFY = 4,
         SELF_TEST = 5,
         DONE = 6,
+#ifdef CONFIG_SI_SG_PROG_RIG
+        SG_CURRENT_TEST = 7,
+#endif
     };
 }
 
@@ -56,5 +59,9 @@ private:
     void on_verify();
     void on_self_test();
     void on_done();
+
+#ifdef CONFIG_SI_SG_PROG_RIG
+    void on_current_test();
+#endif
 };
 

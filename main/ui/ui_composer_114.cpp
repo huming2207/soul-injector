@@ -250,7 +250,7 @@ esp_err_t ui_composer_114::display_current(double min_ua, double max_ua, double 
     }
 
     char i_reading[128] = { 0 };
-    snprintf(i_reading, sizeof(i_reading), "Avg %.3f uA\nMin %.3f uA\nMax %.3f uA", avg_ua, min_ua, max_ua);
+    snprintf(i_reading, sizeof(i_reading), "Avg %.8g uA\nMin %.8g uA\nMax %.8g uA", avg_ua, min_ua, max_ua);
     current_screen.set_current_main(i_reading);
     current_screen.set_state(state, state_color);
 

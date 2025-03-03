@@ -18,15 +18,7 @@ esp_err_t config_reader::load()
              mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5], flash_sn);
 
     full_sn[sizeof(full_sn) - 1] = '\0';
-
-    ret = cfg_reader.load(CFG_FILE);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to load config file: 0x%x, %s", ret, esp_err_to_name(ret));
-        has_valid_config = false;
-        return ret;
-    }
-
-    return reload_config();
+    return ret;
 }
 
 esp_err_t config_reader::get_wifi_cred(wifi_config_t *cred)
@@ -35,44 +27,23 @@ esp_err_t config_reader::get_wifi_cred(wifi_config_t *cred)
         return ESP_ERR_INVALID_ARG;
     }
 
-    const char *ssid_str = json_doc["net"]["wifi"]["ssid"];
-    if (ssid_str != nullptr) {
-        strncpy((char *)cred->sta.ssid, ssid_str, sizeof(wifi_sta_config_t::ssid));
-    } else {
-        ESP_LOGE(TAG, "No SSID found!");
-        return ESP_ERR_NOT_FINISHED;
+    esp_err_t ret = ESP_OK;
+    auto nvs_handle = nvs::open_nvs_handle("net", NVS_READONLY, &ret);
+    if (!nvs_handle || ret != ESP_OK) {
+        ESP_LOGE(TAG, "get_wifi_cred: failed to open NVS: 0x%x", ret);
+        return ret;
     }
 
-    const char *pwd_str = json_doc["net"]["wifi"]["pwd"];
-    if (pwd_str != nullptr) {
-        strncpy((char *)cred->sta.password, ssid_str, sizeof(wifi_sta_config_t::password));
+    ret = nvs_handle->get_string("wifi_ssid", (char *)cred->sta.ssid, sizeof(wifi_sta_config_t::ssid) - 1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "get_wifi_cred: no SSID found, abort! 0x%x", ret);
+        return ret;
     }
 
-    return ESP_OK;
-}
-
-esp_err_t config_reader::get_mqtt_cred(config::mqtt_cred &mq_cred)
-{
-    if (!json_doc["net"]["mqtt"] || !json_doc["net"]["mqtt"]["username"] || !json_doc["net"]["mqtt"]["url"]) {
-        ESP_LOGE(TAG, "Lacking MQTT cred fields in config!");
-        return ESP_ERR_INVALID_ARG;
+    ret = nvs_handle->get_string("wifi_password", (char *)cred->sta.password, sizeof(wifi_sta_config_t::password) - 1);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "get_wifi_cred: no password found 0x%x", ret);
     }
-
-    std::string client_id = {};
-    if (json_doc["net"]["mqtt"]["client_id"]) {
-        client_id = std::string(json_doc["net"]["mqtt"]["client_id"]);
-    } else {
-        client_id = "soul-";
-        client_id += full_sn;
-    }
-
-    std::string username = json_doc["net"]["mqtt"]["username"];
-    std::string password = json_doc["net"]["mqtt"]["password"];
-    std::string url = json_doc["net"]["mqtt"]["url"];
-
-    mq_cred.client_id = client_id;
-    mq_cred.password = password;
-    mq_cred.username = username;
 
     return ESP_OK;
 }
@@ -83,31 +54,21 @@ esp_err_t config_reader::get_mode(config_reader::work_mode *mode)
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (!has_valid_config) {
-        *mode = OFFLINE_MODE;
-        return ESP_OK;
+    esp_err_t ret = ESP_OK;
+    auto nvs_handle = nvs::open_nvs_handle("soulinjector", NVS_READONLY, &ret);
+    if (!nvs_handle || ret != ESP_OK) {
+        ESP_LOGE(TAG, "get_wifi_cred: failed to open NVS: 0x%x", ret);
+        return ret;
     }
 
-    if (!json_doc["net"] || !json_doc["net"].is<ArduinoJson::JsonObject>()) {
-        ESP_LOGW(TAG, "No valid network field in config");
-        *mode = OFFLINE_MODE;
-        return ESP_OK;
-    }
 
-    if (!json_doc["mode"] || !json_doc["mode"].is<const char *>()) {
-        ESP_LOGW(TAG, "No valid mode field in config");
-        *mode = OFFLINE_MODE;
-        return ESP_OK;
-    }
-
-    std::string_view mode_str = json_doc["mode"];
-    if (mode_str == "cohere" || mode_str == "soyuz") {
-        *mode = COHERE_MODE;
-    } else if (mode_str == "offline") {
-        *mode = OFFLINE_MODE;
+    uint32_t mode_val = 0;
+    ret = nvs_handle->get_item("work_mode", mode_val);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "get_mode: mode value not found, abort! 0x%x", ret);
+        return ret;
     } else {
-        ESP_LOGW(TAG, "Unknown mode: %.*s (set to offline mode anyway)", mode_str.length(), mode_str.data());
-        *mode = OFFLINE_MODE;
+        *mode = (config_reader::work_mode)mode_val;
     }
 
     return ESP_OK;
@@ -128,26 +89,6 @@ esp_err_t config_reader::get_mac_addr(uint8_t *mac_out)
     return ESP_OK;
 }
 
-esp_err_t config_reader::reload_config()
-{
-    auto json_ret = ArduinoJson::deserializeJson(json_doc, cfg_reader);
-    if (json_ret != ArduinoJson::DeserializationError::Ok) {
-        ESP_LOGE(TAG, "Failed to parse config JSON: %d %s", json_ret.code(), json_ret.c_str());
-
-        if (json_ret == ArduinoJson::DeserializationError::EmptyInput
-            || json_ret == ArduinoJson::DeserializationError::IncompleteInput || json_ret == ArduinoJson::DeserializationError::InvalidInput) {
-            return ESP_ERR_NOT_SUPPORTED;
-        } else if (json_ret == ArduinoJson::DeserializationError::NoMemory || json_ret == ArduinoJson::DeserializationError::TooDeep) {
-            return ESP_ERR_NO_MEM;
-        }
-
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    has_valid_config = true;
-    return ESP_OK;
-}
-
 void config_reader::get_full_sn_str(char *sn_out, size_t buf_len)
 {
     if (sn_out == nullptr || buf_len == 0) {
@@ -165,6 +106,11 @@ void config_reader::get_full_sn_byte(uint8_t *buf, size_t buf_len)
 
     memcpy(buf, mac_addr, std::min(buf_len - sizeof(flash_sn), sizeof(mac_addr)));
     memcpy(buf + sizeof(mac_addr), &flash_sn, std::min(buf_len - sizeof(mac_addr), sizeof(flash_sn)));
+}
+
+bool config_reader::has_wifi_cred()
+{
+    return false;
 }
 
 

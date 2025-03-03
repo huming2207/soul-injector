@@ -5,6 +5,8 @@
 #include <esp_wifi_types.h>
 #include "psram_json_allocator.hpp"
 #include <json_file_reader.hpp>
+#include <memory>
+#include <nvs_handle.hpp>
 
 namespace config
 {
@@ -45,12 +47,11 @@ public:
     esp_err_t load();
     esp_err_t get_mode(work_mode *mode);
     esp_err_t get_wifi_cred(wifi_config_t *cred);
-    esp_err_t get_mqtt_cred(config::mqtt_cred &mq_cred);
     esp_err_t get_mac_addr(uint8_t *mac_addr);
     void get_full_sn_str(char *sn_out, size_t buf_len);
     void get_full_sn_byte(uint8_t *buf, size_t buf_len);
-    esp_err_t reload_config();
     [[nodiscard]] uint64_t get_flash_sn() const;
+    bool has_wifi_cred();
 
 private:
     config_reader() = default;
@@ -58,9 +59,6 @@ private:
     uint8_t mac_addr[6] = {};
     uint64_t flash_sn = 0;
     char full_sn[32] = {};
-    json_file_reader cfg_reader {};
-    PsRamAllocator json_allocator {};
-    ArduinoJson::JsonDocument json_doc = ArduinoJson::JsonDocument(&json_allocator);
 
 private:
     static const constexpr char TAG[] = "cfg_ldr";

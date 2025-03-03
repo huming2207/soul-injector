@@ -26,6 +26,7 @@ esp_err_t bootstrap_fsm::init()
     ret = setup_storage();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up storage: 0x%x %s", ret, esp_err_to_name(ret));
+        composer->display_error("ERROR", "Storage partition error\nPlease try factory reset");
         return ret;
     }
 
@@ -36,6 +37,7 @@ esp_err_t bootstrap_fsm::init()
     ret = ret ?: prov_client->init(usb_cdc);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up TCFG provisioning: 0x%x %s", ret, esp_err_to_name(ret));
+        composer->display_error("ERROR", "TCFG setup failed\nCheck USB");
         return ret;
     }
 
@@ -44,6 +46,7 @@ esp_err_t bootstrap_fsm::init()
     ret = asset->init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to load assets: 0x%x %s", ret, esp_err_to_name(ret));
+        composer->display_error("ERROR", "No firmware asset\nPlease load firmware on me!");
         return ret;
     }
 
@@ -77,7 +80,8 @@ esp_err_t bootstrap_fsm::init()
     ESP_LOGI(TAG, "Set up SG stuff");
     ret = sg_bootstrap::instance()->init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "SG stuff init failed");
+        ESP_LOGE(TAG, "SG stuff init failed: 0x%x", ret);
+        composer->display_error("ERROR", "SG stuff load failed\nGo see Jackson!");
         return ret;
     }
 #endif
@@ -186,4 +190,9 @@ void bootstrap_fsm::det_pin_debounce_timer(TimerHandle_t timer_handle)
     }
 
     ctx->last_det_state = state;
+}
+
+void bootstrap_fsm::got_wifi_ip_handler(esp_netif_ip_info_t *)
+{
+
 }

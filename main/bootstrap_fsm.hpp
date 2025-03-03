@@ -37,6 +37,7 @@ private:
 
 public:
     esp_err_t init();
+    void got_wifi_ip_handler(esp_netif_ip_info_t *);
 
 private:
     static esp_err_t setup_storage();

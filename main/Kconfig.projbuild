@@ -52,6 +52,13 @@ menu "Soul Injector Configuration"
 
     endchoice
 
+    config SI_DISP_PANEL_NFP114H_ALT_INIT_CFG
+        bool "Display: NFP114H: use alternative init settings"
+        depends on SI_DISP_PANEL_NFP114H
+        default n
+        help
+            Alternative VCOM and Gamma settings for NFP114H LCD
+
     config SI_DISP_PANEL_IO_SCLK
         int "Display SPI CLK pin"
         depends on SI_DISP_ENABLE

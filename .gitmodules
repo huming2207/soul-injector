@@ -1,10 +1,6 @@
 [submodule "components/daplink-esp"]
 	path = components/daplink-esp
   	url = https://github.com/huming2207/swd-esp
-[submodule "components/lvgl"]
-	path = components/lvgl
-	url = https://github.com/lvgl/lvgl.git
-	branch = release/v8.3
 [submodule "components/esp_littlefs"]
 	path = components/esp_littlefs
 	url = https://github.com/joltwallet/esp_littlefs.git
@@ -23,9 +19,6 @@
 [submodule "components/soulinjector-fw-common"]
 	path = components/soulinjector-common
 	url = https://github.com/huming2207/soulinjector-fw-common.git
-[submodule "components/soulinjector-sg"]
-	path = components/soulinjector-sg
-	url = https://gitlab.smartguide.com.au/jackson/soulinjector-sg.git
 [submodule "components/thumbconfig"]
 	path = components/thumbconfig
 	url = git@github.com:huming2207/thumbconfig.git

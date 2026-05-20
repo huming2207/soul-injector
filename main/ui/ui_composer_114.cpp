@@ -3,6 +3,8 @@
 
 #include "ui_composer_114.hpp"
 
+#include "esp_lvgl_port.h"
+
 esp_err_t ui_composer_114::display_init()
 {
     if (wait_for_ui_mod() != ESP_OK) {
@@ -24,7 +26,7 @@ esp_err_t ui_composer_114::display_init()
     msg_screen.set_comment_text("Detecting target");
     msg_screen.set_color(lv_color_white(), lv_color_black());
 
-    set_ready();
+    lvgl_port_unlock();
     return ESP_OK;
 }
 
@@ -258,12 +260,6 @@ esp_err_t ui_composer_114::display_current(double min_ua, double max_ua, double 
     return ESP_OK;
 }
 
-void ui_composer_114::wait_and_start_render()
-{
-    xEventGroupWaitBits(evt_group, BIT_READY, pdTRUE, pdFALSE, portMAX_DELAY);
-    xEventGroupClearBits(evt_group, BIT_NOT_RENDERING);
-}
-
 esp_err_t ui_composer_114::init()
 {
     evt_group = xEventGroupCreate();
@@ -298,27 +294,7 @@ void ui_composer_114::reload_base_obj()
     lv_obj_set_style_radius(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
-void ui_composer_114::set_ready() const
-{
-    xEventGroupSetBits(evt_group, BIT_READY);
-}
-
-void ui_composer_114::clear_ready() const
-{
-    xEventGroupClearBits(evt_group, BIT_READY);
-}
-
-void ui_composer_114::render_done()
-{
-    xEventGroupSetBits(evt_group, BIT_NOT_RENDERING);
-}
-
 esp_err_t ui_composer_114::wait_for_ui_mod(uint32_t wait_ticks) const
 {
-    EventBits_t ret = xEventGroupWaitBits(evt_group, BIT_NOT_RENDERING, pdFALSE, pdFALSE, wait_ticks);
-    if ((ret & BIT_NOT_RENDERING) == 0) {
-        return ESP_ERR_TIMEOUT;
-    }
-
-    return ESP_OK;
+    return lvgl_port_lock(pdTICKS_TO_MS(wait_ticks));
 }

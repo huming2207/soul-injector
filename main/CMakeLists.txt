@@ -6,6 +6,7 @@ idf_component_register(
             "prog/offline_flasher.cpp" "prog/includes/offline_flasher.hpp"
             "prog/cohere_flasher.cpp" "prog/includes/cohere_flasher.hpp"
             "prog/includes/led_ctrl.hpp"
+            "prog/current_tester.cpp" "prog/includes/current_tester.hpp"
             "prog/flash_algo_parser.cpp" "prog/includes/flash_algo_parser.hpp"
             "prog/self_test_runner.cpp" "prog/includes/self_test_runner.hpp"
             "misc/includes/file_utils.hpp"
@@ -52,6 +53,7 @@ idf_component_register(
             "soulinjector-common"
             "app_update"
             "ina228"
+            "thumbconfig"
 
         REQUIRES
             "tinyusb"

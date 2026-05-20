@@ -3,10 +3,10 @@
 #include "bootstrap_fsm.hpp"
 #include "fw_asset_manager.hpp"
 #include "http_downloader.hpp"
-#include "thumbconfig/tcfg_client.hpp"
-#include "thumbconfig/tcfg_wire_usb_cdc.hpp"
 #include "offline_flasher.hpp"
-#include "soulinjector-sg/sg_bootstrap.hpp"
+#include "tcfg_client.hpp"
+#include "tcfg_wire_usb_cdc.hpp"
+#include "driver/i2c_master.h"
 
 esp_err_t bootstrap_fsm::init()
 {
@@ -78,12 +78,18 @@ esp_err_t bootstrap_fsm::init()
 
 #ifdef CONFIG_SI_SG_PROG_RIG
     ESP_LOGI(TAG, "Set up SG stuff");
-    ret = sg_bootstrap::instance()->init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "SG stuff init failed: 0x%x", ret);
-        composer->display_error("ERROR", "SG stuff load failed\nGo see Jackson!");
-        return ret;
-    }
+    i2c_master_bus_config_t master_cfg = {};
+    master_cfg.clk_source = I2C_CLK_SRC_XTAL;
+    master_cfg.sda_io_num = (gpio_num_t)CONFIG_SI_SG_I2C_SDA;
+    master_cfg.scl_io_num = (gpio_num_t)CONFIG_SI_SG_I2C_SCL;
+    master_cfg.i2c_port = (i2c_port_t)CONFIG_SI_SG_I2C_PERIPH;
+    master_cfg.glitch_ignore_cnt = 7;
+
+    ESP_LOGI(TAG, "Setting up I2C & ADC");
+
+    ret = i2c_new_master_bus(&master_cfg, &i2c_bus);
+
+    return ret;
 #endif
 
     ret = gpio_config(&det_io_cfg);

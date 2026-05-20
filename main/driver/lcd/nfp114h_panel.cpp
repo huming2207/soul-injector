@@ -56,7 +56,6 @@ esp_err_t nfp114h_panel::init()
     io_cfg.lcd_param_bits = 8;
     io_cfg.spi_mode = 0;
     io_cfg.trans_queue_depth = 10;
-    io_cfg.on_color_trans_done = handle_fb_trans_done;
     io_cfg.user_ctx = this;
     ret = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_SPI_HOST, &io_cfg, &io_handle);
 
@@ -86,6 +85,49 @@ esp_err_t nfp114h_panel::init()
     ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 40, 53); // 52 & 40 for vertical, 40 & 53 for horizontal
     ret = ret ?: send_sequence(LCD_INIT_SEQ, sizeof(LCD_INIT_SEQ) / sizeof(nfp114h::seq_t));
     ret = ret ?: set_backlight(100);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "nfp114: can't setup LCD");
+        return ret;
+    }
+
+    ret = lvgl_port_init(&LVGL_CFG);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "ESP LVGL hack init failed, 0x%x %s", ret, esp_err_to_name(ret));
+        return ret;
+    }
+
+    lvgl_port_display_cfg_t disp_cfg = {
+        .io_handle = io_handle,
+        .panel_handle = panel_handle,
+        .control_handle = nullptr,
+        .buffer_size = 240 * 135,
+        .double_buffer = true,
+        .trans_size = 0,
+        .hres = 240,
+        .vres = 135,
+        .monochrome = false,
+        .rotation = {
+            .swap_xy = false,
+            .mirror_x = false,
+            .mirror_y = false,
+        },
+        .rounder_cb = nullptr,
+        .color_format = LV_COLOR_FORMAT_RGB565,
+        .flags = {
+            .buff_dma = true,
+            .buff_spiram = true,
+            .sw_rotate = false,
+            .swap_bytes = true,
+            .full_refresh = false,
+            .direct_mode = false,
+        }
+    };
+
+    display = lvgl_port_add_disp(&disp_cfg);
+    if (display == nullptr) {
+        ESP_LOGE(TAG, "Can't add display!");
+        return ESP_ERR_INVALID_STATE;
+    }
 
     return ret;
 }
@@ -99,17 +141,6 @@ esp_err_t nfp114h_panel::set_backlight(uint8_t level)
     }
 
     return ESP_OK;
-}
-
-void nfp114h_panel::flush_display(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
-{
-    auto x1 = area->x1;
-    auto x2 = area->x2;
-    auto y1 = area->y1;
-    auto y2 = area->y2;
-
-    ESP_LOGD(TAG, "Draw at x1 %d x2 %d; y1 %d y2 %d", x1, x2, y1, y2);
-    esp_lcd_panel_draw_bitmap(panel_handle, x1, y1, x2 + 1, y2 + 1, color_p);
 }
 
 esp_err_t nfp114h_panel::deinit()
@@ -127,35 +158,19 @@ size_t nfp114h_panel::get_ver_size() const
     return 135;
 }
 
-lv_disp_drv_t *nfp114h_panel::get_lv_disp_drv()
+esp_err_t nfp114h_panel::lock(uint32_t timeout_ms)
 {
-    return &lv_drv;
+    return lvgl_port_lock(timeout_ms) ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
-esp_err_t nfp114h_panel::setup_lvgl(lv_disp_draw_buf_t *draw_buf)
+void nfp114h_panel::unlock()
 {
-    lv_disp_drv_init(&lv_drv);
-    lv_drv.flush_cb = handle_flush;
-    lv_drv.hor_res = (int16_t)get_hor_size();
-    lv_drv.ver_res = (int16_t)get_ver_size();
-    lv_drv.draw_buf = draw_buf;
-    lv_drv.antialiasing = 1;
-    lv_drv.user_data = this;
-
-    lv_disp = lv_disp_drv_register(&lv_drv);
-    if (lv_disp == nullptr) {
-        ESP_LOGE(TAG, "LVGL display register failed!");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    return ESP_OK;
+    lvgl_port_unlock();
 }
 
-bool nfp114h_panel::handle_fb_trans_done(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
+lv_display_t* nfp114h_panel::get_lv_disp()
 {
-    auto *ctx = (nfp114h_panel *)user_ctx;
-    lv_disp_flush_ready(&ctx->lv_drv);
-    return false;
+    return display;
 }
 
 esp_err_t nfp114h_panel::send_sequence(const nfp114h::seq_t *seq, size_t seq_cnt)
@@ -167,15 +182,4 @@ esp_err_t nfp114h_panel::send_sequence(const nfp114h::seq_t *seq, size_t seq_cnt
     }
 
     return ret;
-}
-
-void nfp114h_panel::handle_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
-{
-    auto *ctx = static_cast<nfp114h_panel *>(disp_drv->user_data);
-    ctx->flush_display(disp_drv, area, color_p);
-}
-
-lv_disp_t *nfp114h_panel::get_lv_disp()
-{
-    return lv_disp;
 }

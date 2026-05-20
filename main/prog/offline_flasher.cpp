@@ -8,7 +8,6 @@
 #include <esp_timer.h>
 
 #include "offline_flasher.hpp"
-#include "soulinjector-sg/sg_bootstrap.hpp"
 
 void offline_flasher::init()
 {
@@ -163,11 +162,16 @@ void offline_flasher::on_current_test()
     // Shut up the SWD to run firmware
     swd_prog::reset_gpio();
 
-    auto *sg = sg_bootstrap::instance();
-
     double min = 0, max = 0, avg = 0;
-    sg->reload_pwr_tester();
-    auto ret = sg->pwr_tester()->start_testing(3000, &max, &min, &avg);
+    auto ret = pwr_test.init((gpio_num_t)CONFIG_SI_SG_PWR_TESTER_ALERT);
+    ret = ret ?: pwr_test.start_testing(3000, &max, &min, &avg);
+    if (ret != ESP_OK) {
+        composer->display_error("ERROR", "Current sensor error");
+        state = flasher::ERROR;
+        ESP_LOGE(TAG, "curr_test: failed to start testing 0x%x", ret);
+        return;
+    }
+
     ESP_LOGI(TAG, "Min=%.6f Max=%.6f, Avg=%.6f, ret=0x%x", min * 1000, max * 1000, avg * 1000, ret);
     composer->display_current(min * 1000000, max * 1000000, avg * 1000000, "OK", lv_color_make(0, 0xff, 0));
     state = flasher::DONE;

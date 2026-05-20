@@ -4,6 +4,8 @@
 #include <freertos/event_groups.h>
 #include <led_ctrl.hpp>
 #include <esp_err.h>
+
+#include "current_tester.hpp"
 #include "swd_prog.hpp"
 #include "display_manager.hpp"
 
@@ -44,6 +46,10 @@ private:
     display_manager *display = nullptr;
     ui_composer *composer = nullptr;
     volatile flasher::pg_state state = flasher::DETECT;
+
+#ifdef CONFIG_SI_SG_PROG_RIG
+    current_tester pwr_test = {};
+#endif
 
     static const constexpr char *TAG = "local_flasher";
 

@@ -26,11 +26,7 @@ public:
 
     esp_err_t wait_for_ui_mod(uint32_t wait_ticks = pdMS_TO_TICKS(1000)) const;
 
-    void wait_and_start_render() override;
-    void render_done() override;
     void reload_base_obj();
-    void set_ready() const;
-    void clear_ready() const;
 
 public:
     EventGroupHandle_t evt_group = nullptr;

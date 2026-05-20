@@ -12,65 +12,6 @@ esp_err_t display_manager::init()
         return ret;
     }
 
-    disp_buf_a = static_cast<uint8_t *>(heap_caps_malloc(CONFIG_SI_DISP_PANEL_BUFFER_SIZE * sizeof(lv_color_t), (MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM)));
-    if (disp_buf_a == nullptr) {
-        ESP_LOGE(TAG, "Failed to allocate display buffer A");
-        deinit();
-        return ESP_ERR_NO_MEM;
-    }
-
-    disp_buf_b = static_cast<uint8_t *>(heap_caps_malloc(CONFIG_SI_DISP_PANEL_BUFFER_SIZE * sizeof(lv_color_t), (MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM)));
-    if (disp_buf_b == nullptr) {
-        ESP_LOGE(TAG, "Failed to allocate display buffer B");
-        deinit();
-        return ESP_ERR_NO_MEM;
-    }
-
-    lv_ui_task_stack_buf = static_cast<StackType_t *>(heap_caps_calloc(1, UI_STACK_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT | MALLOC_CAP_32BIT));
-    if (lv_ui_task_stack_buf == nullptr) {
-        ESP_LOGE(TAG, "Failed to set up stack for UI task");
-        deinit();
-        return ESP_ERR_NO_MEM;
-    }
-
-    ESP_LOGI(TAG, "LVGL init");
-    lv_init();
-
-    ESP_LOGI(TAG, "Task init");
-    lv_disp_draw_buf_init(&draw_buf, disp_buf_a, disp_buf_b, CONFIG_SI_DISP_PANEL_BUFFER_SIZE);
-    ret = ret ?: panel->setup_lvgl(&draw_buf);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register panel");
-        deinit();
-        return ret;
-    }
-
-    esp_timer_create_args_t timer_args = {
-            .callback = lv_tick_cb,
-            .arg = this,
-            .dispatch_method = ESP_TIMER_TASK,
-            .name = "lvgl_timer",
-            .skip_unhandled_events = true,
-    };
-
-    ret = ret ?: esp_timer_create(&timer_args, &timer_handle);
-    ret = ret ?: esp_timer_start_periodic(timer_handle, LV_TICK_PERIOD_MS * 1000);
-
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set up timer");
-        deinit();
-        return ESP_ERR_NO_MEM;
-    } else {
-        ESP_LOGI(TAG, "Display manager init OK");
-    }
-
-    lv_ui_task_handle = xTaskCreateStatic(lv_ui_task, "ui_task", UI_STACK_SIZE, this, tskIDLE_PRIORITY + 1, lv_ui_task_stack_buf, &lv_ui_task_stack);
-    if (lv_ui_task_handle == nullptr) {
-        ESP_LOGE(TAG, "Failed to create UI task");
-        deinit();
-        return ESP_ERR_NO_MEM;
-    }
-
     ESP_LOGI(TAG, "UI task init OK");
 
     ret = composer.init();
@@ -88,57 +29,9 @@ disp_panel_if *display_manager::get_panel()
     return panel;
 }
 
-void IRAM_ATTR display_manager::lv_tick_cb(void *arg)
-{
-    (void) arg;
-    lv_tick_inc(LV_TICK_PERIOD_MS);
-}
-
-void display_manager::lv_ui_task(void *_ctx)
-{
-    ESP_LOGI(TAG, "UI task started");
-    auto *ctx = static_cast<display_manager *>(_ctx);
-
-    auto *disp = ctx->get_panel()->get_lv_disp();
-    while (true) {
-        ctx->composer.wait_and_start_render();
-        do {
-            ESP_LOGI(TAG, "UI: before handle: inv_p %u %lu", disp->inv_p, disp->inv_en_cnt);
-            uint32_t next_delay = lv_task_handler();
-            ESP_LOGI(TAG, "UI: wait %lu, inv_p %u last act %lu", next_delay, disp->inv_p, disp->last_activity_time);
-            vTaskDelay(1);
-        } while (disp->inv_p > 0);
-
-        ctx->composer.render_done();
-        vTaskDelay(1);
-    }
-}
-
 void display_manager::deinit()
 {
-    if (timer_handle != nullptr) {
-        esp_timer_delete(timer_handle);
-    }
-
-    if (disp_buf_a != nullptr) {
-        free(disp_buf_a);
-        disp_buf_a = nullptr;
-    }
-
-    if (disp_buf_b != nullptr) {
-        free(disp_buf_b);
-        disp_buf_b = nullptr;
-    }
-
-    if (lv_ui_task_handle != nullptr) {
-        vTaskDelete(lv_ui_task_handle);
-        lv_ui_task_handle = nullptr;
-    }
-
-    if (lv_ui_task_stack_buf != nullptr) {
-        free(lv_ui_task_stack_buf);
-        lv_ui_task_stack_buf = nullptr;
-    }
+    // TODO: not sure now
 }
 
 ui_composer *display_manager::get_composer()

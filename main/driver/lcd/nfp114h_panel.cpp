@@ -107,8 +107,8 @@ esp_err_t nfp114h_panel::init()
         .vres = 135,
         .monochrome = false,
         .rotation = {
-            .swap_xy = false,
-            .mirror_x = false,
+            .swap_xy = true,
+            .mirror_x = true,
             .mirror_y = false,
         },
         .rounder_cb = nullptr,

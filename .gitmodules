@@ -22,3 +22,9 @@
 [submodule "components/thumbconfig"]
 	path = components/thumbconfig
 	url = git@github.com:huming2207/thumbconfig.git
+[submodule "external/esp-bsp"]
+	path = external/esp-bsp
+	url = https://github.com/espressif/esp-bsp
+[submodule "components/lvgl"]
+	path = components/lvgl
+	url = https://github.com/lvgl/lvgl.git

@@ -33,6 +33,7 @@ esp_err_t ui_composer_114::display_init()
 esp_err_t ui_composer_114::display_erase(uint8_t percentage)
 {
     if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_erase: can't lock");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -81,6 +82,7 @@ esp_err_t ui_composer_114::display_erase(uint8_t percentage)
 esp_err_t ui_composer_114::display_test(size_t done, size_t total, const char *test_msg)
 {
     if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_test: can't lock");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -114,6 +116,7 @@ esp_err_t ui_composer_114::display_test(size_t done, size_t total, const char *t
 esp_err_t ui_composer_114::display_program(uint8_t percentage)
 {
     if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_prog: can't lock");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -162,6 +165,7 @@ esp_err_t ui_composer_114::display_program(uint8_t percentage)
 esp_err_t ui_composer_114::display_done()
 {
     if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_done: can't lock");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -187,6 +191,7 @@ esp_err_t ui_composer_114::display_done()
 esp_err_t ui_composer_114::display_error(const char *header, const char *err_msg)
 {
     if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_err: can't lock");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -212,6 +217,7 @@ esp_err_t ui_composer_114::display_error(const char *header, const char *err_msg
 esp_err_t ui_composer_114::display_config()
 {
     if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_cfg: can't lock");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -237,6 +243,7 @@ esp_err_t ui_composer_114::display_config()
 esp_err_t ui_composer_114::display_current(double min_ua, double max_ua, double avg_ua, const char *state, lv_color_t state_color)
 {
     if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_pwr: can't lock");
         return ESP_ERR_TIMEOUT;
     }
 
@@ -262,20 +269,11 @@ esp_err_t ui_composer_114::display_current(double min_ua, double max_ua, double 
 
 esp_err_t ui_composer_114::init()
 {
-    evt_group = xEventGroupCreate();
-    if (evt_group == nullptr) {
-        ESP_LOGE(TAG, "Can't create evt group");
-        return ESP_ERR_NO_MEM;
-    }
-
-    xEventGroupClearBits(evt_group, BIT_READY);
-    xEventGroupSetBits(evt_group, BIT_NOT_RENDERING);
     return ESP_OK;
 }
 
 void ui_composer_114::reload_base_obj()
 {
-    xEventGroupClearBits(evt_group, BIT_READY);
     if (base_obj != nullptr) {
         lv_obj_del(base_obj);
         base_obj = nullptr;
@@ -296,5 +294,5 @@ void ui_composer_114::reload_base_obj()
 
 esp_err_t ui_composer_114::wait_for_ui_mod(uint32_t wait_ticks) const
 {
-    return lvgl_port_lock(pdTICKS_TO_MS(wait_ticks));
+    return lvgl_port_lock(pdTICKS_TO_MS(wait_ticks)) ? ESP_OK : ESP_ERR_TIMEOUT;
 }

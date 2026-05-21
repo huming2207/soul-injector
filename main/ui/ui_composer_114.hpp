@@ -29,7 +29,6 @@ public:
     void reload_base_obj();
 
 public:
-    EventGroupHandle_t evt_group = nullptr;
     ui_screen_current_114 current_screen = {}; // No time to make it polymorphic, just keep it simple for now...
     ui_screen_message_114 msg_screen = {};
     ui_screen_progress_114 progress_screen = {};

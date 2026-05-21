@@ -2,7 +2,7 @@
 #include <esp_log.h>
 #include <esp_crc.h>
 #include <nvs_flash.h>
-#include <mbedtls/sha256.h>
+#include <psa/crypto.h>
 
 #include "fw_asset_manager.hpp"
 #include "file_utils.hpp"
@@ -233,35 +233,41 @@ esp_err_t fw_asset_manager::get_sha256_from_file(const char *path, uint8_t *out)
     size_t file_len = ftell(fp);
     rewind(fp);
 
-    mbedtls_sha256_context ctx = {};
-    mbedtls_sha256_starts(&ctx, 0);
+    psa_hash_operation_t operation = psa_hash_operation_init();
+    size_t out_len;
+
+    if (psa_hash_setup(&operation, PSA_ALG_SHA_256) != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "PSA hash setup failed");
+        return ESP_FAIL;
+    }
 
     size_t pos = 0;
     while (pos < file_len) {
         uint8_t blk[512] = {};
         size_t read_len = std::min(sizeof(blk), file_len - pos);
-        size_t actual_read = fread(blk, read_len, 1, fp);
+
+        size_t actual_read = fread(blk, 1, read_len, fp);
         if (actual_read < 1) {
             ESP_LOGE(TAG, "Failed to read stuff");
             break;
         }
 
-        auto ret = mbedtls_sha256_update(&ctx, blk, read_len);
-        if (ret < 0) {
-            ESP_LOGE(TAG, "Failed to update SHA256 digest, ret=%d", ret);
+        if (psa_hash_update(&operation, blk, read_len) != PSA_SUCCESS) {
+            ESP_LOGE(TAG, "Failed to update SHA256 digest");
             fclose(fp);
-            mbedtls_sha256_free(&ctx);
+            psa_hash_abort(&operation);
             return ESP_FAIL;
         }
+
+        pos += actual_read;
     }
 
-    auto ret = mbedtls_sha256_finish(&ctx, out);
-    if (ret < 0) {
-        ESP_LOGE(TAG, "Failed to update SHA256 digest, ret=%d", ret);
+    if (psa_hash_finish(&operation, out, 32, &out_len) != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to finalise SHA256 digest");
+        psa_hash_abort(&operation);
         return ESP_FAIL;
     }
 
     fclose(fp);
-    mbedtls_sha256_free(&ctx);
     return ESP_OK;
 }

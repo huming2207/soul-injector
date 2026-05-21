@@ -76,22 +76,6 @@ esp_err_t bootstrap_fsm::init()
         return ESP_FAIL;
     }
 
-#ifdef CONFIG_SI_SG_PROG_RIG
-    ESP_LOGI(TAG, "Set up SG stuff");
-    i2c_master_bus_config_t master_cfg = {};
-    master_cfg.clk_source = I2C_CLK_SRC_XTAL;
-    master_cfg.sda_io_num = (gpio_num_t)CONFIG_SI_SG_I2C_SDA;
-    master_cfg.scl_io_num = (gpio_num_t)CONFIG_SI_SG_I2C_SCL;
-    master_cfg.i2c_port = (i2c_port_t)CONFIG_SI_SG_I2C_PERIPH;
-    master_cfg.glitch_ignore_cnt = 7;
-
-    ESP_LOGI(TAG, "Setting up I2C & ADC");
-
-    ret = i2c_new_master_bus(&master_cfg, &i2c_bus);
-
-    return ret;
-#endif
-
     ret = gpio_config(&det_io_cfg);
     gpio_install_isr_service(0);
     ret = ret ?: gpio_set_intr_type(DET_IO_PIN, GPIO_INTR_ANYEDGE);

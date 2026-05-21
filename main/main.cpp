@@ -6,11 +6,14 @@
 #include "esp_littlefs.h"
 #include "fw_asset_manager.hpp"
 #include "bootstrap_fsm.hpp"
+#include <psa/crypto.h>
 
 extern "C" void app_main(void)
 {
     static const char *TAG = "main";
     ESP_LOGI(TAG, "Started");
+
+    psa_crypto_init();
 
 
 //    auto &flasher = swd_headless_flasher::instance();

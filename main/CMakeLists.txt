@@ -54,6 +54,7 @@ idf_component_register(
             "app_update"
             "ina228"
             "thumbconfig"
+            "esp_lvgl_port"
 
         REQUIRES
             "tinyusb"

@@ -52,7 +52,7 @@ esp_err_t ui_composer_114::display_erase(uint8_t percentage)
         msg_screen.set_comment_text("Full chip erase");
         msg_screen.set_color(lv_color_make(0x7a, 0xff, 0xff), lv_color_black()); // Light cyan bar + black text
 
-        set_ready();
+        lvgl_port_unlock();
         return ESP_OK;
     } else {
         if (screen_state != ui_screen::PROGRESS) {
@@ -73,7 +73,7 @@ esp_err_t ui_composer_114::display_erase(uint8_t percentage)
         progress_screen.set_comment_text(comment);
         progress_screen.set_progress(percentage, 100);
 
-        set_ready();
+        lvgl_port_unlock();
         return ESP_OK;
     }
 }
@@ -107,7 +107,7 @@ esp_err_t ui_composer_114::display_test(size_t done, size_t total, const char *t
     }
 
     progress_screen.set_progress(done, total);
-    set_ready();
+    lvgl_port_unlock();
     return ESP_OK;
 }
 
@@ -133,7 +133,7 @@ esp_err_t ui_composer_114::display_program(uint8_t percentage)
         msg_screen.set_comment_text("Just wait");
         msg_screen.set_color(lv_color_make(255, 255, 0), lv_color_black());
 
-        set_ready();
+        lvgl_port_unlock();
         return ESP_OK;
     } else {
         if (screen_state != ui_screen::PROGRESS) {
@@ -154,7 +154,7 @@ esp_err_t ui_composer_114::display_program(uint8_t percentage)
         progress_screen.set_comment_text(comment);
         progress_screen.set_progress(percentage, 100);
 
-        set_ready();
+        lvgl_port_unlock();
         return ESP_OK;
     }
 }
@@ -180,7 +180,7 @@ esp_err_t ui_composer_114::display_done()
     msg_screen.set_comment_text("Move to next one");
     msg_screen.set_color(lv_color_make(0x10, 0xf0, 0x10), lv_color_black());
 
-    set_ready();
+    lvgl_port_unlock();
     return ESP_OK;
 }
 
@@ -205,7 +205,7 @@ esp_err_t ui_composer_114::display_error(const char *header, const char *err_msg
     msg_screen.set_comment_text(err_msg);
     msg_screen.set_color(lv_color_make(0xff, 0x10, 0x10), lv_color_black());
 
-    set_ready();
+    lvgl_port_unlock();
     return ESP_OK;
 }
 
@@ -230,7 +230,7 @@ esp_err_t ui_composer_114::display_config()
     msg_screen.set_comment_text("Connect me to USB");
     msg_screen.set_color(lv_color_white(), lv_color_black());
 
-    set_ready();
+    lvgl_port_unlock();
     return ESP_OK;
 }
 
@@ -256,7 +256,7 @@ esp_err_t ui_composer_114::display_current(double min_ua, double max_ua, double 
     current_screen.set_current_main(i_reading);
     current_screen.set_state(state, state_color);
 
-    set_ready();
+    lvgl_port_unlock();
     return ESP_OK;
 }
 

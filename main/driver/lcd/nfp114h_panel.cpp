@@ -43,8 +43,8 @@ esp_err_t nfp114h_panel::init()
     }
 
     esp_lcd_panel_io_spi_config_t io_cfg = {};
-    io_cfg.dc_gpio_num = CONFIG_SI_DISP_PANEL_IO_DC;
-    io_cfg.cs_gpio_num = CONFIG_SI_DISP_PANEL_IO_CS;
+    io_cfg.dc_gpio_num = static_cast<gpio_num_t>(CONFIG_SI_DISP_PANEL_IO_DC);
+    io_cfg.cs_gpio_num = static_cast<gpio_num_t>(CONFIG_SI_DISP_PANEL_IO_CS);
 
 #ifndef CONFIG_SI_DISP_SLOW_CLK
     io_cfg.pclk_hz = SPI_MASTER_FREQ_40M;
@@ -65,7 +65,7 @@ esp_err_t nfp114h_panel::init()
     }
 
     esp_lcd_panel_dev_config_t panel_cfg = {};
-    panel_cfg.reset_gpio_num = CONFIG_SI_DISP_PANEL_IO_RST;
+    panel_cfg.reset_gpio_num = static_cast<gpio_num_t>(CONFIG_SI_DISP_PANEL_IO_RST);
     panel_cfg.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
     panel_cfg.bits_per_pixel = 16;
     ret = esp_lcd_new_panel_st7789(io_handle, &panel_cfg, &panel_handle);

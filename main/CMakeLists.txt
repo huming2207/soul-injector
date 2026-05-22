@@ -29,6 +29,7 @@ idf_component_register(
             "comm"
             "driver" "driver/lcd"
             "external/elfio"
+            "external"
             "ui"
 
         PRIV_REQUIRES

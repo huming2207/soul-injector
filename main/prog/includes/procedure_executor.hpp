@@ -1,14 +1,20 @@
 #pragma once
 
 #include <cstdint>
-#include <esp_err.h>
 #include <vector>
+#include <cstring>
+
+#include <esp_err.h>
+#include <esp_log.h>
+#include <ryml.hpp>
+
 
 class procedure_executor
 {
 public:
-    enum step_type : uint32_t
+    enum step_type : int32_t
     {
+        UNKNOWN_TYPE = -1,
         READ_32 = 0,
         WRITE_32 = 1,
         READ_BLOB = 2,
@@ -74,6 +80,7 @@ public:
 
     esp_err_t load_yaml(const char *path);
     esp_err_t execute();
+    void clear();
 
 private:
     esp_err_t exec_rw32(procedure_executor::step *curr_step);
@@ -85,6 +92,34 @@ private:
     esp_err_t exec_swd_reset(procedure_executor::step *curr_step);
     esp_err_t exec_swd_halt(procedure_executor::step *curr_step);
     esp_err_t exec_swd_wait_halt(procedure_executor::step *curr_step);
+    step_type string_to_type(ryml::csubstr type_str)
+    {
+        if (type_str == "READ_32") return READ_32;
+        if (type_str == "WRITE_32") return WRITE_32;
+        if (type_str == "READ_BLOB") return READ_BLOB;
+        if (type_str == "WRITE_BLOB") return WRITE_BLOB;
+        if (type_str == "READ_MOD_WRITE_32") return READ_MOD_WRITE_32;
+        if (type_str == "POLL_32") return POLL_32;
+        if (type_str == "DELAY_MS") return DELAY_MS;
+        if (type_str == "SWD_REINIT") return SWD_REINIT;
+        if (type_str == "SWD_RESET_TARGET") return SWD_RESET_TARGET;
+        if (type_str == "SWD_HALT_TARGET") return SWD_HALT_TARGET;
+        if (type_str == "SWD_WAIT_HALT") return SWD_WAIT_HALT;
+
+        ESP_LOGW(TAG, "load_yml: skipping unknown type: %.*s", type_str.size(), type_str.data());
+        return UNKNOWN_TYPE; // Default fallback
+    }
+
+    uint32_t parse_number(const ryml::ConstNodeRef& node)
+    {
+        if (node.invalid() || node.is_seed()) return 0;
+        ryml::csubstr val = node.val();
+        char buf[32];
+        size_t len = val.len < sizeof(buf) - 1 ? val.len : sizeof(buf) - 1;
+        std::memcpy(buf, val.str, len);
+        buf[len] = '\0';
+        return std::strtoul(buf, nullptr, 0);
+    }
 
 private:
     std::vector<procedure_executor::step> steps;

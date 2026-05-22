@@ -9,7 +9,6 @@
 #include "config_reader.hpp"
 #include "wifi_manager.hpp"
 #include "mqtt_client.hpp"
-#include "cohere_flasher.hpp"
 #include "esp_littlefs.h"
 #include "display_manager.hpp"
 
@@ -74,4 +73,3 @@ private:
     static const constexpr gpio_num_t DET_IO_PIN = GPIO_NUM_5;
 
 };
-

@@ -60,3 +60,5 @@ idf_component_register(
             "tinyusb"
             "esp_tinyusb"
 )
+
+target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-deprecated-enum-enum-conversion")

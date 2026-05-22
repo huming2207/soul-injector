@@ -15,3 +15,4 @@ Diagnostics:
   Suppress:
     - attribute_not_type_attr
     - format
+    - conv_mixed_enum_types_cxx26

@@ -6,7 +6,7 @@
   "lsp": {
     "clangd": {
       "binary": {
-        "ignore_system_version": true,
+        "path": "~/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin/clangd",
         "arguments": [
           "--compile-commands-dir=build",
           "--query-driver=**/*-elf-gcc,**/*-elf-g++",

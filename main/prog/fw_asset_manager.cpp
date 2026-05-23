@@ -1,7 +1,5 @@
 #include <cstring>
 #include <esp_log.h>
-#include <esp_crc.h>
-#include <nvs_flash.h>
 #include <psa/crypto.h>
 
 #include "fw_asset_manager.hpp"

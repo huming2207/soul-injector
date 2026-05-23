@@ -1,6 +1,7 @@
 #include <esp_event.h>
 #include <nvs_flash.h>
 #include "bootstrap_fsm.hpp"
+#include "esp_err.h"
 #include "esp_partition.h"
 #include "fw_asset_manager.hpp"
 #include "http_downloader.hpp"
@@ -86,7 +87,7 @@ esp_err_t bootstrap_fsm::setup_storage()
     const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, nullptr);
     if (part == nullptr) {
         ESP_LOGE(TAG, "setup_storage: Failed to find storage partition: 0x%x %s", ret, esp_err_to_name(ret));
-        return ret;
+        return ESP_ERR_NOT_FOUND;
     }
 
     ret = wl_mount(part, &wl_handle);

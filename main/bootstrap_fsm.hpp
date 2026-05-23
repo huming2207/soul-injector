@@ -22,7 +22,7 @@ public:
     enum evt_bits : uint32_t
     {
         BIT_TARGET_DISCONNECTED = (1UL << 0UL),
-        BIT_TARGET_CONNECTED = (1UL << 0UL),
+        BIT_TARGET_CONNECTED = (1UL << 1UL),
     };
 
 public:

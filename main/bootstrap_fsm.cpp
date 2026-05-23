@@ -1,12 +1,12 @@
 #include <esp_event.h>
 #include <nvs_flash.h>
 #include "bootstrap_fsm.hpp"
+#include "esp_partition.h"
 #include "fw_asset_manager.hpp"
 #include "http_downloader.hpp"
 #include "offline_flasher.hpp"
-#include "tcfg_client.hpp"
-#include "tcfg_wire_usb_cdc.hpp"
 #include "driver/i2c_master.h"
+#include "tinyusb_msc.h"
 
 esp_err_t bootstrap_fsm::init()
 {
@@ -27,26 +27,6 @@ esp_err_t bootstrap_fsm::init()
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up storage: 0x%x %s", ret, esp_err_to_name(ret));
         composer->display_error("ERROR", "Storage partition error\nPlease try factory reset");
-        return ret;
-    }
-
-    ESP_LOGI(TAG, "Set up provisioning");
-    auto *prov_client = tcfg_client::instance();
-    auto *usb_cdc = tcfg_wire_usb_cdc::instance();
-    ret = usb_cdc->init();
-    ret = ret ?: prov_client->init(usb_cdc);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set up TCFG provisioning: 0x%x %s", ret, esp_err_to_name(ret));
-        composer->display_error("ERROR", "TCFG setup failed\nCheck USB");
-        return ret;
-    }
-
-    ESP_LOGI(TAG, "Loading asset");
-    auto *asset = fw_asset_manager::instance();
-    ret = asset->init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to load assets: 0x%x %s", ret, esp_err_to_name(ret));
-        composer->display_error("ERROR", "No firmware asset\nPlease load firmware on me!");
         return ret;
     }
 
@@ -99,22 +79,71 @@ esp_err_t bootstrap_fsm::setup_storage()
     }
 
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set up NVS: 0x%x %s", ret, esp_err_to_name(ret));
+        ESP_LOGE(TAG, "setup_storage: Failed to set up NVS: 0x%x %s", ret, esp_err_to_name(ret));
         return ret;
     }
 
-    ret = esp_vfs_littlefs_register(&lfs_cfg);
+    const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, nullptr);
+    if (part == nullptr) {
+        ESP_LOGE(TAG, "setup_storage: Failed to find storage partition: 0x%x %s", ret, esp_err_to_name(ret));
+        return ret;
+    }
+
+    ret = wl_mount(part, &wl_handle);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set up storage: 0x%x %s", ret, esp_err_to_name(ret));
+        ESP_LOGE(TAG, "setup_storage: failed on wl_mount: 0x%x %s", ret, esp_err_to_name(ret));
         return ret;
     }
 
-    return ret;
-}
+    const tinyusb_msc_storage_config_t storage_cfg = {
+        .medium = { .wl_handle = wl_handle },
+        .fat_fs = {
+            .base_path = const_cast<char *>(DATA_PARTITION_PATH),
+            .config = {
+                .format_if_mount_failed = true,
+                .max_files = 10,
+                .allocation_unit_size = 0,
+                .disk_status_check_enable = false, .use_one_fat = false
+            },
+            .do_not_format = false,
+            .format_flags = FM_FAT32,
+        },
 
-void bootstrap_fsm::start_offline_flasher()
-{
-    offline_flasher::instance()->init();
+        // Expected logic:
+        // 1. when device starts from power-on reset, it exposes data partition to USB;
+        // 2. when a target is connected, it takes back the
+        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_USB,
+    };
+
+    ret = tinyusb_msc_new_storage_spiflash(&storage_cfg, &tusb_msc_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "setup_storage: failed on TinyUSB mount: 0x%x %s", ret, esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "USB Composite initialization");
+    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    ret = tinyusb_driver_install(&tusb_cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "setup_storage: failed at tinyusb_driver_install: 0x%x %s", ret, esp_err_to_name(ret));
+        return ret;
+    }
+
+    tinyusb_config_cdcacm_t acm_cfg = {
+        .cdc_port = TINYUSB_CDC_ACM_0,
+        .callback_rx = nullptr,
+        .callback_rx_wanted_char = nullptr,
+        .callback_line_state_changed = nullptr,
+        .callback_line_coding_changed = nullptr
+    };
+    ret = tinyusb_cdcacm_init(&acm_cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "setup_storage: failed at tinyusb_cdcacm_init: 0x%x %s", ret, esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "setup_storage: init OK");
+    return ret;
 }
 
 void bootstrap_fsm::fsm_task_handler(void *_ctx)
@@ -125,7 +154,14 @@ void bootstrap_fsm::fsm_task_handler(void *_ctx)
 
     auto *ctx = (bootstrap_fsm *)_ctx;
 
-    ctx->start_offline_flasher();
+    ctx->composer->display_init();
+
+    // Now we wait till the first target is connected
+    xEventGroupWaitBits(ctx->evt_group, BIT_TARGET_CONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
+
+    // After target is connected, mount the data partition to application instead of USB MSC.
+    tinyusb_msc_set_storage_mount_point(ctx->tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_APP);
+    offline_flasher::instance()->init();
 
     while (true) {
         ctx->run_fsm_task();

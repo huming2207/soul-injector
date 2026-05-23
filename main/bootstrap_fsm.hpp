@@ -7,10 +7,14 @@
 #include <esp_err.h>
 #include <soc/gpio_num.h>
 #include "config_reader.hpp"
+#include "wear_levelling.h"
 #include "wifi_manager.hpp"
 #include "mqtt_client.hpp"
-#include "esp_littlefs.h"
 #include "display_manager.hpp"
+#include <tinyusb.h>
+#include <tinyusb_default_config.h>
+#include <tinyusb_msc.h>
+#include <tinyusb_cdc_acm.h>
 
 class bootstrap_fsm
 {
@@ -39,8 +43,7 @@ public:
     void got_wifi_ip_handler(esp_netif_ip_info_t *);
 
 private:
-    static esp_err_t setup_storage();
-    static void start_offline_flasher();
+    esp_err_t setup_storage();
     static void fsm_task_handler(void *_ctx);
     static IRAM_ATTR void det_io_isr_handler(void *_ctx);
     static void det_pin_debounce_timer(TimerHandle_t timer_handle);
@@ -50,6 +53,8 @@ private:
 
 private:
     bool last_det_state = false;
+    wl_handle_t wl_handle = WL_INVALID_HANDLE;
+    tinyusb_msc_storage_handle_t tusb_msc_handle = nullptr;
     TaskHandle_t fsm_task = nullptr;
     TimerHandle_t det_debounce_timer = nullptr;
     EventGroupHandle_t evt_group = nullptr;
@@ -59,17 +64,7 @@ private:
 
 private:
     static const constexpr char TAG[] = "bootstrap_fsm";
-    static const constexpr esp_vfs_littlefs_conf_t lfs_cfg = {
-            .base_path = "/data",
-            .partition_label = "data",
-            .partition = nullptr,
-            .blockdev = nullptr,
-            .format_if_mount_failed = true,
-            .read_only = false,
-            .dont_mount = false,
-            .grow_on_mount = false,
-    };
-
     static const constexpr gpio_num_t DET_IO_PIN = GPIO_NUM_5;
+    static const constexpr char DATA_PARTITION_PATH[] = "/data";
 
 };

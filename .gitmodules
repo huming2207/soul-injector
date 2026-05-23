@@ -1,9 +1,6 @@
 [submodule "components/daplink-esp"]
 	path = components/daplink-esp
   	url = https://github.com/huming2207/swd-esp
-[submodule "components/esp_littlefs"]
-	path = components/esp_littlefs
-	url = https://github.com/joltwallet/esp_littlefs.git
 [submodule "components/arduino_json"]
 	path = components/arduino_json
 	url = https://github.com/bblanchon/ArduinoJson
@@ -19,9 +16,6 @@
 [submodule "components/soulinjector-fw-common"]
 	path = components/soulinjector-common
 	url = https://github.com/huming2207/soulinjector-fw-common.git
-[submodule "components/thumbconfig"]
-	path = components/thumbconfig
-	url = git@github.com:huming2207/thumbconfig.git
 [submodule "external/esp-bsp"]
 	path = external/esp-bsp
 	url = https://github.com/espressif/esp-bsp

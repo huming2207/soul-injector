@@ -13,10 +13,11 @@ namespace flasher
 {
     enum pg_state
     {
-        DETECT = 0,
-        ERASE = 1,
-        PROGRAM = 2,
-        ERROR = 3,
+        ERROR = -1,
+        LOAD_ASSET = 0,
+        DETECT = 1,
+        ERASE = 2,
+        PROGRAM = 3,
         VERIFY = 4,
         SELF_TEST = 5,
         DONE = 6,
@@ -40,6 +41,7 @@ public:
 
 private:
     offline_flasher() = default;
+    bool asset_loaded = false;
     uint32_t written_len = 0;
     swd_prog *swd = swd_prog::instance();
 
@@ -54,10 +56,11 @@ private:
     static const constexpr char *TAG = "local_flasher";
 
 public:
-    void init();
+    void init(bool force_reload_asset = false);
     esp_err_t handle_states();
 
 private:
+    void on_load_asset();
     void on_detect();
     void on_error();
     void on_erase();

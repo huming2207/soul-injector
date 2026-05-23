@@ -35,7 +35,6 @@ idf_component_register(
         PRIV_REQUIRES
             "daplink-esp"
             "mbedtls"
-            "esp_littlefs"
             "usb"
             "spi_flash"
             "efuse"
@@ -53,12 +52,12 @@ idf_component_register(
             "soulinjector-common"
             "app_update"
             "ina228"
-            "thumbconfig"
             "esp_lvgl_port"
+            "spi_flash"
 
         REQUIRES
             "tinyusb"
             "esp_tinyusb"
 )
 
-target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-deprecated-enum-enum-conversion")
+target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-deprecated-enum-enum-conversion" "-fpermissive")

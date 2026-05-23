@@ -9,11 +9,15 @@
 
 #include "offline_flasher.hpp"
 
-void offline_flasher::init()
+void offline_flasher::init(bool force_reload_asset)
 {
     display = display_manager::instance();
     composer = display->get_composer();
-    state = flasher::DETECT;
+    if (force_reload_asset) {
+        asset_loaded = false;
+    }
+
+    state = flasher::LOAD_ASSET;
 }
 
 void offline_flasher::on_error()
@@ -182,6 +186,11 @@ void offline_flasher::on_current_test()
 esp_err_t offline_flasher::handle_states()
 {
     switch (state) {
+        case flasher::LOAD_ASSET: {
+            on_load_asset();
+            break;
+        }
+
         case flasher::DETECT: {
             on_detect();
             break;
@@ -226,4 +235,26 @@ esp_err_t offline_flasher::handle_states()
     }
 
     return ESP_ERR_NOT_FINISHED;
+}
+
+void offline_flasher::on_load_asset()
+{
+    if (asset_loaded) {
+        ESP_LOGW(TAG, "load_asset: already loaded, skipping");
+        state = flasher::DETECT;
+        return;
+    }
+
+    ESP_LOGI(TAG, "load_asset: Loading asset");
+    auto *asset = fw_asset_manager::instance();
+    auto ret = asset->init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to load assets: 0x%x %s", ret, esp_err_to_name(ret));
+        composer->display_error("ERROR", "No firmware asset\nPlease load firmware on me!");
+        state = flasher::ERROR;
+        return;
+    }
+
+    asset_loaded = true;
+    state = flasher::DETECT;
 }

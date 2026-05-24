@@ -229,7 +229,3 @@ void bootstrap_fsm::det_pin_debounce_timer(TimerHandle_t timer_handle)
     }
 }
 
-void bootstrap_fsm::got_wifi_ip_handler(esp_netif_ip_info_t *)
-{
-
-}

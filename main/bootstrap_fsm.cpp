@@ -58,6 +58,16 @@ esp_err_t bootstrap_fsm::init()
     }
 
     ret = gpio_config(&det_io_cfg);
+    if (ret == ESP_OK) {
+        last_det_state = gpio_get_level(DET_IO_PIN);
+        if (last_det_state == 0) {
+            ESP_LOGI(TAG, "Target detected at boot time!");
+            xEventGroupSetBits(evt_group, BIT_TARGET_CONNECTED);
+        } else {
+            ESP_LOGI(TAG, "No target detected at boot time.");
+            xEventGroupSetBits(evt_group, BIT_TARGET_DISCONNECTED);
+        }
+    }
     gpio_install_isr_service(0);
     ret = ret ?: gpio_set_intr_type(DET_IO_PIN, GPIO_INTR_ANYEDGE);
     ret = ret ?: gpio_intr_enable(DET_IO_PIN);
@@ -174,18 +184,19 @@ void bootstrap_fsm::run_fsm_task()
 {
     auto *flasher = offline_flasher::instance();
     auto ret = flasher->handle_states();
+    if (ret == ESP_ERR_NOT_FINISHED) {
+        return; // Continue...
+    }
+
     if (ret == ESP_FAIL) {
         ESP_LOGE(TAG, "Something went wrong");
-        xEventGroupWaitBits(evt_group, BIT_TARGET_DISCONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
-        xEventGroupWaitBits(evt_group, BIT_TARGET_CONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
-        flasher->init();
-    } else if (ret == ESP_ERR_NOT_FINISHED) {
-        return; // Continue...
     } else {
         ESP_LOGI(TAG, "Done flashing!");
-        xEventGroupWaitBits(evt_group, BIT_TARGET_DISCONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
-        flasher->init();
     }
+
+    xEventGroupWaitBits(evt_group, BIT_TARGET_DISCONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
+    xEventGroupWaitBits(evt_group, BIT_TARGET_CONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
+    flasher->init();
 }
 
 void bootstrap_fsm::det_io_isr_handler(void *_ctx)
@@ -204,7 +215,8 @@ void bootstrap_fsm::det_pin_debounce_timer(TimerHandle_t timer_handle)
 {
     auto *ctx = (bootstrap_fsm *) pvTimerGetTimerID(timer_handle);
     bool state = gpio_get_level(DET_IO_PIN);
-    if (state == ctx->last_det_state) {
+    if (state != ctx->last_det_state) {
+        ctx->last_det_state = state;
         if (!state) {
             ESP_LOGW(TAG, "Tag connected!");
             xEventGroupSetBits(ctx->evt_group, BIT_TARGET_CONNECTED);
@@ -215,8 +227,6 @@ void bootstrap_fsm::det_pin_debounce_timer(TimerHandle_t timer_handle)
             xEventGroupClearBits(ctx->evt_group, BIT_TARGET_CONNECTED);
         }
     }
-
-    ctx->last_det_state = state;
 }
 
 void bootstrap_fsm::got_wifi_ip_handler(esp_netif_ip_info_t *)

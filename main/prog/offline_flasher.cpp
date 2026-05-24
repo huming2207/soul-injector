@@ -75,12 +75,19 @@ void offline_flasher::on_detect()
 
     composer->display_init();
     auto ret = swd->init();
-    while (ret != ESP_OK) {
+    uint32_t max_retry = 10;
+    while (ret != ESP_OK && max_retry > 0) {
         ESP_LOGE(TAG, "Detect failed, retrying");
+        max_retry -= 1;
+        vTaskDelay(pdMS_TO_TICKS(30));
         ret = swd->init();
     }
 
-    state = flasher::ERASE; // To erase
+    if (max_retry == 0 && ret != ESP_OK) {
+        state = flasher::ERROR;
+    } else {
+        state = flasher::ERASE; // To erase
+    }
 }
 
 void offline_flasher::on_done()

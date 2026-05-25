@@ -86,8 +86,10 @@ esp_err_t bootstrap_fsm::init()
 esp_err_t bootstrap_fsm::setup_storage()
 {
     uint8_t sn_buf[16] = { 0 };
+    uint64_t flash_uid = 0;
     esp_efuse_mac_get_default(sn_buf);
-    esp_flash_read_unique_chip_id(esp_flash_default_chip, reinterpret_cast<uint64_t *>(sn_buf + 6));
+    esp_flash_read_unique_chip_id(esp_flash_default_chip, &flash_uid);
+    memcpy(sn_buf + 6, &flash_uid, sizeof(uint64_t));
     snprintf(sn_str, sizeof(sn_str), "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
              sn_buf[0], sn_buf[1], sn_buf[2], sn_buf[3], sn_buf[4], sn_buf[5], sn_buf[6], sn_buf[7],
              sn_buf[8], sn_buf[9], sn_buf[10], sn_buf[11], sn_buf[12], sn_buf[13]);

@@ -1,7 +1,6 @@
 #include <esp_wifi.h>
 #include <esp_log.h>
 #include "wifi_manager.hpp"
-#include "config_reader.hpp"
 
 esp_err_t wifi_manager::init()
 {
@@ -26,12 +25,14 @@ esp_err_t wifi_manager::init()
 
     wifi_config_t wifi_cfg = {};
     wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA_PSK;
-    auto *cfg_manager = config_reader::instance();
-    ret = cfg_manager->get_wifi_cred(&wifi_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "No SSID provided?");
-        return ret;
-    }
+
+    // TODO: need to replace config manager
+    // auto *cfg_manager = config_reader::instance();
+    // ret = cfg_manager->get_wifi_cred(&wifi_cfg);
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "No SSID provided?");
+    //     return ret;
+    // }
 
     ret = esp_wifi_set_mode(WIFI_MODE_STA);
     ret = ret ?: esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);

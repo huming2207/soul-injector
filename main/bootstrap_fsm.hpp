@@ -6,7 +6,6 @@
 #include <freertos/event_groups.h>
 #include <esp_err.h>
 #include <soc/gpio_num.h>
-#include "config_reader.hpp"
 #include "wear_levelling.h"
 #include "wifi_manager.hpp"
 #include "mqtt_client.hpp"

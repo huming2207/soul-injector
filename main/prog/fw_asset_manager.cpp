@@ -3,7 +3,6 @@
 #include <psa/crypto.h>
 
 #include "fw_asset_manager.hpp"
-#include "file_utils.hpp"
 #include "flash_algo_parser.hpp"
 
 esp_err_t fw_asset_manager::init()

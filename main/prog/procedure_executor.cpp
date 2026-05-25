@@ -1,3 +1,6 @@
+#define RYML_SINGLE_HDR_DEFINE_NOW
+#include <ryml.hpp>
+
 #include <cstdint>
 #include <esp_log.h>
 #include <esp_rom_sys.h>

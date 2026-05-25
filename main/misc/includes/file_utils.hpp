@@ -3,6 +3,8 @@
 #include <esp_err.h>
 #include <algorithm>
 
+#include "esp_crc.h"
+
 class file_utils
 {
 private:

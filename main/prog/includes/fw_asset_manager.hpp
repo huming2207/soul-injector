@@ -7,11 +7,25 @@
 #include <esp_err.h>
 #include <driver/gpio.h>
 #include <nvs_handle.hpp>
-#include "flash_algo_parser.hpp"
 
 class fw_asset_manager
 {
 public:
+    enum self_test_type : uint8_t
+    {
+        INTERNAL_SIMPLE_TEST = 0,
+        INTERNAL_EXTEND_TEST = 1,
+        EXTERNAL_TEST = 2,
+        END_MARK = 0xff, // Marks the end of the test descriptor array, behaves like null terminator for string
+    };
+
+    struct __attribute__((packed)) test_item
+    {
+        self_test_type type;
+        uint16_t id;
+        char name[32];
+    };
+
     static fw_asset_manager *instance()
     {
         static fw_asset_manager _instance;
@@ -20,18 +34,18 @@ public:
     fw_asset_manager(fw_asset_manager const &) = delete;
     void operator=(fw_asset_manager const &) = delete;
 
-    esp_err_t init();
+    esp_err_t init(const char *variant_name = nullptr);
     esp_err_t get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len = nullptr, uint32_t *code_start_addr = nullptr);
     esp_err_t get_ram_start_addr(uint32_t *out) const;
     esp_err_t get_ram_size_byte(uint32_t *out) const;
-    esp_err_t get_flash_size_byte(uint32_t *out);
-    esp_err_t get_pc_init(uint32_t *out);
-    esp_err_t get_pc_uninit(uint32_t *out);
-    esp_err_t get_pc_program_page(uint32_t *out);
-    esp_err_t get_pc_erase_sector(uint32_t *out);
-    esp_err_t get_pc_erase_all(uint32_t *out);
-    esp_err_t get_pc_verify(uint32_t *out);
-    esp_err_t get_data_section_offset(uint32_t *out);
+    esp_err_t get_flash_size_byte(uint32_t *out) const;
+    esp_err_t get_pc_init(uint32_t *out) const;
+    esp_err_t get_pc_uninit(uint32_t *out) const;
+    esp_err_t get_pc_program_page(uint32_t *out) const;
+    esp_err_t get_pc_erase_sector(uint32_t *out) const;
+    esp_err_t get_pc_erase_all(uint32_t *out) const;
+    esp_err_t get_pc_verify(uint32_t *out) const;
+    esp_err_t get_data_section_offset(uint32_t *out) const;
     esp_err_t get_flash_start_addr(uint32_t *out) const;
     esp_err_t get_flash_end_addr(uint32_t *out) const;
     esp_err_t get_page_size(uint32_t *out) const;
@@ -40,7 +54,7 @@ public:
     esp_err_t get_erase_sector_timeout(uint32_t *out) const;
     esp_err_t get_sector_size(uint32_t *out) const;
 
-    std::vector<flash_algo::test_item> &get_test_items();
+    std::vector<fw_asset_manager::test_item> &get_test_items();
 
     static bool check_fw_bin_hash(uint8_t *sha_expected, size_t len);
     static bool check_algo_bin_hash(uint8_t *sha_expected, size_t len);
@@ -78,7 +92,7 @@ private:
     uint32_t ram_end = 0;
 
     // Self tests
-    std::vector<flash_algo::test_item> test_items;
+    std::vector<fw_asset_manager::test_item> test_items = {};
 
     std::unique_ptr<nvs::NVSHandle> nvs_handle = {};
 

@@ -1,4 +1,3 @@
-#define RYML_SINGLE_HDR_DEFINE_NOW
 #include <ryml.hpp>
 
 #include <cstring>
@@ -28,7 +27,7 @@ static bool yaml_node_has_tag(ryml::ConstNodeRef node, const char *tag)
     return node.has_val_tag() && node.val_tag() == ryml::to_csubstr(tag);
 }
 
-esp_err_t fw_asset_manager::init()
+esp_err_t fw_asset_manager::init(const char *variant_name)
 {
     // ---------- free any previous algo binary ----------
     if (algo_bin != nullptr) {
@@ -110,7 +109,7 @@ esp_err_t fw_asset_manager::init()
 
     esp_err_t ret = ESP_OK;
 
-    // ---------- locate the first variant with flash algorithms ----------
+    // ---------- locate the correct variant with flash algorithms ----------
     if (!root.has_child("variants")) {
         ESP_LOGE(TAG, "init: YAML has no 'variants' key");
         free(file_buf);
@@ -124,51 +123,79 @@ esp_err_t fw_asset_manager::init()
         return ESP_ERR_INVALID_STATE;
     }
 
-    ryml::ConstNodeRef algo_node;
-    bool algo_found = false;
+    if (variants.num_children() == 0) {
+        ESP_LOGE(TAG, "init: 'variants' sequence is empty");
+        free(file_buf);
+        return ESP_ERR_INVALID_STATE;
+    }
 
-    for (auto const &var : variants.children()) {
-        if (!var.is_map()) continue;
-        if (!var.has_child("flash_algorithms")) continue;
-
-        ryml::ConstNodeRef falgo_list = var["flash_algorithms"];
-        if (!falgo_list.is_seq() || falgo_list.num_children() == 0) continue;
-
-        // Take the first algorithm name
-        ryml::csubstr algo_name = falgo_list[0].val();
-
-        // Look it up in the top-level flash_algorithms list
-        if (!root.has_child("flash_algorithms")) {
-            ESP_LOGE(TAG, "init: 'flash_algorithms' missing at root level");
-            free(file_buf);
-            return ESP_ERR_INVALID_STATE;
-        }
-
-        ryml::ConstNodeRef top_algos = root["flash_algorithms"];
-        if (!top_algos.is_seq()) {
-            ESP_LOGE(TAG, "init: root 'flash_algorithms' is not a sequence");
-            free(file_buf);
-            return ESP_ERR_INVALID_STATE;
-        }
-
-        for (auto const &algo : top_algos.children()) {
-            if (!algo.is_map()) continue;
-            if (!algo.has_child("name")) continue;
-            if (algo["name"].val() == algo_name) {
-                algo_node = algo;
-                algo_found = true;
+    ryml::ConstNodeRef selected_variant;
+    if (variants.num_children() == 1) {
+        selected_variant = variants[0];
+    } else if (variant_name != nullptr && std::strlen(variant_name) > 0) {
+        ryml::csubstr target_name = ryml::to_csubstr(variant_name);
+        for (auto const &var : variants.children()) {
+            if (var.is_map() && var.has_child("name") && var["name"].val() == target_name) {
+                selected_variant = var;
                 break;
             }
         }
+        if (selected_variant.invalid()) {
+            ESP_LOGE(TAG, "init: requested variant '%s' not found in YAML", variant_name);
+            free(file_buf);
+            return ESP_ERR_NOT_FOUND;
+        }
+    } else {
+        ESP_LOGE(TAG, "init: lack of target variant name");
+        free(file_buf);
+        return ESP_ERR_INVALID_ARG;
+    }
 
-        if (algo_found) {
-            ESP_LOGI(TAG, "init: using flash algorithm '%s'", algo_name.str, algo_name.len);
+    if (!selected_variant.has_child("flash_algorithms")) {
+        ESP_LOGE(TAG, "init: selected variant has no 'flash_algorithms' key");
+        free(file_buf);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ryml::ConstNodeRef falgo_list = selected_variant["flash_algorithms"];
+    if (!falgo_list.is_seq() || falgo_list.num_children() == 0) {
+        ESP_LOGE(TAG, "init: selected variant's 'flash_algorithms' is empty or invalid");
+        free(file_buf);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Take the first algorithm name
+    ryml::csubstr algo_name = falgo_list[0].val();
+
+    // Look it up in the top-level flash_algorithms list
+    if (!root.has_child("flash_algorithms")) {
+        ESP_LOGE(TAG, "init: 'flash_algorithms' missing at root level");
+        free(file_buf);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ryml::ConstNodeRef top_algos = root["flash_algorithms"];
+    if (!top_algos.is_seq()) {
+        ESP_LOGE(TAG, "init: root 'flash_algorithms' is not a sequence");
+        free(file_buf);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ryml::ConstNodeRef algo_node;
+    bool algo_found = false;
+
+    for (auto const &algo : top_algos.children()) {
+        if (!algo.is_map()) continue;
+        if (!algo.has_child("name")) continue;
+        if (algo["name"].val() == algo_name) {
+            algo_node = algo;
+            algo_found = true;
             break;
         }
     }
 
     if (!algo_found) {
-        ESP_LOGE(TAG, "init: no usable flash algorithm found in YAML");
+        ESP_LOGE(TAG, "init: flash algorithm '%.*s' not found at root level", (int)algo_name.len, algo_name.str);
         free(file_buf);
         return ESP_ERR_NOT_FOUND;
     }
@@ -234,7 +261,7 @@ esp_err_t fw_asset_manager::init()
     if (clean_len > 0 && clean_b64[clean_len - 1] == '=') decode_need--;
     if (clean_len > 1 && clean_b64[clean_len - 2] == '=') decode_need--;
 
-    uint8_t *temp_algo_bin = static_cast<uint8_t *>(heap_caps_calloc(1, decode_need, MALLOC_CAP_SPIRAM));
+    auto *temp_algo_bin = static_cast<uint8_t *>(heap_caps_calloc(1, decode_need, MALLOC_CAP_SPIRAM));
     if (temp_algo_bin == nullptr) {
         ESP_LOGE(TAG, "init: cannot allocate %zu bytes for algo binary", decode_need);
         free(file_buf);
@@ -255,16 +282,9 @@ esp_err_t fw_asset_manager::init()
     uint32_t temp_ram_start = 0;
     uint32_t temp_ram_end = 0;
 
-    if (root.has_child("variants")) {
-        // Walk variants again to find memory_map (use the same variant we found the algo from)
-        for (auto const &var : variants.children()) {
-            if (!var.is_map()) continue;
-            if (!var.has_child("flash_algorithms")) continue;
-            if (!var.has_child("memory_map")) continue;
-
-            ryml::ConstNodeRef mem_map = var["memory_map"];
-            if (!mem_map.is_seq()) continue;
-
+    if (selected_variant.has_child("memory_map")) {
+        ryml::ConstNodeRef mem_map = selected_variant["memory_map"];
+        if (mem_map.is_seq()) {
             uint32_t first_ram_start = UINT32_MAX;
             uint32_t last_ram_end = 0;
 
@@ -287,38 +307,6 @@ esp_err_t fw_asset_manager::init()
                 temp_ram_end   = last_ram_end;
                 ESP_LOGI(TAG, "init: RAM 0x%08lx - 0x%08lx (size %lu)", temp_ram_start, temp_ram_end, temp_ram_end - temp_ram_start);
             }
-            break; // Only the variant we picked
-        }
-
-        // If we didn't find Ram via the first matching variant, try all variants
-        if (temp_ram_start == 0 && temp_ram_end == 0) {
-            for (auto const &var : variants.children()) {
-                if (!var.is_map()) continue;
-                if (!var.has_child("memory_map")) continue;
-                ryml::ConstNodeRef mem_map = var["memory_map"];
-                if (!mem_map.is_seq()) continue;
-
-                uint32_t first_ram_start = UINT32_MAX;
-                uint32_t last_ram_end = 0;
-
-                for (auto const &mem : mem_map.children()) {
-                    if (!mem.is_map()) continue;
-                    if (!yaml_node_has_tag(mem, "!Ram")) continue;
-                    if (!mem.has_child("range")) continue;
-
-                    uint32_t rs = parse_yaml_number(mem["range"]["start"]);
-                    uint32_t re = parse_yaml_number(mem["range"]["end"]);
-                    if (rs < first_ram_start) first_ram_start = rs;
-                    if (re > last_ram_end)     last_ram_end   = re;
-                }
-
-                if (first_ram_start != UINT32_MAX && last_ram_end > 0) {
-                    temp_ram_start = first_ram_start;
-                    temp_ram_end   = last_ram_end;
-                    ESP_LOGI(TAG, "init: RAM 0x%08lx - 0x%08lx (from alt variant)", temp_ram_start, temp_ram_end);
-                    break;
-                }
-            }
         }
     }
 
@@ -335,14 +323,14 @@ esp_err_t fw_asset_manager::init()
             for (auto const &item : st_node.children()) {
                 if (!item.is_map()) continue;
 
-                flash_algo::test_item ti = {};
-                ti.type = flash_algo::INTERNAL_SIMPLE_TEST;
+                fw_asset_manager::test_item ti = {};
+                ti.type = fw_asset_manager::INTERNAL_SIMPLE_TEST;
 
                 if (item.has_child("type")) {
                     ryml::csubstr t = item["type"].val();
-                    if (t == "internal")       ti.type = flash_algo::INTERNAL_SIMPLE_TEST;
-                    else if (t == "extend")    ti.type = flash_algo::INTERNAL_EXTEND_TEST;
-                    else if (t == "external")  ti.type = flash_algo::EXTERNAL_TEST;
+                    if (t == "internal")       ti.type = fw_asset_manager::INTERNAL_SIMPLE_TEST;
+                    else if (t == "extend")    ti.type = fw_asset_manager::INTERNAL_EXTEND_TEST;
+                    else if (t == "external")  ti.type = fw_asset_manager::EXTERNAL_TEST;
                 }
 
                 ti.id = static_cast<uint16_t>(parse_yaml_number(item["id"]));
@@ -399,14 +387,14 @@ esp_err_t fw_asset_manager::get_ram_size_byte(uint32_t *out) const
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::get_flash_size_byte(uint32_t *out)
+esp_err_t fw_asset_manager::get_flash_size_byte(uint32_t *out) const
 {
     if (out == nullptr) return ESP_ERR_INVALID_ARG;
     *out = flash_addr_end - flash_addr_start;
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::get_pc_init(uint32_t *out)
+esp_err_t fw_asset_manager::get_pc_init(uint32_t *out) const
 {
     if (out == nullptr) return ESP_ERR_INVALID_ARG;
     if (pc_init_val == 0) return ESP_ERR_NOT_FOUND;
@@ -414,7 +402,7 @@ esp_err_t fw_asset_manager::get_pc_init(uint32_t *out)
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::get_pc_uninit(uint32_t *out)
+esp_err_t fw_asset_manager::get_pc_uninit(uint32_t *out) const
 {
     if (out == nullptr) return ESP_ERR_INVALID_ARG;
     if (pc_uninit_val == 0) return ESP_ERR_NOT_FOUND;
@@ -422,7 +410,7 @@ esp_err_t fw_asset_manager::get_pc_uninit(uint32_t *out)
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::get_pc_program_page(uint32_t *out)
+esp_err_t fw_asset_manager::get_pc_program_page(uint32_t *out) const
 {
     if (out == nullptr) return ESP_ERR_INVALID_ARG;
     if (pc_program_page_val == 0) return ESP_ERR_NOT_FOUND;
@@ -430,7 +418,7 @@ esp_err_t fw_asset_manager::get_pc_program_page(uint32_t *out)
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::get_pc_erase_sector(uint32_t *out)
+esp_err_t fw_asset_manager::get_pc_erase_sector(uint32_t *out) const
 {
     if (out == nullptr) return ESP_ERR_INVALID_ARG;
     if (pc_erase_sector_val == 0) return ESP_ERR_NOT_FOUND;
@@ -438,7 +426,7 @@ esp_err_t fw_asset_manager::get_pc_erase_sector(uint32_t *out)
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::get_pc_erase_all(uint32_t *out)
+esp_err_t fw_asset_manager::get_pc_erase_all(uint32_t *out) const
 {
     if (out == nullptr) return ESP_ERR_INVALID_ARG;
     if (pc_erase_all_val == 0) return ESP_ERR_NOT_FOUND;
@@ -446,7 +434,7 @@ esp_err_t fw_asset_manager::get_pc_erase_all(uint32_t *out)
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::get_pc_verify(uint32_t *out)
+esp_err_t fw_asset_manager::get_pc_verify(uint32_t *out) const
 {
     if (out == nullptr) return ESP_ERR_INVALID_ARG;
     if (pc_verify_val == 0) return ESP_ERR_NOT_FOUND;
@@ -454,7 +442,7 @@ esp_err_t fw_asset_manager::get_pc_verify(uint32_t *out)
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::get_data_section_offset(uint32_t *out)
+esp_err_t fw_asset_manager::get_data_section_offset(uint32_t *out) const
 {
     if (out == nullptr) return ESP_ERR_INVALID_ARG;
     if (data_section_offset_val == 0) return ESP_ERR_NOT_FOUND;
@@ -513,7 +501,7 @@ esp_err_t fw_asset_manager::get_sector_size(uint32_t *out) const
     return ESP_OK;
 }
 
-std::vector<flash_algo::test_item> &fw_asset_manager::get_test_items()
+std::vector<fw_asset_manager::test_item> &fw_asset_manager::get_test_items()
 {
     return test_items;
 }

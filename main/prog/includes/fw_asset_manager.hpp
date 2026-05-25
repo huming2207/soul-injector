@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <vector>
+#include <memory>
 #include <esp_err.h>
 #include <driver/gpio.h>
 #include <nvs_handle.hpp>
@@ -40,51 +42,44 @@ public:
 
     std::vector<flash_algo::test_item> &get_test_items();
 
-public:
-
-    /**
-     * Feed in a SHA256 hash and compare with the record, to see if it's the same
-     * @param sha_expected SHA2 buffer
-     * @param len Length of SHA2, must be 32 bytes
-     * @return true if the record SHA256 is the same as the one provided
-     */
     static bool check_fw_bin_hash(uint8_t *sha_expected, size_t len);
-
-    /**
-     * Feed in a SHA256 hash and compare with the record, to see if it's the same
-     * @param sha_expected SHA2 buffer
-     * @param len Length of SHA2, must be 32 bytes
-     * @return true if the record SHA256 is the same as the one provided
-     */
     static bool check_algo_bin_hash(uint8_t *sha_expected, size_t len);
-
-    /**
-     *
-     * @param path
-     * @param out Output to buffer, must be 32 bytes
-     * @return
-     */
     static esp_err_t get_sha256_from_file(const char *path, uint8_t *out);
 
-
     static const constexpr char BASE_PATH[] = "/data";
-    static const constexpr char ALGO_ELF_PATH[] = "/data/algo.elf";
+    static const constexpr char TARGET_YAML_PATH[] = "/data/target.yaml";
     static const constexpr char FIRMWARE_PATH[] = "/data/firmware.bin";
 
 private:
-    static const constexpr char FUNC_NAME_INIT[] = "Init";
-    static const constexpr char FUNC_NAME_UNINIT[] = "UnInit";
-    static const constexpr char FUNC_NAME_ERASE_CHIP[] = "EraseChip";
-    static const constexpr char FUNC_NAME_ERASE_SECTOR[] = "EraseSector";
-    static const constexpr char FUNC_NAME_PROGRAM_PAGE[] = "ProgramPage";
-    static const constexpr char FUNC_NAME_VERIFY[] = "Verify";
+    // Decoded flash algorithm binary
+    uint8_t *algo_bin = nullptr;
+    size_t algo_bin_len = 0;
 
-private:
-    flash_algo::dev_description dev_descr = {};
-    flash_algo::test_description test_descr = {};
-    flash_algo_parser algo_parser {};
-    std::vector<flash_algo::flash_sector> dev_sectors = {};
-    std::vector<flash_algo::test_item> test_items = {};
+    // From flash algorithm YAML entry
+    uint32_t load_addr = 0;
+    uint32_t pc_init_val = 0;
+    uint32_t pc_uninit_val = 0;
+    uint32_t pc_program_page_val = 0;
+    uint32_t pc_erase_sector_val = 0;
+    uint32_t pc_erase_all_val = 0;
+    uint32_t pc_verify_val = 0;
+    uint32_t data_section_offset_val = 0;
+
+    // From flash_properties
+    uint32_t flash_addr_start = 0;
+    uint32_t flash_addr_end = 0;
+    uint32_t page_sz = 0;
+    uint32_t erased_byte = 0;
+    uint32_t prog_timeout = 0;
+    uint32_t erase_timeout = 0;
+
+    // From memory_map Ram regions
+    uint32_t ram_start = 0;
+    uint32_t ram_end = 0;
+
+    // Self tests
+    std::vector<flash_algo::test_item> test_items;
+
     std::unique_ptr<nvs::NVSHandle> nvs_handle = {};
 
     static const constexpr char *TAG = "asset_mgr";

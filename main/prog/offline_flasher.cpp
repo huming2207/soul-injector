@@ -86,7 +86,7 @@ void offline_flasher::on_detect()
     if (max_retry == 0 && ret != ESP_OK) {
         state = flasher::ERROR;
     } else {
-        state = flasher::ERASE; // To erase
+        state = flasher::PRE_PROGRAM; // To pre-program
     }
 }
 
@@ -158,12 +158,39 @@ void offline_flasher::on_self_test()
     }
 
     swd_prog::trigger_nrst();
+    state = flasher::POST_PROGRAM;
+}
+
+void offline_flasher::on_post_program()
+{
+    auto ret = post_program_steps.load_yaml(POST_PROG_STEP_FILE);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "post_prog: Can't load YAML, skipping");
+#ifndef CONFIG_SI_SG_PROG_RIG
+        state = flasher::DONE;
+#else
+        state = flasher::SG_CURRENT_TEST;
+#endif
+        return;
+    }
+
+    ret = post_program_steps.execute();
+    if (ret != ESP_OK) {
+        ESP_LOGI(TAG, "post_prog: execution error: 0x%x", ret);
+        composer->display_error("ERROR", "Post-program fail");
+        state = flasher::ERROR;
+        return;
+    }
+
+    ESP_LOGI(TAG, "post_prog: OK");
+
 
 #ifndef CONFIG_SI_SG_PROG_RIG
     state = flasher::DONE;
 #else
     state = flasher::SG_CURRENT_TEST;
 #endif
+
 }
 
 
@@ -193,6 +220,11 @@ void offline_flasher::on_current_test()
 esp_err_t offline_flasher::handle_states()
 {
     switch (state) {
+        case flasher::PRE_PROGRAM: {
+            on_pre_program();
+            break;
+        }
+
         case flasher::LOAD_ASSET: {
             on_load_asset();
             break;
@@ -228,6 +260,11 @@ esp_err_t offline_flasher::handle_states()
             break;
         }
 
+        case flasher::POST_PROGRAM: {
+            on_post_program();
+            break;
+        }
+
         case flasher::SELF_TEST: {
             on_self_test();
             break;
@@ -242,6 +279,27 @@ esp_err_t offline_flasher::handle_states()
     }
 
     return ESP_ERR_NOT_FINISHED;
+}
+
+void offline_flasher::on_pre_program()
+{
+    auto ret = pre_program_steps.load_yaml(PRE_PROG_STEP_FILE);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "pre_prog: Can't load YAML, skipping");
+        state = flasher::ERASE; // To erase
+        return;
+    }
+
+    ret = pre_program_steps.execute();
+    if (ret != ESP_OK) {
+        ESP_LOGI(TAG, "pre_prog: execution error: 0x%x", ret);
+        composer->display_error("ERROR", "Pre-program fail");
+        state = flasher::ERROR;
+        return;
+    }
+
+    ESP_LOGI(TAG, "pre_prog: OK");
+    state = flasher::ERASE; // To erase
 }
 
 void offline_flasher::on_load_asset()

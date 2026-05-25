@@ -8,6 +8,7 @@
 #include "current_tester.hpp"
 #include "swd_prog.hpp"
 #include "display_manager.hpp"
+#include "procedure_executor.hpp"
 
 namespace flasher
 {
@@ -16,13 +17,15 @@ namespace flasher
         ERROR = -1,
         LOAD_ASSET = 0,
         DETECT = 1,
-        ERASE = 2,
-        PROGRAM = 3,
-        VERIFY = 4,
-        SELF_TEST = 5,
-        DONE = 6,
+        PRE_PROGRAM = 2,
+        ERASE = 3,
+        PROGRAM = 4,
+        VERIFY = 5,
+        SELF_TEST = 6,
+        POST_PROGRAM = 7,
+        DONE = 8,
 #ifdef CONFIG_SI_SG_PROG_RIG
-        SG_CURRENT_TEST = 7,
+        SG_CURRENT_TEST = 0xf0,
 #endif
     };
 }
@@ -47,6 +50,10 @@ private:
 
     display_manager *display = nullptr;
     ui_composer *composer = nullptr;
+
+    procedure_executor pre_program_steps = {};
+    procedure_executor post_program_steps = {};
+
     volatile flasher::pg_state state = flasher::DETECT;
 
 #ifdef CONFIG_SI_SG_PROG_RIG
@@ -54,12 +61,15 @@ private:
 #endif
 
     static const constexpr char *TAG = "local_flasher";
+    static const constexpr char PRE_PROG_STEP_FILE[] = "/data/pre_prog.yaml";
+    static const constexpr char POST_PROG_STEP_FILE[] = "/data/post_prog.yaml";
 
 public:
     void init(bool force_reload_asset = false);
     esp_err_t handle_states();
 
 private:
+    void on_pre_program();
     void on_load_asset();
     void on_detect();
     void on_error();
@@ -67,6 +77,7 @@ private:
     void on_program();
     void on_verify();
     void on_self_test();
+    void on_post_program();
     void on_done();
 
 #ifdef CONFIG_SI_SG_PROG_RIG

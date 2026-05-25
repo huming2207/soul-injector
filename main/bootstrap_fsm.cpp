@@ -2,6 +2,8 @@
 #include <nvs_flash.h>
 #include "bootstrap_fsm.hpp"
 #include "esp_err.h"
+#include "esp_flash.h"
+#include "esp_mac.h"
 #include "esp_partition.h"
 #include "fw_asset_manager.hpp"
 #include "http_downloader.hpp"
@@ -31,6 +33,12 @@ esp_err_t bootstrap_fsm::init()
         return ret;
     }
 
+    evt_group = xEventGroupCreate();
+    if (evt_group == nullptr) {
+        ESP_LOGE(TAG, "Can't create event group");
+        return ESP_FAIL;
+    }
+
     ESP_LOGI(TAG, "Setting up detection pin");
     gpio_config_t det_io_cfg = {};
     det_io_cfg.pull_up_en = GPIO_PULLUP_DISABLE;
@@ -48,12 +56,6 @@ esp_err_t bootstrap_fsm::init()
     det_debounce_timer = xTimerCreate("target_det", pdMS_TO_TICKS(50), pdFALSE, this, det_pin_debounce_timer);
     if (det_debounce_timer == nullptr) {
         ESP_LOGE(TAG, "Can't create debounce timer");
-        return ESP_FAIL;
-    }
-
-    evt_group = xEventGroupCreate();
-    if (evt_group == nullptr) {
-        ESP_LOGE(TAG, "Can't create event group");
         return ESP_FAIL;
     }
 
@@ -83,6 +85,13 @@ esp_err_t bootstrap_fsm::init()
 
 esp_err_t bootstrap_fsm::setup_storage()
 {
+    uint8_t sn_buf[16] = { 0 };
+    esp_efuse_mac_get_default(sn_buf);
+    esp_flash_read_unique_chip_id(esp_flash_default_chip, reinterpret_cast<uint64_t *>(sn_buf + 6));
+    snprintf(sn_str, sizeof(sn_str), "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+             sn_buf[0], sn_buf[1], sn_buf[2], sn_buf[3], sn_buf[4], sn_buf[5], sn_buf[6], sn_buf[7],
+             sn_buf[8], sn_buf[9], sn_buf[10], sn_buf[11], sn_buf[12], sn_buf[13]);
+
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ret = nvs_flash_erase();
@@ -117,13 +126,14 @@ esp_err_t bootstrap_fsm::setup_storage()
                 .disk_status_check_enable = false, .use_one_fat = false
             },
             .do_not_format = false,
-            .format_flags = FM_FAT32,
+            .format_flags = FM_ANY,
         },
 
         // Expected logic:
         // 1. when device starts from power-on reset, it exposes data partition to USB;
-        // 2. when a target is connected, it takes back the
-        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_USB,
+        // 2. when a target is connected, it takes back the partition to itself (the app).
+        // 3. Here we expose to app first to let the ESP FAT library to automatically detect the partition and see whether a format is needed or not.
+        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP,
     };
 
     ret = tinyusb_msc_new_storage_spiflash(&storage_cfg, &tusb_msc_handle);
@@ -132,8 +142,22 @@ esp_err_t bootstrap_fsm::setup_storage()
         return ret;
     }
 
+    static char lang[2] = {0x09, 0x04};
+    static const char *desc_str[6] = {
+        lang,                // 0: is supported language is English (0x0409)
+        const_cast<char *>(CONFIG_TINYUSB_DESC_MANUFACTURER_STRING), // 1: Manufacturer
+        const_cast<char *>(CONFIG_TINYUSB_DESC_PRODUCT_STRING),      // 2: Product
+        sn_str,             // 3: Serials, should use chip ID
+        const_cast<char *>(CONFIG_TINYUSB_DESC_PRODUCT_STRING),      // 4: CDC Interface
+        const_cast<char *>(CONFIG_TINYUSB_DESC_MSC_STRING),          // 5: MSC Interface
+};
+
     ESP_LOGI(TAG, "USB Composite initialization");
-    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.task.size = 8192;
+    tusb_cfg.descriptor.string = static_cast<const char **>(desc_str);
+    tusb_cfg.descriptor.string_count = std::size(desc_str);
+
     ret = tinyusb_driver_install(&tusb_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "setup_storage: failed at tinyusb_driver_install: 0x%x %s", ret, esp_err_to_name(ret));
@@ -150,6 +174,13 @@ esp_err_t bootstrap_fsm::setup_storage()
     ret = tinyusb_cdcacm_init(&acm_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "setup_storage: failed at tinyusb_cdcacm_init: 0x%x %s", ret, esp_err_to_name(ret));
+        return ret;
+    }
+
+    // Set back to expose to MSC
+    ret = tinyusb_msc_set_storage_mount_point(tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_USB);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "setup_storage: can't expose to MSC: 0x%x", ret);
         return ret;
     }
 

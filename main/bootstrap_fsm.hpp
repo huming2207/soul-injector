@@ -59,6 +59,7 @@ private:
     EventGroupHandle_t evt_group = nullptr;
     display_manager *display = nullptr;
     ui_composer *composer = nullptr;
+    char sn_str[32] = { 0 };
     wifi_manager wifi = {};
 
 private:

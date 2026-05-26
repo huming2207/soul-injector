@@ -333,7 +333,7 @@ esp_err_t fw_asset_manager::init(const char *variant_name)
                     else if (t == "power")  ti.type = fw_asset_manager::POWER_CONSUMPTION_TEST;
                 }
 
-                ti.addr = static_cast<uint16_t>(parse_yaml_number(item["addr"]));
+                ti.addr = parse_yaml_number(item["addr"]);
 
                 if (item.has_child("name")) {
                     std::memset(ti.name, 0, sizeof(ti.name));

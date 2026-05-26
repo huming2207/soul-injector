@@ -116,22 +116,22 @@ void offline_flasher::on_self_test()
     ESP_LOGI(TAG, "Run self test");
 
     auto *asset = fw_asset_manager::instance();
-    const std::vector<flash_algo::test_item> &items = asset->get_test_items();
+    const std::vector<fw_asset_manager::test_item> &items = asset->get_test_items();
     for (size_t idx = 0; idx < items.size(); idx += 1) {
         composer->display_test(idx, (items.size() - 1), nullptr);
 
-        if (items[idx].type == flash_algo::INTERNAL_SIMPLE_TEST) {
+        if (items[idx].type == fw_asset_manager::INTERNAL_SIMPLE_TEST) {
             uint32_t func_ret = UINT32_MAX;
-            ESP_LOGW(TAG, "Self test: %u, %s type %u", items[idx].id, items[idx].name, items[idx].type);
-            auto ret = swd->self_test(items[idx].id, nullptr, 0, &func_ret);
+            ESP_LOGW(TAG, "Self test: %u, %s type %u", items[idx].addr, items[idx].name, items[idx].type);
+            auto ret = swd->self_test(items[idx].addr, nullptr, 0, &func_ret);
             if (ret == ESP_ERR_NOT_SUPPORTED) {
                 ESP_LOGW(TAG, "No self test config found, skipping");
                 state = flasher::DONE;
                 return;
             } else if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "Self test #%u failed, host error 0x%x, function returned 0x%lx", items[idx].id, ret, func_ret);
+                ESP_LOGW(TAG, "Self test @ 0x%08lx failed, host error 0x%x, function returned 0x%lx", items[idx].addr, ret, func_ret);
                 char msg[128] = { 0 };
-                snprintf(msg, sizeof(msg), "Test failed at\n%u of %u ID %u;\n%s", idx + 1, items.size(), items[idx].id, items[idx].name);
+                snprintf(msg, sizeof(msg), "Test failed at\n%u of %u @ 0x%08lx;\n%s", idx + 1, items.size(), items[idx].addr, items[idx].name);
                 composer->display_error("ERROR", msg);
                 state = flasher::ERROR;
                 return;
@@ -140,7 +140,7 @@ void offline_flasher::on_self_test()
             if (func_ret != 0) {
                 ESP_LOGW(TAG, "Self test failed, host returned 0x%x, target returned error 0x%lx", ret, func_ret);
                 char msg[128] = { 0 };
-                snprintf(msg, sizeof(msg), "Test failed at ID %u;\n%s\nRet=%lu", items[idx].id, items[idx].name, func_ret);
+                snprintf(msg, sizeof(msg), "Test failed @ 0x%08lx;\n%s\nRet=%lu", items[idx].addr, items[idx].name, func_ret);
                 composer->display_error("ERROR", msg);
                 state = flasher::ERROR;
                 return;
@@ -149,9 +149,9 @@ void offline_flasher::on_self_test()
 
             ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
 
-        } else if (items[idx].type == flash_algo::INTERNAL_EXTEND_TEST) {
+        } else if (items[idx].type == fw_asset_manager::INTERNAL_EXTEND_TEST) {
             ESP_LOGW(TAG, "Unsupported InternalExtendTest type!");
-        } else if (items[idx].type == flash_algo::EXTERNAL_TEST) {
+        } else if (items[idx].type == fw_asset_manager::INTERNAL_SIMPLE_TEST) {
             ESP_LOGW(TAG, "Unsupported ExternalTest type!");
         }
 

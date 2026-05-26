@@ -1,5 +1,5 @@
 [submodule "components/daplink-esp"]
-	path = components/daplink-esp
+	path = components/swd_esp
   	url = https://github.com/huming2207/swd-esp
 [submodule "components/arduino_json"]
 	path = components/arduino_json

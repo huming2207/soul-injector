@@ -28,7 +28,7 @@ idf_component_register(
             "ui"
 
         PRIV_REQUIRES
-            "daplink-esp"
+            "swd_esp"
             "mbedtls"
             "usb"
             "spi_flash"

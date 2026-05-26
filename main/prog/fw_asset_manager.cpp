@@ -328,12 +328,12 @@ esp_err_t fw_asset_manager::init(const char *variant_name)
 
                 if (item.has_child("type")) {
                     ryml::csubstr t = item["type"].val();
-                    if (t == "internal")       ti.type = fw_asset_manager::INTERNAL_SIMPLE_TEST;
+                    if (t == "simple")       ti.type = fw_asset_manager::INTERNAL_SIMPLE_TEST;
                     else if (t == "extend")    ti.type = fw_asset_manager::INTERNAL_EXTEND_TEST;
-                    else if (t == "external")  ti.type = fw_asset_manager::EXTERNAL_TEST;
+                    else if (t == "power")  ti.type = fw_asset_manager::POWER_CONSUMPTION_TEST;
                 }
 
-                ti.id = static_cast<uint16_t>(parse_yaml_number(item["id"]));
+                ti.addr = static_cast<uint16_t>(parse_yaml_number(item["addr"]));
 
                 if (item.has_child("name")) {
                     std::memset(ti.name, 0, sizeof(ti.name));
@@ -343,7 +343,7 @@ esp_err_t fw_asset_manager::init(const char *variant_name)
                     ti.name[sizeof(ti.name) - 1] = '\0';
                 }
 
-                ESP_LOGI(TAG, "init: self-test id=%u name='%s' type=%u", ti.id, ti.name, ti.type);
+                ESP_LOGI(TAG, "init: found test item addr=0x%08lx: name='%s' type=%u", ti.addr, ti.name, ti.type);
                 test_items.emplace_back(ti);
             }
         }

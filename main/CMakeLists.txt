@@ -6,7 +6,6 @@ idf_component_register(
             "prog/offline_flasher.cpp" "prog/includes/offline_flasher.hpp"
             "prog/includes/led_ctrl.hpp"
             "prog/current_tester.cpp" "prog/includes/current_tester.hpp"
-            "prog/includes/flash_algo_parser.hpp"
             "prog/procedure_executor.cpp" "prog/includes/procedure_executor.hpp"
             "comm/wifi_manager.cpp" "comm/wifi_manager.hpp"
             "bootstrap_fsm.cpp" "bootstrap_fsm.hpp"

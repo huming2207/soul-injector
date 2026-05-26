@@ -11,18 +11,17 @@
 class fw_asset_manager
 {
 public:
-    enum self_test_type : uint8_t
+    enum self_test_type : int32_t
     {
         INTERNAL_SIMPLE_TEST = 0,
         INTERNAL_EXTEND_TEST = 1,
-        EXTERNAL_TEST = 2,
-        END_MARK = 0xff, // Marks the end of the test descriptor array, behaves like null terminator for string
+        POWER_CONSUMPTION_TEST = 2,
     };
 
-    struct __attribute__((packed)) test_item
+    struct test_item
     {
         self_test_type type;
-        uint16_t id;
+        uint32_t addr;
         char name[32];
     };
 

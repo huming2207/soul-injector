@@ -103,6 +103,13 @@ esp_err_t procedure_executor::load_yaml(const char *path)
 
             procedure_executor::step s = {};
             s.type = type;
+            s.ignore_error = false;
+            if (step_node.has_child("ignore_error")) {
+                ryml::csubstr val = step_node["ignore_error"].val();
+                if (val == "true" || val == "1" || val == "yes") {
+                    s.ignore_error = true;
+                }
+            }
 
             switch (type) {
                 case READ_32:
@@ -172,8 +179,10 @@ esp_err_t procedure_executor::exec_rw32(procedure_executor::step *curr_step)
     }
 
     if (curr_step->type == READ_32) {
+        ESP_LOGI(TAG, "exec: r32: 0x%08lx @ 0x%08lx", curr_step->op.rw32.data, curr_step->op.rw32.addr);
         return swd_read_word(curr_step->op.rw32.addr, &curr_step->op.rw32.data) < 1 ? ESP_FAIL : ESP_OK;
     } else if (curr_step->type == WRITE_32) {
+        ESP_LOGI(TAG, "exec: w32: 0x%08lx @ 0x%08lx", curr_step->op.rw32.data, curr_step->op.rw32.addr);
         return swd_write_word(curr_step->op.rw32.addr, curr_step->op.rw32.data) < 1 ? ESP_FAIL : ESP_OK;
     }
 
@@ -187,8 +196,10 @@ esp_err_t procedure_executor::exec_rwblob(procedure_executor::step *curr_step)
     }
 
     if (curr_step->type == READ_BLOB) {
+        ESP_LOGI(TAG, "exec: rblob len=%lu @ 0x%08lx", curr_step->op.rwblob.buf_len, curr_step->op.rwblob.addr);
         return swd_read_memory(curr_step->op.rwblob.addr, curr_step->op.rwblob.buf, curr_step->op.rwblob.buf_len) < 1 ? ESP_FAIL : ESP_OK;
     } else if (curr_step->type == WRITE_BLOB) {
+        ESP_LOGI(TAG, "exec: wblob len=%lu @ 0x%08lx", curr_step->op.rwblob.buf_len, curr_step->op.rwblob.addr);
         return swd_write_memory(curr_step->op.rwblob.addr, curr_step->op.rwblob.buf, curr_step->op.rwblob.buf_len) < 1 ? ESP_FAIL : ESP_OK;
     }
 
@@ -201,6 +212,7 @@ esp_err_t procedure_executor::exec_rmw32(procedure_executor::step *curr_step)
         return ESP_ERR_INVALID_ARG;
     }
 
+    ESP_LOGI(TAG, "exec: rmw32 0x%08lx mask 0x%08lx @ 0x%08lx", curr_step->op.rmw32.data, curr_step->op.rmw32.mask, curr_step->op.rmw32.addr);
     uint32_t val = 0;
     if (swd_read_word(curr_step->op.rmw32.addr, &val) < 1) {
         return ESP_FAIL;
@@ -216,6 +228,9 @@ esp_err_t procedure_executor::exec_poll32(procedure_executor::step *curr_step)
     if (curr_step == nullptr) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    ESP_LOGI(TAG, "exec: poll32 0x%08lx mask 0x%08lx @ 0x%08lx, timeout %lu",
+        curr_step->op.poll32.expected, curr_step->op.poll32.mask, curr_step->op.poll32.addr, curr_step->op.poll32.timeout_ms);
 
     int64_t timeout = curr_step->op.poll32.timeout_ms;
     do {
@@ -243,6 +258,9 @@ esp_err_t procedure_executor::exec_delay_ms(procedure_executor::step *curr_step)
         return ESP_ERR_INVALID_ARG;
     }
 
+    ESP_LOGI(TAG, "exec: delay_ms %lu", curr_step->op.delay_ms.delay_ms);
+
+
     uint32_t delay = curr_step->op.delay_ms.delay_ms;
     if (delay < portTICK_PERIOD_MS) {
         esp_rom_delay_us(delay * 1000);
@@ -255,6 +273,7 @@ esp_err_t procedure_executor::exec_delay_ms(procedure_executor::step *curr_step)
 
 esp_err_t procedure_executor::exec_swd_reinit(procedure_executor::step *curr_step)
 {
+    ESP_LOGI(TAG, "exec: swd reinit");
     swd_off();
     vTaskDelay(1);
 
@@ -263,17 +282,20 @@ esp_err_t procedure_executor::exec_swd_reinit(procedure_executor::step *curr_ste
 
 esp_err_t procedure_executor::exec_swd_reset(procedure_executor::step *curr_step)
 {
+    ESP_LOGI(TAG, "exec: swd reset");
     swd_trigger_nrst();
     return ESP_OK;
 }
 
 esp_err_t procedure_executor::exec_swd_halt(procedure_executor::step *curr_step)
 {
+    ESP_LOGI(TAG, "exec: swd halt target");
     return swd_halt_target() < 1 ? ESP_FAIL : ESP_OK;
 }
 
 esp_err_t procedure_executor::exec_swd_wait_halt(procedure_executor::step *curr_step)
 {
+    ESP_LOGI(TAG, "exec: swd wait halt");
     return swd_wait_until_halted() < 1 ? ESP_FAIL : ESP_OK;
 }
 
@@ -286,65 +308,71 @@ esp_err_t procedure_executor::execute()
 
     esp_err_t ret = ESP_OK;
     for (auto &item : steps) {
+        if (ret != ESP_OK) {
+            break;
+        }
+
+        esp_err_t step_ret = ESP_OK;
         switch (item.type) {
-            case READ_32: {
-                ret = ret ?: exec_rw32(&item);
-                break;
-            }
-
+            case READ_32:
             case WRITE_32: {
-                ret = ret ?: exec_rw32(&item);
+                step_ret = exec_rw32(&item);
                 break;
             }
 
-            case READ_BLOB: {
-                ret = ret ?: exec_rwblob(&item);
-                break;
-            }
-
+            case READ_BLOB:
             case WRITE_BLOB: {
-                ret = ret ?: exec_rwblob(&item);
+                step_ret = exec_rwblob(&item);
                 break;
             }
 
             case READ_MOD_WRITE_32: {
-                ret = ret ?: exec_rmw32(&item);
+                step_ret = exec_rmw32(&item);
                 break;
             }
 
             case SWD_REINIT: {
-                ret = ret ?: exec_swd_reinit(&item);
+                step_ret = exec_swd_reinit(&item);
                 break;
             }
 
             case DELAY_MS: {
-                ret = ret ?: exec_delay_ms(&item);
+                step_ret = exec_delay_ms(&item);
                 break;
             }
 
             case SWD_RESET_TARGET: {
-                ret = ret ?: exec_swd_reset(&item);
+                step_ret = exec_swd_reset(&item);
                 break;
             }
 
             case SWD_HALT_TARGET: {
-                ret = ret ?: exec_swd_halt(&item);
+                step_ret = exec_swd_halt(&item);
                 break;
             }
 
             case SWD_WAIT_HALT: {
-                ret = ret ?: exec_swd_wait_halt(&item);
+                step_ret = exec_swd_wait_halt(&item);
                 break;
             }
 
             case POLL_32: {
-                ret = ret ?: exec_poll32(&item);
+                step_ret = exec_poll32(&item);
                 break;
             }
 
             default: {
                 ESP_LOGW(TAG, "exec: unimplemented type: %ld", item.type);
                 break;
+            }
+        }
+
+        if (step_ret != ESP_OK) {
+            if (item.ignore_error) {
+                ESP_LOGW(TAG, "exec: ignoring failed step (0x%x)", step_ret);
+            } else {
+                ESP_LOGE(TAG, "exec: step failed (0x%x), aborting", step_ret);
+                ret = step_ret;
             }
         }
     }

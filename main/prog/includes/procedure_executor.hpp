@@ -64,6 +64,7 @@ public:
 
     struct step
     {
+        bool ignore_error;
         step_type type;
         union {
             step_rw32 rw32;

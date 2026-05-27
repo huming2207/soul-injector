@@ -1,3 +1,6 @@
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 #include <ryml.hpp>
 
 #include <cstring>
@@ -55,7 +58,15 @@ esp_err_t fw_asset_manager::init(const char *variant_name)
     ram_end = 0;
 
     // ---------- load the YAML file ----------
-    FILE *file = fopen(TARGET_YAML_PATH, "rb");
+    FILE *file = nullptr;
+    int retry = 5;
+    while (retry-- > 0) {
+        file = fopen(TARGET_YAML_PATH, "rb");
+        if (file != nullptr) break;
+        ESP_LOGW(TAG, "init: failed to open %s, retrying...", TARGET_YAML_PATH);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
     if (file == nullptr) {
         ESP_LOGE(TAG, "init: cannot open %s", TARGET_YAML_PATH);
         return ESP_ERR_NOT_FOUND;
@@ -216,13 +227,18 @@ esp_err_t fw_asset_manager::init(const char *variant_name)
         return load_addr + parse_yaml_number(algo_node[key]);
     };
 
+    auto get_raw_addr = [&](const char *key) -> uint32_t {
+        if (!algo_node.has_child(key)) return 0;
+        return parse_yaml_number(algo_node[key]);
+    };
+
     pc_init_val             = get_offset("pc_init");
     pc_uninit_val           = get_offset("pc_uninit");
     pc_program_page_val     = get_offset("pc_program_page");
     pc_erase_sector_val     = get_offset("pc_erase_sector");
     pc_erase_all_val        = get_offset("pc_erase_all");
     pc_verify_val           = get_offset("pc_verify");
-    data_section_offset_val = get_offset("data_section_offset");
+    data_section_offset_val = get_raw_addr("data_section_offset");
 
     ESP_LOGI(TAG, "init: load_addr=0x%08lx pc_init=0x%08lx pc_uninit=0x%08lx pc_prog=0x%08lx pc_erase_sector=0x%08lx pc_erase_all=0x%08lx pc_verify=0x%08lx data_off=0x%08lx",
              load_addr, pc_init_val, pc_uninit_val, pc_program_page_val,

@@ -20,7 +20,6 @@ idf_component_register(
 
         INCLUDE_DIRS
             "."
-            "misc/includes"
             "prog/includes"
             "comm"
             "driver" "driver/lcd"

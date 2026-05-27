@@ -6,7 +6,7 @@ esp_err_t current_tester::init(gpio_num_t alert, uint8_t addr, i2c_master_bus_ha
 {
     esp_err_t ret = ESP_OK;
 
-    if (_i2c_bus == nullptr) {
+    if (_i2c_bus == nullptr && i2c_bus == nullptr) {
         i2c_master_bus_config_t master_cfg = {};
         master_cfg.clk_source = I2C_CLK_SRC_XTAL;
         master_cfg.sda_io_num = (gpio_num_t)CONFIG_SI_SG_I2C_SDA;
@@ -21,9 +21,11 @@ esp_err_t current_tester::init(gpio_num_t alert, uint8_t addr, i2c_master_bus_ha
             ESP_LOGE(TAG, "init: failed to set up I2C");
             return ret;
         }
-    } else {
+    } else if (_i2c_bus != nullptr) {
         i2c_bus = _i2c_bus;
         ESP_LOGW(TAG, "init: using existing I2C master instance: %p", i2c_bus);
+    } else {
+        ESP_LOGI(TAG, "init: I2C already initialized, skipping bus setup");
     }
 
     ret = ret ?: adc.init(i2c_bus, alert, addr, freq_hz);

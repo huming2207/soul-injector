@@ -1,5 +1,6 @@
 #include <esp_event.h>
 #include <nvs_flash.h>
+#include <sys/stat.h>
 #include "bootstrap_fsm.hpp"
 #include "esp_err.h"
 #include "esp_flash.h"
@@ -25,17 +26,15 @@ esp_err_t bootstrap_fsm::init()
         return ret;
     }
 
-    ESP_LOGI(TAG, "Setting up storage");
-    ret = setup_storage();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set up storage: 0x%x %s", ret, esp_err_to_name(ret));
-        composer->display_error("ERROR", "Storage partition error\nPlease try factory reset");
-        return ret;
-    }
-
     evt_group = xEventGroupCreate();
     if (evt_group == nullptr) {
         ESP_LOGE(TAG, "Can't create event group");
+        return ESP_FAIL;
+    }
+
+    det_debounce_timer = xTimerCreate("target_det", pdMS_TO_TICKS(50), pdFALSE, this, det_pin_debounce_timer);
+    if (det_debounce_timer == nullptr) {
+        ESP_LOGE(TAG, "Can't create debounce timer");
         return ESP_FAIL;
     }
 
@@ -47,28 +46,9 @@ esp_err_t bootstrap_fsm::init()
     det_io_cfg.intr_type = GPIO_INTR_ANYEDGE;
     det_io_cfg.mode = GPIO_MODE_INPUT;
 
-    BaseType_t task_ret = xTaskCreate(fsm_task_handler, "flasher", 8192, this, tskIDLE_PRIORITY + 10, &fsm_task);
-    if (task_ret != pdPASS) {
-        ESP_LOGE(TAG, "Can't create FSM task");
-        return ESP_FAIL;
-    }
-
-    det_debounce_timer = xTimerCreate("target_det", pdMS_TO_TICKS(50), pdFALSE, this, det_pin_debounce_timer);
-    if (det_debounce_timer == nullptr) {
-        ESP_LOGE(TAG, "Can't create debounce timer");
-        return ESP_FAIL;
-    }
-
     ret = gpio_config(&det_io_cfg);
     if (ret == ESP_OK) {
         last_det_state = gpio_get_level(DET_IO_PIN);
-        if (last_det_state == 0) {
-            ESP_LOGI(TAG, "Target detected at boot time!");
-            xEventGroupSetBits(evt_group, BIT_TARGET_CONNECTED);
-        } else {
-            ESP_LOGI(TAG, "No target detected at boot time.");
-            xEventGroupSetBits(evt_group, BIT_TARGET_DISCONNECTED);
-        }
     }
     gpio_install_isr_service(0);
     ret = ret ?: gpio_set_intr_type(DET_IO_PIN, GPIO_INTR_ANYEDGE);
@@ -79,12 +59,36 @@ esp_err_t bootstrap_fsm::init()
         return ret;
     }
 
+    ESP_LOGI(TAG, "Setting up storage");
+    ret = setup_storage(last_det_state != 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set up storage: 0x%x %s", ret, esp_err_to_name(ret));
+        composer->display_error("ERROR", "Storage partition error\nPlease try factory reset");
+        return ret;
+    }
+
+    BaseType_t task_ret = xTaskCreate(fsm_task_handler, "flasher", 8192, this, tskIDLE_PRIORITY + 10, &fsm_task);
+    if (task_ret != pdPASS) {
+        ESP_LOGE(TAG, "Can't create FSM task");
+        return ESP_FAIL;
+    }
+
+    // Now set the initial detection state
+    if (last_det_state == 0) {
+        ESP_LOGI(TAG, "Target detected at boot time!");
+        xEventGroupSetBits(evt_group, BIT_TARGET_CONNECTED);
+    } else {
+        ESP_LOGI(TAG, "No target detected at boot time.");
+        xEventGroupSetBits(evt_group, BIT_TARGET_DISCONNECTED);
+    }
+
     ESP_LOGI(TAG, "Bootstrap init OK");
     return ESP_OK;
 }
 
-esp_err_t bootstrap_fsm::setup_storage()
+esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
 {
+    is_usb_exposed = expose_usb;
     uint8_t sn_buf[16] = { 0 };
     uint64_t flash_uid = 0;
     esp_efuse_mac_get_default(sn_buf);
@@ -144,6 +148,12 @@ esp_err_t bootstrap_fsm::setup_storage()
         return ret;
     }
 
+    // Verification: Wait for the mount to be ready in the application VFS
+    if (!expose_usb) {
+        ret = wait_for_vfs_ready();
+        if (ret != ESP_OK) return ret;
+    }
+
     static char lang[2] = {0x09, 0x04};
     static const char *desc_str[6] = {
         lang,                // 0: is supported language is English (0x0409)
@@ -180,14 +190,37 @@ esp_err_t bootstrap_fsm::setup_storage()
     }
 
     // Set back to expose to MSC
-    ret = tinyusb_msc_set_storage_mount_point(tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_USB);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "setup_storage: can't expose to MSC: 0x%x", ret);
-        return ret;
+    if (expose_usb) {
+        ret = tinyusb_msc_set_storage_mount_point(tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_USB);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "setup_storage: can't expose to MSC: 0x%x", ret);
+            return ret;
+        }
     }
 
     ESP_LOGI(TAG, "setup_storage: init OK");
     return ret;
+}
+
+esp_err_t bootstrap_fsm::wait_for_vfs_ready()
+{
+    ESP_LOGI(TAG, "Waiting for filesystem to be ready...");
+    int retry = 20; // 2 seconds max
+    bool ready = false;
+    while (retry-- > 0) {
+        struct stat st;
+        if (stat(DATA_PARTITION_PATH, &st) == 0) {
+            ready = true;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    if (!ready) {
+        ESP_LOGE(TAG, "Filesystem failed to mount at %s within timeout", DATA_PARTITION_PATH);
+        return ESP_ERR_NOT_FOUND;
+    }
+    ESP_LOGI(TAG, "Filesystem is ready");
+    return ESP_OK;
 }
 
 void bootstrap_fsm::fsm_task_handler(void *_ctx)
@@ -204,7 +237,13 @@ void bootstrap_fsm::fsm_task_handler(void *_ctx)
     xEventGroupWaitBits(ctx->evt_group, BIT_TARGET_CONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
 
     // After target is connected, mount the data partition to application instead of USB MSC.
-    tinyusb_msc_set_storage_mount_point(ctx->tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_APP);
+    if (ctx->is_usb_exposed) {
+        ESP_LOGI(TAG, "fsm: Switching storage from USB to APP");
+        tinyusb_msc_set_storage_mount_point(ctx->tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_APP);
+        ctx->is_usb_exposed = false;
+        ctx->wait_for_vfs_ready();
+    }
+
     offline_flasher::instance()->init();
 
     while (true) {
@@ -227,8 +266,22 @@ void bootstrap_fsm::run_fsm_task()
         ESP_LOGI(TAG, "Done flashing!");
     }
 
+    ESP_LOGI(TAG, "Waiting for target disconnect...");
     xEventGroupWaitBits(evt_group, BIT_TARGET_DISCONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
+
+    // Expose back to USB when target is disconnected
+    ESP_LOGI(TAG, "Target disconnected, exposing storage to USB");
+    tinyusb_msc_set_storage_mount_point(tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_USB);
+    is_usb_exposed = true;
+
     xEventGroupWaitBits(evt_group, BIT_TARGET_CONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
+
+    // Take back from USB when target is re-connected
+    ESP_LOGI(TAG, "Target re-connected, taking back storage from USB");
+    tinyusb_msc_set_storage_mount_point(tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_APP);
+    is_usb_exposed = false;
+    wait_for_vfs_ready();
+
     flasher->init();
 }
 

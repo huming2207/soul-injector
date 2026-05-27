@@ -41,7 +41,8 @@ public:
     esp_err_t init();
 
 private:
-    esp_err_t setup_storage();
+    static esp_err_t wait_for_vfs_ready();
+    esp_err_t setup_storage(bool expose_usb);
     static void fsm_task_handler(void *_ctx);
     static IRAM_ATTR void det_io_isr_handler(void *_ctx);
     static void det_pin_debounce_timer(TimerHandle_t timer_handle);
@@ -51,6 +52,7 @@ private:
 
 private:
     bool last_det_state = false;
+    bool is_usb_exposed = false;
     wl_handle_t wl_handle = WL_INVALID_HANDLE;
     tinyusb_msc_storage_handle_t tusb_msc_handle = nullptr;
     TaskHandle_t fsm_task = nullptr;

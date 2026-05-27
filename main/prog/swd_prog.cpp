@@ -69,6 +69,15 @@ esp_err_t swd_prog::load_flash_algorithm()
         return ESP_FAIL;
     }
 
+    // Write stack canary here so it survives target resets between algorithm loads
+    ret = swd_write_word(stack_bottom, stack_canary);
+    if (ret < 1) {
+        ESP_LOGE(TAG, "Failed when writing stack canary");
+        state = swd_def::UNKNOWN;
+        free(algo_bin);
+        return ESP_FAIL;
+    }
+
     state = swd_def::FLASH_ALG_LOADED;
     free(algo_bin);
     return ESP_OK;
@@ -264,12 +273,6 @@ esp_err_t swd_prog::init(uint32_t _stack_size)
     stack_canary = esp_random();
 
     ESP_LOGI(TAG, "Stack: size=%lu top=0x%08lx, bottom=0x%08lx, canary=0x%08lx", stack_size, stack_top, stack_bottom, stack_canary);
-    ret = swd_write_word(stack_bottom, stack_canary);
-    if (ret < 1) {
-        ESP_LOGE(TAG, "Timeout when writing stack canary!");
-        state = swd_def::UNKNOWN;
-        return ESP_ERR_INVALID_STATE;
-    }
 
     syscall.breakpoint = code_start - sizeof(uint32_t) + 1; // Breakpoint is where the halt word (2x of breakpoint instructions) + 1 byte for thumb mode
     syscall.static_base = data_section_offset; // BSS, also don't forget the header = 32 bytes
@@ -559,9 +562,17 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
         return ESP_ERR_INVALID_ARG;
     }
 
-    FILE *file = fopen(path, "rb");
+    FILE *file = nullptr;
+    int retry = 5;
+    while (retry-- > 0) {
+        file = fopen(path, "rb");
+        if (file != nullptr) break;
+        ESP_LOGW(TAG, "Failed to open %s, retrying... (%d left)", path, retry);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
     if (file == nullptr) {
-        ESP_LOGE(TAG, "Failed when reading firmware file");
+        ESP_LOGE(TAG, "Failed when reading firmware file: %s", path);
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -581,15 +592,10 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
 
     if (state != swd_def::FLASH_ALG_INITED) {
         auto ret = run_algo_init(swd_def::PROGRAM);
-        if (ret != ESP_OK) return ret;
-    }
-
-    auto swd_ret = swd_halt_target();
-    if (swd_ret < 1) {
-        ESP_LOGE(TAG, "Failed when halting");
-        state = swd_def::UNKNOWN;
-        fclose(file);
-        return ESP_ERR_INVALID_STATE;
+        if (ret != ESP_OK) {
+            fclose(file);
+            return ret;
+        }
     }
 
     uint32_t page_size = 0, pc_program_page = 0, flash_start_addr = 0;
@@ -600,15 +606,8 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
 
     if (asset_ret != ESP_OK) {
         ESP_LOGE(TAG, "Missing config for ProgramPage");
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    swd_ret = swd_wait_until_halted();
-    if (swd_ret < 1) {
-        ESP_LOGE(TAG, "Timeout when halting");
-        state = swd_def::UNKNOWN;
         fclose(file);
-        return ESP_ERR_TIMEOUT;
+        return ESP_ERR_NOT_FOUND;
     }
 
     uint32_t addr_offset = flash_start_addr + (start_addr == UINT32_MAX ? 0 : start_addr);

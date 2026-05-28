@@ -12,16 +12,32 @@
 
 esp_err_t swd_prog::load_flash_algorithm()
 {
-    auto ret = swd_halt_target();
+    swd_off();
+    vTaskDelay(1);
+    swd_init();
+    vTaskDelay(1);
+    swd_trigger_nrst();
+    vTaskDelay(1);
+
+    auto ret = swd_init_debug();
     if (ret < 1) {
-        ESP_LOGE(TAG, "Failed when halting");
+        ESP_LOGE(TAG, "load_algo: SWD init failed");
+        state = swd_def::UNKNOWN;
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    vTaskDelay(1);
+
+    ret = swd_halt_target();
+    if (ret < 1) {
+        ESP_LOGE(TAG, "load_algo: Failed when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
     }
 
     ret = swd_wait_until_halted();
     if (ret < 1) {
-        ESP_LOGE(TAG, "Timeout when halting");
+        ESP_LOGE(TAG, "load_algo: Timeout when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
     }
@@ -29,22 +45,22 @@ esp_err_t swd_prog::load_flash_algorithm()
     uint32_t est_algo_len = 0;
     auto *asset = fw_asset_manager::instance();
     if (asset->get_ram_size_byte(&est_algo_len) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read algo bin len");
+        ESP_LOGE(TAG, "load_algo: Failed to read algo bin len");
         return ESP_ERR_INVALID_STATE;
     }
 
     if (heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) < est_algo_len) {
-        ESP_LOGE(TAG, "Flash algo is too huge: %lu", est_algo_len);
+        ESP_LOGE(TAG, "load_algo: Flash algo is too huge: %lu", est_algo_len);
         return ESP_ERR_NO_MEM;
     }
 
     auto *algo_bin = static_cast<uint8_t *>(heap_caps_malloc(est_algo_len, MALLOC_CAP_SPIRAM));
     if (algo_bin == nullptr) {
-        ESP_LOGE(TAG, "Failed to allocate flash algo bin buffer");
+        ESP_LOGE(TAG, "load_algo: Failed to allocate flash algo bin buffer");
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "Allocated est algo (RAM size) = %lu", est_algo_len);
+    ESP_LOGI(TAG, "load_algo: Allocated est algo (RAM size) = %lu", est_algo_len);
     if (asset->get_algo_bin(algo_bin, est_algo_len, &algo_bin_len, &code_start) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read algo bin");
         free(algo_bin);
@@ -55,14 +71,14 @@ esp_err_t swd_prog::load_flash_algorithm()
 
     ret = swd_write_word(code_start - sizeof(uint32_t), halt_header);
     if (ret < 1) {
-        ESP_LOGE(TAG, "Failed when writing flash algorithm header");
+        ESP_LOGE(TAG, "load_algo: Failed when writing flash algorithm header");
         state = swd_def::UNKNOWN;
         return ESP_FAIL;
     }
 
     ret = swd_write_memory(code_start, algo_bin, algo_bin_len);
     if (ret < 1) {
-        ESP_LOGE(TAG, "Failed when writing main flash algorithm");
+        ESP_LOGE(TAG, "load_algo: Failed when writing main flash algorithm");
         state = swd_def::UNKNOWN;
 
         free(algo_bin);
@@ -72,12 +88,13 @@ esp_err_t swd_prog::load_flash_algorithm()
     // Write stack canary here so it survives target resets between algorithm loads
     ret = swd_write_word(stack_bottom, stack_canary);
     if (ret < 1) {
-        ESP_LOGE(TAG, "Failed when writing stack canary");
+        ESP_LOGE(TAG, "load_algo: Failed when writing stack canary");
         state = swd_def::UNKNOWN;
         free(algo_bin);
         return ESP_FAIL;
     }
 
+    ESP_LOGI(TAG, "load_algo: OK");
     state = swd_def::FLASH_ALG_LOADED;
     free(algo_bin);
     return ESP_OK;
@@ -85,20 +102,13 @@ esp_err_t swd_prog::load_flash_algorithm()
 
 esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
 {
-    ESP_LOGD(TAG, "Running init, load_addr: 0x%lx, stack_ptr: 0x%lx, static_base: 0x%lx", syscall.breakpoint, syscall.stack_pointer, syscall.static_base);
+    ESP_LOGI(TAG, "algo_init: Running init, load_addr: 0x%lx, stack_ptr: 0x%lx, static_base: 0x%lx", syscall.breakpoint, syscall.stack_pointer, syscall.static_base);
     uint32_t retry_cnt = 3;
     auto *asset = fw_asset_manager::instance();
     while (retry_cnt > 0) {
         if (load_flash_algorithm() != ESP_OK) {
-            ESP_LOGE(TAG, "Failed when loading flash algorithm");
+            ESP_LOGE(TAG, "algo_init: Failed when loading flash algorithm");
             return ESP_FAIL;
-        }
-
-        auto ret = swd_halt_target();
-        if (ret < 1) {
-            ESP_LOGE(TAG, "Failed when halting");
-            state = swd_def::UNKNOWN;
-            return ESP_ERR_INVALID_STATE;
         }
 
         uint32_t pc_init = 0;
@@ -110,18 +120,18 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
 
         uint32_t flash_start_addr = 0;
         if (asset->get_flash_start_addr(&flash_start_addr) != ESP_OK) {
-            ESP_LOGE(TAG, "Flash start addr config not found");
+            ESP_LOGE(TAG, "algo_init: Flash start addr config not found");
             return ESP_ERR_INVALID_STATE;
         }
 
-        ret = swd_wait_until_halted();
+        auto ret = swd_wait_until_halted();
         if (ret < 1) {
-            ESP_LOGE(TAG, "Timeout when halting");
+            ESP_LOGE(TAG, "algo_init: Timeout when halting");
             state = swd_def::UNKNOWN;
             return ESP_ERR_INVALID_STATE;
         }
 
-        ESP_LOGD(TAG, "Flash start addr = 0x%lx, pc_init = 0x%lx", flash_start_addr, pc_init);
+        ESP_LOGD(TAG, "algo_init: Flash start addr = 0x%lx, pc_init = 0x%lx", flash_start_addr, pc_init);
 
         ret = swd_flash_syscall_exec(
                 &syscall,
@@ -134,11 +144,11 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
         );
 
         if (ret < 1) {
-            ESP_LOGW(TAG, "Failed when init algorithm, returned %d, retrying...", ret);
+            ESP_LOGW(TAG, "algo_init: Failed when init algorithm, returned %d, retrying...", ret);
             init(stack_size); // Re-init SWD as well (so that target will reset)
             retry_cnt -= 1;
         } else {
-            ESP_LOGD(TAG, "Init() OK");
+            ESP_LOGI(TAG, "algo_init: Init() OK");
             state = swd_def::FLASH_ALG_INITED;
             return ESP_OK;
         }
@@ -306,7 +316,7 @@ esp_err_t swd_prog::erase_chip()
 
     auto swd_ret = swd_halt_target();
     if (swd_ret < 1) {
-        ESP_LOGE(TAG, "Failed when halting");
+        ESP_LOGE(TAG, "Failed when init");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
     }

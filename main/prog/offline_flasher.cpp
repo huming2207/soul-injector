@@ -46,10 +46,10 @@ void offline_flasher::on_erase()
         if (ret != ESP_OK) {
             composer->display_error("ERROR", "Cannot erase target!\nPlease try again!");
             state = flasher::ERROR;
+        } else {
+            state = flasher::PROGRAM;
         }
     }
-
-    state = flasher::PROGRAM;
 }
 
 void offline_flasher::on_program()
@@ -86,7 +86,7 @@ void offline_flasher::on_detect()
     if (max_retry == 0 && ret != ESP_OK) {
         state = flasher::ERROR;
     } else {
-        state = flasher::PRE_PROGRAM; // To pre-program
+        state = flasher::ERASE; // To erase
     }
 }
 
@@ -163,6 +163,14 @@ void offline_flasher::on_self_test()
 
 void offline_flasher::on_post_program()
 {
+    swd_off();
+    vTaskDelay(1);
+    swd_init();
+    vTaskDelay(1);
+    swd_trigger_nrst();
+    vTaskDelay(1);
+    swd_init_debug();
+
     auto ret = post_program_steps.load_yaml(POST_PROG_STEP_FILE);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "post_prog: Can't load YAML, skipping");
@@ -283,10 +291,18 @@ esp_err_t offline_flasher::handle_states()
 
 void offline_flasher::on_pre_program()
 {
+    swd_off();
+    vTaskDelay(1);
+    swd_init();
+    vTaskDelay(1);
+    swd_trigger_nrst();
+    vTaskDelay(1);
+    swd_init_debug();
+
     auto ret = pre_program_steps.load_yaml(PRE_PROG_STEP_FILE);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "pre_prog: Can't load YAML, skipping");
-        state = flasher::ERASE; // To erase
+        state = flasher::DETECT; // To detect
         return;
     }
 
@@ -299,14 +315,14 @@ void offline_flasher::on_pre_program()
     }
 
     ESP_LOGI(TAG, "pre_prog: OK");
-    state = flasher::ERASE; // To erase
+    state = flasher::DETECT; // To detect
 }
 
 void offline_flasher::on_load_asset()
 {
     if (asset_loaded) {
         ESP_LOGW(TAG, "load_asset: already loaded, skipping");
-        state = flasher::DETECT;
+        state = flasher::PRE_PROGRAM;
         return;
     }
 
@@ -321,5 +337,5 @@ void offline_flasher::on_load_asset()
     }
 
     asset_loaded = true;
-    state = flasher::DETECT;
+    state = flasher::PRE_PROGRAM;
 }

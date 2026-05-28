@@ -16,8 +16,8 @@ namespace flasher
     {
         ERROR = -1,
         LOAD_ASSET = 0,
-        DETECT = 1,
-        PRE_PROGRAM = 2,
+        PRE_PROGRAM = 1,
+        DETECT = 2,
         ERASE = 3,
         PROGRAM = 4,
         VERIFY = 5,

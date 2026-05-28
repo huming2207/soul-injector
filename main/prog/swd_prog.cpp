@@ -360,7 +360,7 @@ esp_err_t swd_prog::erase_chip()
     return ret;
 }
 
-esp_err_t swd_prog::self_test(uint16_t test_id, uint8_t *readout_buf, size_t readout_buf_len, uint32_t *func_return_val)
+esp_err_t swd_prog::self_test(uint32_t test_id, uint8_t *readout_buf, size_t readout_buf_len, uint32_t *func_return_val)
 {
     uint32_t pc_verify = 0;
     auto *asset = fw_asset_manager::instance();

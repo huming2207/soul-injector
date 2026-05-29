@@ -4,6 +4,7 @@
 #include <ryml.hpp>
 
 #include <cstring>
+#include <cctype>
 #include <esp_log.h>
 #include <psa/crypto.h>
 #include <esp_heap_caps.h>
@@ -14,7 +15,7 @@
 // YAML parsing helpers (same pattern as procedure_executor)
 // -------------------------------------------------------------------
 
-static uint32_t parse_yaml_number(ryml::ConstNodeRef node)
+uint32_t fw_asset_manager::parse_yaml_number(ryml::ConstNodeRef node)
 {
     if (node.invalid() || node.is_seed()) return 0;
     ryml::csubstr val = node.val();
@@ -25,13 +26,56 @@ static uint32_t parse_yaml_number(ryml::ConstNodeRef node)
     return std::strtoul(buf, nullptr, 0);
 }
 
-static bool yaml_node_has_tag(ryml::ConstNodeRef node, const char *tag)
+bool fw_asset_manager::yaml_node_has_tag(ryml::ConstNodeRef node, const char *tag)
 {
     return node.has_val_tag() && node.val_tag() == ryml::to_csubstr(tag);
 }
 
+// -------------------------------------------------------------------
+// SHA256 verification helpers
+// -------------------------------------------------------------------
+
+int fw_asset_manager::hex_char_to_val(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+bool fw_asset_manager::parse_sha256_hex(const char *hex_str, uint8_t *out_bytes)
+{
+    for (int i = 0; i < 32; ++i) {
+        int high = hex_char_to_val(hex_str[2 * i]);
+        int low = hex_char_to_val(hex_str[2 * i + 1]);
+        if (high < 0 || low < 0) {
+            return false;
+        }
+        out_bytes[i] = (high << 4) | low;
+    }
+    return true;
+}
+
 esp_err_t fw_asset_manager::init(const char *variant_name)
 {
+    // ---------- verify SHA256 hashes ----------
+    if (!assets_verified) {
+        if (!check_algo_bin_hash()) {
+            ESP_LOGE(TAG, "init: target.yaml SHA256 verification failed");
+            return ESP_ERR_INVALID_CRC;
+        }
+
+        if (!check_fw_bin_hash()) {
+            ESP_LOGE(TAG, "init: firmware.bin SHA256 verification failed");
+            return ESP_ERR_INVALID_CRC;
+        }
+
+        assets_verified = true;
+        ESP_LOGI(TAG, "init: SHA256 verification completed successfully");
+    } else {
+        ESP_LOGI(TAG, "init: Assets already verified, skipping SHA256 check");
+    }
+
     // ---------- free any previous algo binary ----------
     if (algo_bin != nullptr) {
         free(algo_bin);
@@ -526,39 +570,113 @@ std::vector<fw_asset_manager::test_item> &fw_asset_manager::get_test_items()
 // Static helpers (unchanged from original)
 // -------------------------------------------------------------------
 
-bool fw_asset_manager::check_fw_bin_hash(uint8_t *sha_expected, size_t len)
+bool fw_asset_manager::check_fw_bin_hash()
 {
-    if (len < 32 || sha_expected == nullptr) {
-        ESP_LOGE(TAG, "Invalid or incomplete SHA2! len=%u", len);
+    uint8_t sha_expected[32] = {};
+    esp_err_t ret = get_sha256_from_file(FIRMWARE_SHA256_PATH, sha_expected);
+    if (ret == ESP_ERR_NOT_FOUND) {
+        ESP_LOGI(TAG, "check_fw_bin_hash: SHA256 file not found, skipping verification");
+        return true;
+    }
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "check_fw_bin_hash: Failed to read/parse expected SHA256");
         return false;
     }
 
     uint8_t sha_actual[32] = {};
-    auto ret = get_sha256_from_file(FIRMWARE_PATH, sha_actual);
-    if (ret != ESP_OK) return false;
+    if (get_sha256_from_file(FIRMWARE_PATH, sha_actual) != ESP_OK) {
+        ESP_LOGE(TAG, "check_fw_bin_hash: Failed to compute actual SHA256");
+        return false;
+    }
 
-    return std::memcmp(sha_actual, sha_expected, std::min(sizeof(sha_actual), len)) == 0;
+    if (std::memcmp(sha_actual, sha_expected, 32) != 0) {
+        ESP_LOGE(TAG, "check_fw_bin_hash: SHA256 mismatch!");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "check_fw_bin_hash: SHA256 verified successfully");
+    return true;
 }
 
-bool fw_asset_manager::check_algo_bin_hash(uint8_t *sha_expected, size_t len)
+bool fw_asset_manager::check_algo_bin_hash()
 {
-    if (len < 32 || sha_expected == nullptr) {
-        ESP_LOGE(TAG, "Invalid or incomplete SHA2! len=%u", len);
+    uint8_t sha_expected[32] = {};
+    esp_err_t ret = get_sha256_from_file(TARGET_YAML_SHA256_PATH, sha_expected);
+    if (ret == ESP_ERR_NOT_FOUND) {
+        ESP_LOGI(TAG, "check_algo_bin_hash: SHA256 file not found, skipping verification");
+        return true;
+    }
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "check_algo_bin_hash: Failed to read/parse expected SHA256");
         return false;
     }
 
     uint8_t sha_actual[32] = {};
-    auto ret = get_sha256_from_file(TARGET_YAML_PATH, sha_actual);
-    if (ret != ESP_OK) return false;
+    if (get_sha256_from_file(TARGET_YAML_PATH, sha_actual) != ESP_OK) {
+        ESP_LOGE(TAG, "check_algo_bin_hash: Failed to compute actual SHA256");
+        return false;
+    }
 
-    return std::memcmp(sha_actual, sha_expected, std::min(sizeof(sha_actual), len)) == 0;
+    if (std::memcmp(sha_actual, sha_expected, 32) != 0) {
+        ESP_LOGE(TAG, "check_algo_bin_hash: SHA256 mismatch!");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "check_algo_bin_hash: SHA256 verified successfully");
+    return true;
 }
 
 esp_err_t fw_asset_manager::get_sha256_from_file(const char *path, uint8_t *out)
 {
-    if (path == nullptr) return ESP_ERR_INVALID_ARG;
+    if (path == nullptr || out == nullptr) return ESP_ERR_INVALID_ARG;
 
-    FILE *fp = fopen(path, "r+");
+    // Check if the path ends with ".sha256"
+    size_t path_len = std::strlen(path);
+    const char *suffix = ".sha256";
+    size_t suffix_len = std::strlen(suffix);
+    bool is_sha256_file = false;
+    if (path_len >= suffix_len && std::strcmp(path + path_len - suffix_len, suffix) == 0) {
+        is_sha256_file = true;
+    }
+
+    if (is_sha256_file) {
+        FILE *fp = fopen(path, "r");
+        if (fp == nullptr) {
+            ESP_LOGI(TAG, "SHA256 file not found at %s", path);
+            return ESP_ERR_NOT_FOUND;
+        }
+
+        char hex_buf[128];
+        size_t read_bytes = fread(hex_buf, 1, sizeof(hex_buf) - 1, fp);
+        fclose(fp);
+
+        if (read_bytes < 64) {
+            ESP_LOGE(TAG, "SHA256 file %s is too short: %zu bytes", path, read_bytes);
+            return ESP_ERR_INVALID_SIZE;
+        }
+        hex_buf[read_bytes] = '\0';
+
+        // Find the first 64 non-whitespace hex characters
+        const char *hex_ptr = hex_buf;
+        while (*hex_ptr && std::isspace((unsigned char)*hex_ptr)) {
+            hex_ptr++;
+        }
+
+        if (std::strlen(hex_ptr) < 64) {
+            ESP_LOGE(TAG, "SHA256 file content is invalid");
+            return ESP_ERR_INVALID_SIZE;
+        }
+
+        if (!parse_sha256_hex(hex_ptr, out)) {
+            ESP_LOGE(TAG, "Failed to parse hex SHA256 from %s", path);
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        return ESP_OK;
+    }
+
+    // Original behavior: compute SHA256 of the file content
+    FILE *fp = fopen(path, "rb");
     if (fp == nullptr) {
         ESP_LOGE(TAG, "Can't open file at %s", path);
         return ESP_ERR_INVALID_STATE;
@@ -583,12 +701,14 @@ esp_err_t fw_asset_manager::get_sha256_from_file(const char *path, uint8_t *out)
         size_t read_len = std::min(sizeof(blk), file_len - pos);
 
         size_t actual_read = fread(blk, 1, read_len, fp);
-        if (actual_read < 1) {
-            ESP_LOGE(TAG, "Failed to read stuff");
-            break;
+        if (actual_read != read_len) {
+            ESP_LOGE(TAG, "Failed to read %zu bytes from %s, got %zu", read_len, path, actual_read);
+            fclose(fp);
+            psa_hash_abort(&operation);
+            return ESP_FAIL;
         }
 
-        if (psa_hash_update(&operation, blk, read_len) != PSA_SUCCESS) {
+        if (psa_hash_update(&operation, blk, actual_read) != PSA_SUCCESS) {
             ESP_LOGE(TAG, "Failed to update SHA256 digest");
             fclose(fp);
             psa_hash_abort(&operation);

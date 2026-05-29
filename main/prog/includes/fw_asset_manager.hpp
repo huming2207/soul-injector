@@ -7,6 +7,7 @@
 #include <esp_err.h>
 #include <driver/gpio.h>
 #include <nvs_handle.hpp>
+#include <ryml.hpp>
 
 class fw_asset_manager
 {
@@ -55,13 +56,15 @@ public:
 
     std::vector<fw_asset_manager::test_item> &get_test_items();
 
-    static bool check_fw_bin_hash(uint8_t *sha_expected, size_t len);
-    static bool check_algo_bin_hash(uint8_t *sha_expected, size_t len);
+    static bool check_fw_bin_hash();
+    static bool check_algo_bin_hash();
     static esp_err_t get_sha256_from_file(const char *path, uint8_t *out);
 
     static const constexpr char BASE_PATH[] = "/data";
     static const constexpr char TARGET_YAML_PATH[] = "/data/target.yaml";
     static const constexpr char FIRMWARE_PATH[] = "/data/firmware.bin";
+    static const constexpr char TARGET_YAML_SHA256_PATH[] = "/data/target.yaml.sha256";
+    static const constexpr char FIRMWARE_SHA256_PATH[] = "/data/firmware.bin.sha256";
 
 private:
     // Decoded flash algorithm binary
@@ -94,6 +97,14 @@ private:
     std::vector<fw_asset_manager::test_item> test_items = {};
 
     std::unique_ptr<nvs::NVSHandle> nvs_handle = {};
+
+    bool assets_verified = false;
+
+    static int hex_char_to_val(char c);
+    static bool parse_sha256_hex(const char *hex_str, uint8_t *out_bytes);
+
+    static uint32_t parse_yaml_number(ryml::ConstNodeRef node);
+    static bool yaml_node_has_tag(ryml::ConstNodeRef node, const char *tag);
 
     static const constexpr char *TAG = "asset_mgr";
 

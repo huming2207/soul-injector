@@ -2,11 +2,16 @@
 #include <esp_timer.h>
 #include <algorithm>
 #include "display_manager.hpp"
-#include "ui_composer_114.hpp"
 
 esp_err_t display_manager::init()
 {
+#ifdef CONFIG_SI_DISP_ENABLE
     ESP_LOGI(TAG, "Panel init");
+    if (panel == nullptr) {
+        ESP_LOGW(TAG, "No display panel configured, display become no-op!!");
+        return ESP_OK;
+    }
+
     auto ret = panel->init();
     if (ret != ESP_OK) {
         return ret;
@@ -22,6 +27,10 @@ esp_err_t display_manager::init()
 
     ESP_LOGI(TAG, "Composer init OK");
     return ret;
+#else
+    ESP_LOGI(TAG, "Display disabled");
+    return composer.init();
+#endif
 }
 
 disp_panel_if *display_manager::get_panel()

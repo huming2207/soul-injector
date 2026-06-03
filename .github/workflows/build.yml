@@ -1,0 +1,114 @@
+name: Build Firmware
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  build:
+    name: Build ${{ matrix.si_hw_rev }}
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        si_hw_rev:
+          - rev3
+          - rev5
+
+    env:
+      GIT_SUBMODULE_FORCE_HTTPS: "true"
+      APT_CACHE_DIR: "${{ github.workspace }}/.cache/apt"
+      PIP_CACHE_DIR: "${{ github.workspace }}/.cache/pip"
+      CCACHE_DIR: "${{ github.workspace }}/.ccache"
+      IDF_PATH: "${{ github.workspace }}/esp/idf"
+      IDF_TOOLS_PATH: "${{ github.workspace }}/esp"
+      IDF_CCACHE_ENABLE: "1"
+      IDF_CLONE_URL: "https://github.com/espressif/esp-idf.git"
+      IDF_CLONE_BRANCH_OR_TAG: "v6.0.1"
+      IDF_CLONE_SHALLOW: "1"
+      IDF_INSTALL_TARGETS: "esp32s3"
+      IDF_PYTHON_CHECK_CONSTRAINTS: "yes"
+      SI_HW_REV: "${{ matrix.si_hw_rev }}"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Restore ESP-IDF cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/esp
+            ${{ github.workspace }}/.cache/apt
+            ${{ github.workspace }}/.cache/pip
+            ${{ github.workspace }}/.ccache
+          key: esp-idf-v6.0-v3-${{ runner.os }}-${{ matrix.si_hw_rev }}
+          restore-keys: |
+            esp-idf-v6.0-v3-${{ runner.os }}-
+            esp-idf-v6.0-v3-
+
+      - name: Install host dependencies
+        run: |
+          mkdir -p "$APT_CACHE_DIR/archives/partial" "$APT_CACHE_DIR/lists/partial"
+          export APT_OPTS="-o Dir::Cache::Archives=$APT_CACHE_DIR/archives -o Dir::State::Lists=$APT_CACHE_DIR/lists"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y \
+            apt-utils bison ca-certificates ccache check curl flex git git-lfs gperf \
+            lcov libbsd-dev libffi-dev libncurses-dev libusb-1.0-0-dev make \
+            ninja-build python3 python3-venv ruby unzip wget xz-utils zip
+          sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+
+      - name: Clone ESP-IDF
+        run: |
+          if [ ! -f "$IDF_PATH/tools/idf_tools.py" ]; then
+            echo "ESP-IDF is missing or corrupted. Cloning fresh copy..."
+            git clone --recursive --jobs=16 --depth=1 --shallow-submodules \
+              -b "$IDF_CLONE_BRANCH_OR_TAG" "$IDF_CLONE_URL" "$IDF_PATH"
+          fi
+
+      - name: Install ESP-IDF tools
+        run: |
+          sudo update-ca-certificates --fresh
+          "$IDF_PATH/tools/idf_tools.py" --non-interactive install required --targets="$IDF_INSTALL_TARGETS"
+          "$IDF_PATH/tools/idf_tools.py" --non-interactive install cmake
+          "$IDF_PATH/tools/idf_tools.py" --non-interactive install-python-env
+
+      - name: Prepare artifact metadata
+        run: |
+          ref_slug=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          echo "REF_SLUG=$ref_slug" >> "$GITHUB_ENV"
+
+      - name: Build firmware
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" set-target esp32s3
+          idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" build
+          cp components/hw_conf/hw_conf_partition_gen.sh .
+          cp components/hw_conf/hw_conf_partition_flash.sh .
+
+      - name: Clean cached downloads
+        if: always()
+        run: |
+          rm -rf "$IDF_TOOLS_PATH/dist"
+          export APT_OPTS="-o Dir::Cache::Archives=$APT_CACHE_DIR/archives -o Dir::State::Lists=$APT_CACHE_DIR/lists"
+          sudo apt-get $APT_OPTS autoclean
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: soulinjector-${{ matrix.si_hw_rev }}-${{ env.REF_SLUG }}-${{ github.sha }}
+          path: |
+            build-${{ matrix.si_hw_rev }}/*.bin
+            build-${{ matrix.si_hw_rev }}/bootloader/*.bin
+            build-${{ matrix.si_hw_rev }}/partition_table/*.bin
+            build-${{ matrix.si_hw_rev }}/flasher_args.json
+            proj_flash_install.sh
+            proj_flash_run.sh
+            hw_conf_partition_gen.sh
+            hw_conf_partition_flash.sh
+          if-no-files-found: error

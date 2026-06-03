@@ -4,10 +4,13 @@ on:
   push:
     tags:
       - "*"
+  create:
+
 
 jobs:
   build:
     name: Build ${{ matrix.si_hw_rev }}
+    if: github.event_name == 'push' || github.ref_type == 'tag'
     runs-on: ubuntu-24.04
 
     strategy:

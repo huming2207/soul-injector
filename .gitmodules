@@ -9,7 +9,7 @@
 	url = https://github.com/serge1/ELFIO.git
 [submodule "components/ina228"]
 	path = components/ina228
-	url = git@github.com:huming2207/esp-ina228.git
+	url = https://github.com/huming2207/esp-ina228
 [submodule "components/esp-mqtt"]
 	path = components/esp-mqtt
 	url = https://github.com/espressif/esp-mqtt.git

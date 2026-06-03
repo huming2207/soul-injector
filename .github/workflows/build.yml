@@ -118,7 +118,13 @@ jobs:
     runs-on: ubuntu-24.04
     needs: build
     permissions:
+      actions: write
+      packages: write
       contents: write
+      pull-requests: write
+      repository-projects: write
+      security-events: write
+      deployments: write
 
     steps:
       - name: Download firmware artifacts

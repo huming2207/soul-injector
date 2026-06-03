@@ -85,8 +85,6 @@ build:
   script:
     - idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" set-target esp32s3
     - idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" build
-    - cp components/hw_conf/hw_conf_partition_gen.sh .
-    - cp components/hw_conf/hw_conf_partition_flash.sh .
 
   after_script:
     # Cache ESP-IDF, tools, and APT data
@@ -100,7 +98,3 @@ build:
       - build-$SI_HW_REV/bootloader/*.bin
       - build-$SI_HW_REV/partition_table/*.bin
       - build-$SI_HW_REV/flasher_args.json
-      - proj_flash_install.sh
-      - proj_flash_run.sh
-      - hw_conf_partition_gen.sh
-      - hw_conf_partition_flash.sh

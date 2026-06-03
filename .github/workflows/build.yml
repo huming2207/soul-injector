@@ -91,8 +91,6 @@ jobs:
           . "$IDF_PATH/export.sh"
           idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" set-target esp32s3
           idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" build
-          cp components/hw_conf/hw_conf_partition_gen.sh .
-          cp components/hw_conf/hw_conf_partition_flash.sh .
 
       - name: Clean cached downloads
         if: always()
@@ -110,8 +108,4 @@ jobs:
             build-${{ matrix.si_hw_rev }}/bootloader/*.bin
             build-${{ matrix.si_hw_rev }}/partition_table/*.bin
             build-${{ matrix.si_hw_rev }}/flasher_args.json
-            proj_flash_install.sh
-            proj_flash_run.sh
-            hw_conf_partition_gen.sh
-            hw_conf_partition_flash.sh
           if-no-files-found: error

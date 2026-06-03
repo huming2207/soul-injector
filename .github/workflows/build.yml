@@ -6,6 +6,8 @@ on:
       - "*"
   create:
 
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -109,3 +111,40 @@ jobs:
             build-${{ matrix.si_hw_rev }}/partition_table/*.bin
             build-${{ matrix.si_hw_rev }}/flasher_args.json
           if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' || github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    needs: build
+
+    steps:
+      - name: Download firmware artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Package release assets
+        run: |
+          ref_slug=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          mkdir -p release-packages
+          for rev in rev3 rev5; do
+            artifact_dir=$(find release-assets -maxdepth 1 -type d -name "soulinjector-${rev}-*" | head -n 1)
+            if [ -z "$artifact_dir" ]; then
+              echo "Missing artifact for ${rev}" >&2
+              exit 1
+            fi
+            tar -czf "release-packages/soulinjector-${rev}-${ref_slug}.tar.gz" -C "$artifact_dir" .
+          done
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --notes "Soul Injector firmware release $GITHUB_REF_NAME"
+          fi
+          gh release upload "$GITHUB_REF_NAME" release-packages/*.tar.gz --clobber
+

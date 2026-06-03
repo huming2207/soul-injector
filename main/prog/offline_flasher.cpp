@@ -122,7 +122,7 @@ void offline_flasher::on_self_test()
 
         if (items[idx].type == fw_asset_manager::INTERNAL_SIMPLE_TEST) {
             uint32_t func_ret = UINT32_MAX;
-            ESP_LOGW(TAG, "Self test: %u, %s type %u", items[idx].addr, items[idx].name, items[idx].type);
+            ESP_LOGW(TAG, "Self test: 0x%08lx, %s type %u", items[idx].addr, items[idx].name, items[idx].type);
             auto ret = swd->self_test(items[idx].addr, nullptr, 0, &func_ret);
             if (ret == ESP_ERR_NOT_SUPPORTED) {
                 ESP_LOGW(TAG, "No self test config found, skipping");

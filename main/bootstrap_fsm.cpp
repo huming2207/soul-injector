@@ -229,7 +229,7 @@ void bootstrap_fsm::fsm_task_handler(void *_ctx)
         return;
     }
 
-    auto *ctx = (bootstrap_fsm *)_ctx;
+    auto *ctx = static_cast<bootstrap_fsm *>(_ctx);
 
     ctx->composer->display_init();
 
@@ -299,7 +299,7 @@ void bootstrap_fsm::det_io_isr_handler(void *_ctx)
 
 void bootstrap_fsm::det_pin_debounce_timer(TimerHandle_t timer_handle)
 {
-    auto *ctx = (bootstrap_fsm *) pvTimerGetTimerID(timer_handle);
+    auto *ctx = static_cast<bootstrap_fsm *>(pvTimerGetTimerID(timer_handle));
     bool state = gpio_get_level(DET_IO_PIN);
     if (state != ctx->last_det_state) {
         ctx->last_det_state = state;

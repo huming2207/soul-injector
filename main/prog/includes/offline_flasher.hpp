@@ -5,7 +5,9 @@
 #include <led_ctrl.hpp>
 #include <esp_err.h>
 
+#ifdef CONFIG_SI_SG_PROG_RIG
 #include "current_tester.hpp"
+#endif
 #include "swd_prog.hpp"
 #include "display_manager.hpp"
 #include "procedure_executor.hpp"

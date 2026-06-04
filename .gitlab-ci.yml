@@ -83,8 +83,9 @@ build:
     - cd $CI_PROJECT_DIR
 
   script:
-    - idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" set-target esp32s3
-    - idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" build
+    - mkdir -p "build-$SI_HW_REV"
+    - idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$CI_PROJECT_DIR/build-$SI_HW_REV/sdkconfig" set-target esp32s3
+    - idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$CI_PROJECT_DIR/build-$SI_HW_REV/sdkconfig" build
 
   after_script:
     # Cache ESP-IDF, tools, and APT data

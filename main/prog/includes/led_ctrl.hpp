@@ -2,6 +2,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_log.h>
 #include <driver/gpio.h>
 #include <led_strip.h>
 
@@ -19,6 +20,7 @@ public:
 
 private:
     led_ctrl() = default;
+    static constexpr char TAG[] = "led_ctrl";
 
 private:
     led_strip_handle_t led = {};
@@ -26,6 +28,7 @@ private:
 public:
     esp_err_t init(gpio_num_t pin = (gpio_num_t)(CONFIG_SI_LED_SIGNAL_PIN))
     {
+        ESP_LOGI(TAG, "init: LED pin=%ld", (int32_t)(CONFIG_SI_LED_SIGNAL_PIN));
         led_strip_config_t led_config = {};
         led_config.strip_gpio_num = pin;
         led_config.max_leds = 1;

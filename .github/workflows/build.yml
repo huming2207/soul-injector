@@ -90,8 +90,9 @@ jobs:
       - name: Build firmware
         run: |
           . "$IDF_PATH/export.sh"
-          idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" set-target esp32s3
-          idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" build
+          mkdir -p "build-$SI_HW_REV"
+          idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$GITHUB_WORKSPACE/build-$SI_HW_REV/sdkconfig" set-target esp32s3
+          idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$GITHUB_WORKSPACE/build-$SI_HW_REV/sdkconfig" build
 
       - name: Clean cached downloads
         if: always()

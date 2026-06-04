@@ -328,7 +328,7 @@ esp_err_t swd_prog::erase_chip()
         return ESP_ERR_INVALID_STATE;
     }
 
-    led.set_color(0, 0, 60, 1);
+    led.set_color(0, 0, 60);
 
     ESP_LOGI(TAG, "Calling chip erase...");
 
@@ -467,9 +467,9 @@ esp_err_t swd_prog::erase_sector(uint32_t start_addr, uint32_t end_addr)
         }
 
         if(idx % 10 == 0) {
-            led.set_color(0, 0, 60, 50);
+            led.set_color(0, 0, 60);
         } else {
-            led.set_color(0, 0, 0, 50);
+            led.set_color(0, 0, 0);
         }
     }
 
@@ -544,9 +544,9 @@ esp_err_t swd_prog::program_page(const uint8_t *buf, size_t len, uint32_t start_
         );
 
         if(page_idx % 2 == 0) {
-            led.set_color(50, 50, 0, 20);
+            led.set_color(50, 50, 0);
         } else {
-            led.set_color(0, 0, 0, 20);
+            led.set_color(0, 0, 0);
         }
 
         remain_len -= write_size;
@@ -772,9 +772,9 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
         curr_buf = (curr_buf == 1) ? 0 : 1; // Rotate buffer
 
         if(page_idx % 2 == 0) {
-            led.set_color(50, 50, 0, 20);
+            led.set_color(50, 50, 0);
         } else {
-            led.set_color(0, 0, 0, 20);
+            led.set_color(0, 0, 0);
         }
 
         remain_len -= write_size;
@@ -837,9 +837,9 @@ esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t pa
         }
 
         if(page_idx % 2 == 0) {
-            led.set_color(50, 50, 0, 20);
+            led.set_color(50, 50, 0);
         } else {
-            led.set_color(0, 0, 0, 20);
+            led.set_color(0, 0, 0);
         }
 
         remain_len -= write_size;

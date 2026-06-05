@@ -52,6 +52,13 @@ menu "Soul Injector Configuration"
 
     endchoice
 
+    config SI_DISP_PANEL_NFP114H_ALT_INIT_CFG
+        bool "Display: NFP114H: use alternative init settings"
+        depends on SI_DISP_PANEL_NFP114H
+        default n
+        help
+            Alternative VCOM and Gamma settings for NFP114H LCD
+
     config SI_DISP_PANEL_IO_SCLK
         int "Display SPI CLK pin"
         depends on SI_DISP_ENABLE
@@ -211,5 +218,41 @@ menu "Soul Injector Configuration"
         default 3000
         help
             General receive timeout in millisecond, used in MQ command queue
+
+    config SI_SG_PROG_RIG
+        bool "SmartGuide Programming Rig"
+        default n
+
+    config SI_SG_I2C_SDA
+        depends on SI_SG_PROG_RIG
+        int "I2C SDA pin"
+        range -1 64
+        default 1
+        help
+            I2C SDA for SG current ADC
+
+    config SI_SG_I2C_SCL
+        depends on SI_SG_PROG_RIG
+        int "I2C SCL pin"
+        range -1 64
+        default 2
+        help
+            I2C SCL for SG current ADC
+
+    config SI_SG_I2C_PERIPH
+        depends on SI_SG_PROG_RIG
+        int "I2C Peripheral"
+        range 0 1
+        default 0
+        help
+            I2C peripheral for SG current ADC
+
+    config SI_SG_PWR_TESTER_ALERT
+        depends on SI_SG_PROG_RIG
+        int "Power tester: ALERT pin"
+        range -1 64
+        default 4
+        help
+            ALERT (interrupt) pin for power tester
 
 endmenu

@@ -94,3 +94,4 @@ dependencies.lock
 
 # Project specific stuff
 main/test_data_img/
+.deepseek/

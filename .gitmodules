@@ -1,13 +1,6 @@
 [submodule "components/daplink-esp"]
-	path = components/daplink-esp
+	path = components/swd_esp
   	url = https://github.com/huming2207/swd-esp
-[submodule "components/lvgl"]
-	path = components/lvgl
-	url = https://github.com/lvgl/lvgl.git
-	branch = release/v8.3
-[submodule "components/esp_littlefs"]
-	path = components/esp_littlefs
-	url = https://github.com/joltwallet/esp_littlefs.git
 [submodule "components/arduino_json"]
 	path = components/arduino_json
 	url = https://github.com/bblanchon/ArduinoJson
@@ -16,13 +9,16 @@
 	url = https://github.com/serge1/ELFIO.git
 [submodule "components/ina228"]
 	path = components/ina228
-	url = git@github.com:huming2207/esp-ina228.git
+	url = https://github.com/huming2207/esp-ina228
 [submodule "components/esp-mqtt"]
 	path = components/esp-mqtt
 	url = https://github.com/espressif/esp-mqtt.git
-[submodule "components/mpy_embed/micropython"]
-	path = components/mpy_embed/micropython
-	url = https://github.com/micropython/micropython
 [submodule "components/soulinjector-fw-common"]
 	path = components/soulinjector-common
 	url = https://github.com/huming2207/soulinjector-fw-common.git
+[submodule "external/esp-bsp"]
+	path = external/esp-bsp
+	url = https://github.com/espressif/esp-bsp
+[submodule "components/lvgl"]
+	path = components/lvgl
+	url = https://github.com/lvgl/lvgl.git

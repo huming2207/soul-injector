@@ -1,0 +1,18 @@
+CompileFlags:
+  Remove:
+    - -mlongcalls
+    - -fno-tree-switch-conversion
+    - -fstrict-volatile-bitfields
+    - -Wno-frame-address
+    - -mdisable-hardware-atomics
+    - -fzero-init-padding-bits=all
+    - -fno-malloc-dce
+  Add:
+    - '-D__BEGIN_DECLS=extern "C" {'
+    - "-D__END_DECLS=}"
+
+Diagnostics:
+  Suppress:
+    - attribute_not_type_attr
+    - format
+    - conv_mixed_enum_types_cxx26

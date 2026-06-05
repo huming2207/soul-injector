@@ -2,18 +2,30 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <vector>
+#include <memory>
 #include <esp_err.h>
 #include <driver/gpio.h>
 #include <nvs_handle.hpp>
-#include "flash_algo_parser.hpp"
-
-#define CFG_MGR_PKT_MAGIC 0x4a485349
-#define CFG_MGR_FLASH_ALGO_MAX_SIZE  32768
-#define CFG_MGR_FW_MAX_SIZE 1048576
+#include <ryml.hpp>
 
 class fw_asset_manager
 {
 public:
+    enum self_test_type : int32_t
+    {
+        INTERNAL_SIMPLE_TEST = 0,
+        INTERNAL_EXTEND_TEST = 1,
+        POWER_CONSUMPTION_TEST = 2,
+    };
+
+    struct test_item
+    {
+        self_test_type type;
+        uint32_t addr;
+        char name[32];
+    };
+
     static fw_asset_manager *instance()
     {
         static fw_asset_manager _instance;
@@ -22,17 +34,18 @@ public:
     fw_asset_manager(fw_asset_manager const &) = delete;
     void operator=(fw_asset_manager const &) = delete;
 
-    esp_err_t init();
-    esp_err_t get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len = nullptr);
+    esp_err_t init(const char *variant_name = nullptr);
+    esp_err_t get_algo_bin(uint8_t *algo, size_t len, size_t *actual_len = nullptr, uint32_t *code_start_addr = nullptr);
+    esp_err_t get_ram_start_addr(uint32_t *out) const;
     esp_err_t get_ram_size_byte(uint32_t *out) const;
-    esp_err_t get_flash_size_byte(uint32_t *out);
-    esp_err_t get_pc_init(uint32_t *out);
-    esp_err_t get_pc_uninit(uint32_t *out);
-    esp_err_t get_pc_program_page(uint32_t *out);
-    esp_err_t get_pc_erase_sector(uint32_t *out);
-    esp_err_t get_pc_erase_all(uint32_t *out);
-    esp_err_t get_pc_verify(uint32_t *out);
-    esp_err_t get_data_section_offset(uint32_t *out);
+    esp_err_t get_flash_size_byte(uint32_t *out) const;
+    esp_err_t get_pc_init(uint32_t *out) const;
+    esp_err_t get_pc_uninit(uint32_t *out) const;
+    esp_err_t get_pc_program_page(uint32_t *out) const;
+    esp_err_t get_pc_erase_sector(uint32_t *out) const;
+    esp_err_t get_pc_erase_all(uint32_t *out) const;
+    esp_err_t get_pc_verify(uint32_t *out) const;
+    esp_err_t get_data_section_offset(uint32_t *out) const;
     esp_err_t get_flash_start_addr(uint32_t *out) const;
     esp_err_t get_flash_end_addr(uint32_t *out) const;
     esp_err_t get_page_size(uint32_t *out) const;
@@ -41,59 +54,59 @@ public:
     esp_err_t get_erase_sector_timeout(uint32_t *out) const;
     esp_err_t get_sector_size(uint32_t *out) const;
 
-    std::vector<flash_algo::test_item> &get_test_items();
+    std::vector<fw_asset_manager::test_item> &get_test_items();
 
-public:
-
-    /**
-     * Feed in a SHA256 hash and compare with the record, to see if it's the same
-     * @param sha_expected SHA2 buffer
-     * @param len Length of SHA2, must be 32 bytes
-     * @return true if the record SHA256 is the same as the one provided
-     */
-    static bool check_fw_bin_hash(uint8_t *sha_expected, size_t len);
-
-    /**
-     * Feed in a SHA256 hash and compare with the record, to see if it's the same
-     * @param sha_expected SHA2 buffer
-     * @param len Length of SHA2, must be 32 bytes
-     * @return true if the record SHA256 is the same as the one provided
-     */
-    static bool check_algo_bin_hash(uint8_t *sha_expected, size_t len);
-
-    /**
-     *
-     * @param path
-     * @param out Output to buffer, must be 32 bytes
-     * @return
-     */
+    static bool check_fw_bin_hash();
+    static bool check_algo_bin_hash();
     static esp_err_t get_sha256_from_file(const char *path, uint8_t *out);
 
-
     static const constexpr char BASE_PATH[] = "/data";
-    static const constexpr char ALGO_ELF_PATH[] = "/data/algo.elf";
-    static const constexpr char FIRMWARE_PATH[] = "/data/fw.bin";
+    static const constexpr char TARGET_YAML_PATH[] = "/data/target.yaml";
+    static const constexpr char FIRMWARE_PATH[] = "/data/firmware.bin";
+    static const constexpr char TARGET_YAML_SHA256_PATH[] = "/data/target.yaml.sha256";
+    static const constexpr char FIRMWARE_SHA256_PATH[] = "/data/firmware.bin.sha256";
 
 private:
-    static const constexpr char FUNC_NAME_INIT[] = "Init";
-    static const constexpr char FUNC_NAME_UNINIT[] = "UnInit";
-    static const constexpr char FUNC_NAME_ERASE_CHIP[] = "EraseChip";
-    static const constexpr char FUNC_NAME_ERASE_SECTOR[] = "EraseSector";
-    static const constexpr char FUNC_NAME_PROGRAM_PAGE[] = "ProgramPage";
-    static const constexpr char FUNC_NAME_VERIFY[] = "Verify";
+    // Decoded flash algorithm binary
+    uint8_t *algo_bin = nullptr;
+    size_t algo_bin_len = 0;
 
-private:
-    flash_algo::dev_description dev_descr = {};
-    flash_algo::test_description test_descr = {};
-    flash_algo_parser algo_parser {};
-    std::vector<flash_algo::flash_sector> dev_sectors = {};
-    std::vector<flash_algo::test_item> test_items = {};
+    // From flash algorithm YAML entry
+    uint32_t load_addr = 0;
+    uint32_t pc_init_val = 0;
+    uint32_t pc_uninit_val = 0;
+    uint32_t pc_program_page_val = 0;
+    uint32_t pc_erase_sector_val = 0;
+    uint32_t pc_erase_all_val = 0;
+    uint32_t pc_verify_val = 0;
+    uint32_t data_section_offset_val = 0;
+
+    // From flash_properties
+    uint32_t flash_addr_start = 0;
+    uint32_t flash_addr_end = 0;
+    uint32_t page_sz = 0;
+    uint32_t erased_byte = 0;
+    uint32_t prog_timeout = 0;
+    uint32_t erase_timeout = 0;
+
+    // From memory_map Ram regions
+    uint32_t ram_start = 0;
+    uint32_t ram_end = 0;
+
+    // Self tests
+    std::vector<fw_asset_manager::test_item> test_items = {};
+
     std::unique_ptr<nvs::NVSHandle> nvs_handle = {};
 
+    bool assets_verified = false;
+
+    static int hex_char_to_val(char c);
+    static bool parse_sha256_hex(const char *hex_str, uint8_t *out_bytes);
+
+    static uint32_t parse_yaml_number(ryml::ConstNodeRef node);
+    static bool yaml_node_has_tag(ryml::ConstNodeRef node, const char *tag);
+
     static const constexpr char *TAG = "asset_mgr";
-    static const constexpr char *METADATA_NVS_NS = "fw_meta";
-    static const constexpr char *METADATA_NVS_KEY_FW_HASH = "fw_hash";
-    static const constexpr char *METADATA_NVS_KEY_ALGO_HASH = "algo_hash";
 
 private:
     fw_asset_manager() = default;

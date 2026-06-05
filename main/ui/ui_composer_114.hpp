@@ -1,43 +1,43 @@
 #pragma once
 
 #include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
-#include <lvgl.h>
-#include "ui_commander.hpp"
-#include "ui/ui_if.hpp"
+#include <freertos/event_groups.h>
+#include <esp_err.h>
+#include <esp_log.h>
+#include <ui/ui_if.hpp>
+#include "ui_screen_progress_114.hpp"
+#include "ui_screen_message_114.hpp"
+#include "ui_screen_current_114.hpp"
 
-class ui_composer_114 : public ui_composer_sm
+class ui_composer_114 : public ui_composer
 {
 public:
-    friend class display_manager;
+    ui_composer_114() = default;
+
     esp_err_t init() override;
+    esp_err_t display_init() override;
+    esp_err_t display_erase(uint8_t percentage) override;
+    esp_err_t display_test(size_t done, size_t total, const char *test_msg) override;
+    esp_err_t display_program(uint8_t percentage) override;
+    esp_err_t display_done() override;
+    esp_err_t display_error(const char *header, const char *err_msg) override;
+    esp_err_t display_config() override;
+    esp_err_t display_current(double min_ua, double max_ua, double avg_ua, const char *state, lv_color_t state_color) override;
 
-private:
-    // These functions below should be called in UI thread only
-    esp_err_t draw_init(ui_state::queue_item *screen)  override;
-    esp_err_t draw_erase(ui_state::queue_item *screen) override;
-    esp_err_t draw_flash(ui_state::queue_item *screen) override;
-    esp_err_t draw_test(ui_state::queue_item *screen)  override;
-    esp_err_t draw_error(ui_state::queue_item *screen) override;
-    esp_err_t draw_done(ui_state::queue_item *screen) override;
-    esp_err_t draw_usb(ui_state::queue_item *screen) override;
-    esp_err_t draw_anything(ui_state::queue_item *screen) override;
+    esp_err_t wait_for_ui_mod(uint32_t wait_ticks = pdMS_TO_TICKS(1000)) const;
 
-    esp_err_t wait_and_draw();
+    void reload_base_obj();
 
-private:
-    esp_err_t recreate_widget(bool with_comment = false, bool with_qrcode = false, lv_color_t dark_color = lv_color_black(), lv_color_t bright_color = lv_color_white());
+public:
+    ui_screen_current_114 current_screen = {}; // No time to make it polymorphic, just keep it simple for now...
+    ui_screen_message_114 msg_screen = {};
+    ui_screen_progress_114 progress_screen = {};
 
-private:
-    ui_state::display_state curr_state = ui_state::STATE_EMPTY;
-    lv_obj_t *disp_obj = nullptr;
     lv_obj_t *base_obj = nullptr;
-    lv_obj_t *top_sect = nullptr;
-    lv_obj_t *bottom_sect = nullptr;
-    lv_obj_t *top_label = nullptr;
-    lv_obj_t *bottom_label = nullptr;
-    lv_obj_t *bottom_comment = nullptr;
+    ui_screen::state screen_state = ui_screen::CLEAR;
 
-private:
-    static const constexpr char TAG[] = "ui_114";
+public:
+    static const constexpr char TAG[] = "ui_composer";
+
 };
+

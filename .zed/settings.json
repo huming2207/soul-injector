@@ -1,0 +1,18 @@
+// Folder-specific settings
+//
+// For a full list of overridable settings, and general information on folder-specific settings,
+// see the documentation: https://zed.dev/docs/configuring-zed#settings-files
+{
+  "lsp": {
+    "clangd": {
+      "binary": {
+        "path": "~/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin/clangd",
+        "arguments": [
+          "--compile-commands-dir=build",
+          "--query-driver=**/*-elf-gcc,**/*-elf-g++",
+          "--background-index",
+        ],
+      },
+    },
+  },
+}

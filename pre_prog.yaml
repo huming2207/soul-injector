@@ -1,0 +1,58 @@
+steps:
+  - type: SWD_HALT_TARGET
+  # Unlock Flash memory interface
+  - type: WRITE_32
+    addr: 0x58004008 # FLASH_KEYR
+    data: 0x45670123
+  - type: WRITE_32
+    addr: 0x58004008
+    data: 0xCDEF89AB
+  - type: POLL_32
+    addr: 0x58004014 # FLASH_CR
+    mask: 0x80000000 # LOCK bit
+    expected: 0x00000000
+    timeout_ms: 100
+  # Unlock Option Bytes
+  - type: WRITE_32
+    addr: 0x5800400C # FLASH_OPTKEYR
+    data: 0x08192A3B
+  - type: WRITE_32
+    addr: 0x5800400C
+    data: 0x4C5D6E7F
+  - type: POLL_32
+    addr: 0x58004014 # FLASH_CR
+    mask: 0x40000000 # OPTLOCK bit
+    expected: 0x00000000
+    timeout_ms: 100
+  # Ensure no operation is in progress
+  - type: POLL_32
+    addr: 0x58004010 # FLASH_SR
+    mask: 0x00010000 # BSY bit
+    expected: 0x00000000
+    timeout_ms: 1000
+  # Set RDP to Level 0 (0xAA) - This will trigger Mass Erase on OBL reload
+  - type: READ_MOD_WRITE_32
+    addr: 0x58004020 # FLASH_OPTR
+    mask: 0xFFFFFF00 # RDP bits [7:0]
+    data: 0x000000AA
+  # Start the option byte programming
+  - type: READ_MOD_WRITE_32
+    addr: 0x58004014 # FLASH_CR
+    mask: 0xFFFDFFFF # OPTSTRT bit [17]
+    data: 0x00020000
+  # Wait for flash operation to complete
+  - type: POLL_32
+    addr: 0x58004010 # FLASH_SR
+    mask: 0x00010000 # BSY bit
+    expected: 0x00000000
+    timeout_ms: 10000
+  # Launch Option Byte loading (generates a System Reset)
+  - type: READ_MOD_WRITE_32
+    ignore_error: true
+    addr: 0x58004014 # FLASH_CR
+    mask: 0xF7FFFFFF # OBL_LAUNCH bit [27]
+    data: 0x08000000
+  - type: DELAY_MS
+    delay_ms: 500
+  # Re-initialize SWD connection after reset
+  - type: SWD_REINIT

@@ -1,299 +1,298 @@
-#include <esp_err.h>
-#include <lvgl.h>
-#include <extra/libs/qrcode/lv_qrcode.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
+
 #include "ui_composer_114.hpp"
-#include "lcd/display_manager.hpp"
+
+#include "esp_lvgl_port.h"
+
+esp_err_t ui_composer_114::display_init()
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::MESSAGE) {
+        reload_base_obj();
+        auto ret = msg_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::MESSAGE;
+        }
+    }
+
+    msg_screen.set_header_text("READY");
+    msg_screen.set_comment_text("Detecting target");
+    msg_screen.set_color(lv_color_white(), lv_color_black());
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_114::display_erase(uint8_t percentage)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_erase: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (percentage == UINT8_MAX) {
+        if (screen_state != ui_screen::MESSAGE) {
+            reload_base_obj();
+            auto ret = msg_screen.init(base_obj);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Can't setup message screen");
+                return ESP_ERR_NO_MEM;
+            } else {
+                screen_state = ui_screen::MESSAGE;
+            }
+        }
+
+        msg_screen.set_header_text("ERASING");
+        msg_screen.set_comment_text("Full chip erase");
+        msg_screen.set_color(lv_color_make(0x7a, 0xff, 0xff), lv_color_black()); // Light cyan bar + black text
+
+        lvgl_port_unlock();
+        return ESP_OK;
+    } else {
+        if (screen_state != ui_screen::PROGRESS) {
+            reload_base_obj();
+            auto ret = progress_screen.init(base_obj);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Can't setup message screen");
+                return ESP_ERR_NO_MEM;
+            } else {
+                screen_state = ui_screen::PROGRESS;
+                progress_screen.set_header_text("ERASING");
+                progress_screen.set_progress_bar_color(lv_color_make(0x7a, 0xff, 0xff), lv_color_white()); // Light cyan bar + white
+            }
+        }
+
+        char comment[32] = { 0 };
+        snprintf(comment, sizeof(comment), "%03u %%", percentage);
+        progress_screen.set_comment_text(comment);
+        progress_screen.set_progress(percentage, 100);
+
+        lvgl_port_unlock();
+        return ESP_OK;
+    }
+}
+
+esp_err_t ui_composer_114::display_test(size_t done, size_t total, const char *test_msg)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_test: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::PROGRESS) {
+        reload_base_obj();
+        auto ret = progress_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::PROGRESS;
+        }
+    }
+
+    progress_screen.set_header_text("TESTING");
+    progress_screen.set_progress_bar_color(lv_color_make(0xcb, 0xc3, 0xe3), lv_color_white()); // Light purple + white
+
+    if (test_msg == nullptr) {
+        char comment[32] = { 0 };
+        snprintf(comment, sizeof(comment), "%u of %u", done, total);
+        progress_screen.set_comment_text(comment);
+    } else {
+        progress_screen.set_comment_text(test_msg);
+    }
+
+    progress_screen.set_progress(done, total);
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_114::display_program(uint8_t percentage)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_prog: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (percentage == UINT8_MAX) {
+        if (screen_state != ui_screen::MESSAGE) {
+            reload_base_obj();
+            auto ret = msg_screen.init(base_obj);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Can't setup message screen");
+                return ESP_ERR_NO_MEM;
+            } else {
+                screen_state = ui_screen::MESSAGE;
+            }
+        }
+
+        msg_screen.set_header_text("PROGRAMMING");
+        msg_screen.set_comment_text("Just wait");
+        msg_screen.set_color(lv_color_make(255, 255, 0), lv_color_black());
+
+        lvgl_port_unlock();
+        return ESP_OK;
+    } else {
+        if (screen_state != ui_screen::PROGRESS) {
+            reload_base_obj();
+            auto ret = progress_screen.init(base_obj);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Can't setup message screen");
+                return ESP_ERR_NO_MEM;
+            } else {
+                screen_state = ui_screen::PROGRESS;
+                progress_screen.set_header_text("PROGRAMMING");
+                progress_screen.set_progress_bar_color(lv_color_make(255, 255, 0), lv_color_white());
+            }
+        }
+
+        char comment[32] = { 0 };
+        snprintf(comment, sizeof(comment), "%03u %%", percentage);
+        progress_screen.set_comment_text(comment);
+        progress_screen.set_progress(percentage, 100);
+
+        lvgl_port_unlock();
+        return ESP_OK;
+    }
+}
+
+esp_err_t ui_composer_114::display_done()
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_done: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::MESSAGE) {
+        reload_base_obj();
+        auto ret = msg_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::MESSAGE;
+        }
+    }
+
+    msg_screen.set_header_text("DONE");
+    msg_screen.set_comment_text("Move to next one");
+    msg_screen.set_color(lv_color_make(0x10, 0xf0, 0x10), lv_color_black());
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_114::display_error(const char *header, const char *err_msg)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_err: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::MESSAGE) {
+        reload_base_obj();
+        auto ret = msg_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::MESSAGE;
+        }
+    }
+
+    msg_screen.set_header_text(header);
+    msg_screen.set_comment_text(err_msg);
+    msg_screen.set_color(lv_color_make(0xff, 0x10, 0x10), lv_color_black());
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_114::display_config()
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_cfg: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::MESSAGE) {
+        reload_base_obj();
+        auto ret = msg_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::MESSAGE;
+        }
+    }
+
+    msg_screen.set_header_text("CONFIG");
+    msg_screen.set_comment_text("Connect me to USB");
+    msg_screen.set_color(lv_color_white(), lv_color_black());
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_114::display_current(double min_ua, double max_ua, double avg_ua, const char *state, lv_color_t state_color)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_pwr: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::CURRENT) {
+        reload_base_obj();
+        auto ret = current_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::CURRENT;
+        }
+    }
+
+    char i_reading[128] = { 0 };
+    snprintf(i_reading, sizeof(i_reading), "Avg %.8g uA\nMin %.8g uA\nMax %.8g uA", avg_ua, min_ua, max_ua);
+    current_screen.set_current_main(i_reading);
+    current_screen.set_state(state, state_color);
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
 
 esp_err_t ui_composer_114::init()
 {
-    disp_obj = lv_disp_get_scr_act(display_manager::instance()->get_panel()->get_lv_disp());
-    if (disp_obj == nullptr) {
-        ESP_LOGE(TAG, "LVGL needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    recreate_widget();
     return ESP_OK;
 }
 
-esp_err_t ui_composer_114::wait_and_draw()
-{
-    QueueHandle_t task_queue = display_manager::instance()->get_ui_queue();
-    if (task_queue == nullptr) {
-        ESP_LOGE(TAG, "UI queue needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    ui_state::queue_item item = {};
-    if (xQueueReceive(task_queue, &item, portMAX_DELAY) != pdTRUE) {
-        ESP_LOGW(TAG, "Failed to receive from task queue");
-        return ESP_OK;
-    }
-
-    switch (item.state) {
-        case ui_state::STATE_EMPTY: {
-            ESP_LOGW(TAG, "Ignore unsupported STATE_EMPTY");
-            return ESP_ERR_INVALID_STATE;
-        }
-
-        case ui_state::STATE_INIT: {
-            return draw_init(&item);
-        }
-
-        case ui_state::STATE_ERASE: {
-            return draw_erase(&item);
-        }
-
-        case ui_state::STATE_FLASH: {
-            return draw_flash(&item);
-        }
-
-        case ui_state::STATE_TEST: {
-            return draw_test(&item);
-        }
-
-        case ui_state::STATE_ERROR: {
-            return draw_error(&item);
-        }
-
-        case ui_state::STATE_DONE: {
-            return draw_done(&item);
-        }
-
-        case ui_state::STATE_USB: {
-            return draw_usb(&item);
-        }
-    }
-
-    return ESP_OK;
-}
-
-esp_err_t ui_composer_114::draw_init(ui_state::queue_item *screen)
-{
-    if (disp_obj == nullptr) {
-        ESP_LOGE(TAG, "LVGL needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (curr_state != ui_state::STATE_INIT) {
-        recreate_widget(true);
-        curr_state = ui_state::STATE_INIT;
-    }
-
-    lv_label_set_text(top_label, "INIT");
-    lv_label_set_text(bottom_label, LV_SYMBOL_DOWNLOAD);
-    lv_label_set_text(bottom_comment, screen->comment);
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 206, 209), 0); // Not-so-bright blue
-    return ESP_OK;
-}
-
-esp_err_t ui_composer_114::draw_erase(ui_state::queue_item *screen)
-{
-    if (disp_obj == nullptr) {
-        ESP_LOGE(TAG, "LVGL needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (curr_state != ui_state::STATE_ERASE) {
-        recreate_widget();
-        curr_state = ui_state::STATE_ERASE;
-    }
-
-    lv_label_set_text(top_label, "ERASE");
-    lv_label_set_text(bottom_label, LV_SYMBOL_REFRESH);
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 0, 220), 0); // Not-so-bright blue
-    return ESP_OK;
-}
-
-esp_err_t ui_composer_114::draw_flash(ui_state::queue_item *screen)
-{
-    if (disp_obj == nullptr) {
-        ESP_LOGE(TAG, "LVGL needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (curr_state != ui_state::STATE_FLASH) {
-        recreate_widget();
-        curr_state = ui_state::STATE_FLASH;
-    }
-
-    lv_label_set_text(top_label, "FLASH");
-    lv_label_set_text(bottom_label, screen->comment);
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(226, 220, 0), 0); // Dark ish yellow
-    return ESP_OK;
-}
-
-esp_err_t ui_composer_114::draw_test(ui_state::queue_item *screen)
-{
-    if (disp_obj == nullptr) {
-        ESP_LOGE(TAG, "LVGL needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (curr_state != ui_state::STATE_TEST) {
-        recreate_widget(true);
-        curr_state = ui_state::STATE_TEST;
-    }
-
-    lv_label_set_text(top_label, "TEST");
-    lv_label_set_text_fmt(bottom_label, "%u/%u", screen->percentage, screen->total_count);
-    lv_label_set_text(bottom_comment, screen->comment);
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(128, 0, 128), 0); // Dark purple
-    return ESP_OK;
-}
-
-esp_err_t ui_composer_114::draw_error(ui_state::queue_item *screen)
-{
-    if (disp_obj == nullptr) {
-        ESP_LOGE(TAG, "LVGL needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (curr_state != ui_state::STATE_ERROR) {
-        recreate_widget(true, true,  lv_color_white(), lv_color_make(230, 0, 0));
-        curr_state = ui_state::STATE_ERROR;
-    }
-
-    lv_label_set_text(top_label, "ERROR");
-    lv_qrcode_update(bottom_label, screen->qrcode, strlen(screen->qrcode));
-    lv_label_set_text(bottom_comment, screen->comment);
-
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(230, 0, 0), 0); // Not-so-bright red
-
-    return ESP_OK;
-}
-
-
-esp_err_t ui_composer_114::draw_done(ui_state::queue_item *screen)
-{
-    if (disp_obj == nullptr) {
-        ESP_LOGE(TAG, "LVGL needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (curr_state != ui_state::STATE_DONE) {
-        recreate_widget();
-        curr_state = ui_state::STATE_DONE;
-    }
-
-    lv_label_set_text(top_label, "DONE");
-    lv_label_set_text(bottom_label, LV_SYMBOL_OK);
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(0, 200, 0), 0); // Dark-ish green
-    return ESP_OK;
-}
-
-esp_err_t ui_composer_114::draw_usb(ui_state::queue_item *screen)
-{
-    if (disp_obj == nullptr) {
-        ESP_LOGE(TAG, "LVGL needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (curr_state != ui_state::STATE_USB) {
-        recreate_widget();
-        curr_state = ui_state::STATE_USB;
-    }
-
-    lv_label_set_text(top_label, "USB");
-    lv_label_set_text(bottom_label, LV_SYMBOL_USB);
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(255, 117, 23), 0); // Orange
-    return ESP_OK;
-}
-
-esp_err_t ui_composer_114::draw_anything(ui_state::queue_item *screen)
-{
-    if (disp_obj == nullptr) {
-        ESP_LOGE(TAG, "LVGL needs to be init first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (curr_state != ui_state::STATE_ERROR) {
-        recreate_widget(true, true,  lv_color_white(), screen->bg_color);
-        curr_state = ui_state::STATE_ERROR;
-    }
-
-    lv_label_set_text(top_label, screen->title);
-    lv_qrcode_update(bottom_label, screen->qrcode, strlen(screen->qrcode));
-    lv_label_set_text(bottom_comment, screen->comment);
-
-    lv_obj_set_style_bg_color(bottom_sect, screen->bg_color, 0);
-    return ESP_OK;
-}
-
-esp_err_t ui_composer_114::recreate_widget(bool with_comment, bool with_qrcode, lv_color_t dark_color, lv_color_t bright_color)
+void ui_composer_114::reload_base_obj()
 {
     if (base_obj != nullptr) {
         lv_obj_del(base_obj);
+        base_obj = nullptr;
     }
 
-    base_obj = lv_obj_create(disp_obj);
-    lv_obj_set_style_radius(base_obj, 0, 0);
-    lv_obj_set_scrollbar_mode(base_obj, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_style_pad_all(base_obj, 0, 0);
-    lv_obj_set_style_border_width(base_obj, 0, 0);
-    lv_obj_set_size(base_obj, (int16_t)display_manager::instance()->get_panel()->get_hor_size(), (int16_t)display_manager::instance()->get_panel()->get_ver_size());
+    base_obj = lv_obj_create(lv_scr_act());
     lv_obj_set_pos(base_obj, 0, 0);
-    lv_obj_set_align(base_obj, LV_ALIGN_TOP_LEFT);
-    lv_obj_set_style_bg_color(base_obj, lv_color_white(), 0);
-
-    top_sect = lv_obj_create(base_obj);
-    lv_obj_set_style_radius(top_sect, 0, 0);
-    lv_obj_set_scrollbar_mode(top_sect, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_style_pad_all(top_sect, 0, 0);
-    lv_obj_set_style_border_width(top_sect, 0, 0);
-    lv_obj_set_size(top_sect, (int16_t)display_manager::instance()->get_panel()->get_hor_size(), 50);
-    lv_obj_set_pos(top_sect, 0, 0);
-    lv_obj_set_align(top_sect, LV_ALIGN_TOP_LEFT);
-    lv_obj_set_style_bg_color(top_sect, lv_color_white(), 0);
-
-    top_label = lv_label_create(top_sect);
-    lv_obj_set_style_text_align(top_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(top_label, &lv_font_montserrat_30, 0);
-    lv_obj_set_align(top_label, LV_ALIGN_CENTER);
-
-    bottom_sect = lv_obj_create(base_obj);
-    lv_obj_set_style_radius(bottom_sect, 0, 0);
-    lv_obj_set_scrollbar_mode(bottom_sect, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_style_pad_all(bottom_sect, 0, 0);
-    lv_obj_set_style_border_width(bottom_sect, 0, 0);
-    lv_obj_set_size(bottom_sect, (int16_t)display_manager::instance()->get_panel()->get_hor_size(), 190);
-    lv_obj_set_pos(bottom_sect, 0, 50);
-    lv_obj_set_align(bottom_sect, LV_ALIGN_TOP_LEFT);
-    lv_obj_set_style_bg_color(bottom_sect, lv_color_make(255, 117, 23), 0);
-
-    if (!with_qrcode) {
-        bottom_label = lv_label_create(bottom_sect);
-        lv_label_set_text(bottom_label, LV_SYMBOL_OK);
-        lv_obj_set_style_text_font(bottom_label, &lv_font_montserrat_36, 0);
-        lv_obj_set_style_text_color(bottom_label, lv_color_white(), 0);
-        lv_obj_set_style_text_align(bottom_label, LV_TEXT_ALIGN_CENTER, 0);
-    } else {
-        ESP_LOGI(TAG, "QR code needed");
-        bottom_label = lv_qrcode_create(bottom_sect, 115, dark_color, bright_color);
-        ESP_LOGI(TAG, "QR code created %p", bottom_label);
-    }
-
-    lv_obj_set_align(bottom_label, LV_ALIGN_CENTER);
-
-    if (!with_comment) {
-        bottom_comment = nullptr;
-    } else {
-        if (!with_qrcode) {
-            lv_obj_set_style_text_align(bottom_label, LV_TEXT_ALIGN_CENTER, 0);
-        }
-
-        lv_obj_set_align(bottom_label, LV_ALIGN_CENTER);
-        lv_obj_set_pos(bottom_label, 0, -32);
-
-        bottom_comment = lv_label_create(bottom_sect);
-        lv_obj_set_width(bottom_comment, (lv_coord_t)(display_manager::instance()->get_panel()->get_hor_size() - 16));
-        lv_obj_set_style_text_align(bottom_comment, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_font(bottom_comment, with_qrcode ? &lv_font_montserrat_16 : &lv_font_montserrat_20, 0);
-        lv_obj_set_style_text_color(bottom_comment, lv_color_white(), 0);
-        lv_obj_set_align(bottom_comment, LV_ALIGN_BOTTOM_MID);
-        lv_obj_set_pos(bottom_comment, 0, 0);
-    }
-
-    return ESP_OK;
+    lv_obj_set_size(base_obj, 240, 135);
+    lv_obj_set_style_bg_color(base_obj, lv_color_hex(0xff000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_left(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_right(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_top(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_bottom(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(base_obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
+esp_err_t ui_composer_114::wait_for_ui_mod(uint32_t wait_ticks) const
+{
+    return lvgl_port_lock(pdTICKS_TO_MS(wait_ticks)) ? ESP_OK : ESP_ERR_TIMEOUT;
+}

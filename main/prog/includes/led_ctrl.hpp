@@ -33,11 +33,11 @@ public:
         led_strip_config_t led_config = {};
         led_config.strip_gpio_num = pin;
         led_config.max_leds = 1;
-        led_config.color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_RGB;
+        led_config.color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB;
 
 #if defined(CONFIG_SI_LED_WS2812B)
         led_config.led_model = LED_MODEL_WS2812;
-        led_config.color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_RGB;
+        led_config.color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB;
 #elif defined(CONFIG_SI_LED_SK6812RGB)
         led_config.led_model = LED_MODEL_SK6812;
         led_config.color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB;

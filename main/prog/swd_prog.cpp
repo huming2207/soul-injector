@@ -626,11 +626,16 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
 
     esp_err_t ret = ESP_OK;
     uint32_t max_possible_buffer_addr = (stack_top + stack_size + page_size * 2);
+    int64_t ts = esp_timer_get_time();
     if (ram_start_addr + ram_size >= max_possible_buffer_addr) {
         ret = perform_double_buffered_program(file, len, page_size, pc_program_page, addr_offset);
     } else {
         ret = perform_simple_program(file, len, page_size, pc_program_page, addr_offset);
     }
+
+    ts = esp_timer_get_time() - ts;
+    double speed = len / (static_cast<double>(ts) / 1000000.0);
+    ESP_LOGI(TAG, "program_file: OK, len=%lu, speed=%.2f bytes/sec", len, speed);
 
     fclose(file);
     ret = ret ?: run_algo_uninit(swd_def::PROGRAM);

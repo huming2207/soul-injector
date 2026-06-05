@@ -22,7 +22,7 @@ void offline_flasher::init(bool force_reload_asset)
 
 void offline_flasher::on_error()
 {
-
+    led.set_color(0x80, 0x00, 0x00);
 }
 
 void offline_flasher::on_erase()
@@ -55,15 +55,11 @@ void offline_flasher::on_erase()
 void offline_flasher::on_program()
 {
     composer->display_program(100);
-    int64_t ts = esp_timer_get_time();
     auto ret = swd->program_file(fw_asset_manager::FIRMWARE_PATH, &written_len);
     if (ret != ESP_OK) {
         composer->display_error("ERROR", "Cannot program target!\nPlease try again!");
         state = flasher::ERROR;
     } else {
-        ts = esp_timer_get_time() - ts;
-        double speed = written_len / ((double)ts / 1000000.0);
-        ESP_LOGI(TAG, "Firmware written, len: %lu, speed: %.2f bytes per sec", written_len, speed);
         state = flasher::VERIFY;
     }
 
@@ -92,11 +88,13 @@ void offline_flasher::on_detect()
 
 void offline_flasher::on_done()
 {
+    led.set_color(0, 80, 0); // Green
     composer->display_done();
 }
 
 void offline_flasher::on_verify()
 {
+    led.set_color(0x68, 0x26, 0x99); // Purple?
     composer->display_program(100);
     //ui_cmder->display_test(&test);
     auto ret = swd->verify(fw_asset_manager::FIRMWARE_PATH, UINT32_MAX, written_len);
@@ -113,6 +111,7 @@ void offline_flasher::on_verify()
 
 void offline_flasher::on_self_test()
 {
+    led.set_color(0, 0xb7, 0xeb); // Cyan??
     ESP_LOGI(TAG, "Run self test");
 
     auto *asset = fw_asset_manager::instance();
@@ -291,6 +290,7 @@ esp_err_t offline_flasher::handle_states()
 
 void offline_flasher::on_pre_program()
 {
+    led.set_color(0, 0xb7, 0xeb); // Cyan??
     swd_off();
     vTaskDelay(1);
     swd_init();

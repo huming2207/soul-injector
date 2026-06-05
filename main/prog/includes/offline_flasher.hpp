@@ -47,6 +47,7 @@ public:
 private:
     offline_flasher() = default;
     bool asset_loaded = false;
+    led_ctrl &led = led_ctrl::instance();
     uint32_t written_len = 0;
     swd_prog *swd = swd_prog::instance();
 

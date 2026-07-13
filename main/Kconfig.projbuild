@@ -194,14 +194,31 @@ menu "Soul Injector Configuration"
         help
             Slow down the SPI clock for debugging
 
+    config SI_TARGET_DETECT_PIN
+        int "Target detect/config pin"
+        range 0 48
+        default 5
+        help
+            GPIO used to detect target connection and select USB storage mode.
+
+    config SI_LED_ENABLE
+        bool "Enable status LED"
+        default y
+        help
+            Enable the addressable RGB status LED. Soul Injector Rev 6 does
+            not fit this LED, so its board defaults disable this option.
+
     config SI_LED_SIGNAL_PIN
         int "LED indicator pin"
+        depends on SI_LED_ENABLE
+        range 0 48
         default 10
         help
             RGB LED pin
 
     choice SI_LED_MODEL
         prompt "LED indicator model"
+        depends on SI_LED_ENABLE
         default SI_LED_WS2812B
 
         config SI_LED_WS2812B

@@ -27,6 +27,7 @@ private:
     led_strip_handle_t led = {};
 
 public:
+#ifdef CONFIG_SI_LED_ENABLE
     esp_err_t init(gpio_num_t pin = (gpio_num_t)(CONFIG_SI_LED_SIGNAL_PIN))
     {
         ESP_LOGI(TAG, "init: LED pin=%ld", (int32_t)pin);
@@ -74,5 +75,16 @@ public:
 
         return ESP_OK;
     }
-};
+#else
+    esp_err_t init()
+    {
+        ESP_LOGI(TAG, "init: status LED disabled");
+        return ESP_OK;
+    }
 
+    esp_err_t set_color(uint8_t, uint8_t, uint8_t)
+    {
+        return ESP_OK;
+    }
+#endif
+};

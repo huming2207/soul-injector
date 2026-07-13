@@ -65,7 +65,8 @@ private:
 
 private:
     static const constexpr char TAG[] = "bootstrap_fsm";
-    static const constexpr gpio_num_t DET_IO_PIN = GPIO_NUM_5;
+    static const constexpr gpio_num_t DET_IO_PIN =
+        static_cast<gpio_num_t>(CONFIG_SI_TARGET_DETECT_PIN);
     static const constexpr char DATA_PARTITION_PATH[] = "/data";
 
 };

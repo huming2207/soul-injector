@@ -26,6 +26,7 @@ build:
     matrix:
       - SI_HW_REV: rev3
       - SI_HW_REV: rev5
+      - SI_HW_REV: rev6
 
   variables:
     # To build the image for a branch or a tag of IDF, pass --build-arg IDF_CLONE_BRANCH_OR_TAG=name.

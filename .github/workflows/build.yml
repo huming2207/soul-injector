@@ -20,6 +20,7 @@ jobs:
         si_hw_rev:
           - rev3
           - rev5
+          - rev6
 
     env:
       GIT_SUBMODULE_FORCE_HTTPS: "true"
@@ -156,4 +157,3 @@ jobs:
               --notes "Soul Injector firmware release $GITHUB_REF_NAME"
           fi
           gh release upload "$GITHUB_REF_NAME" release-packages/*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
-

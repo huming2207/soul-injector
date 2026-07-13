@@ -4,6 +4,23 @@ SoulInjector is an ESP32-S3 based offline SWD programmer for ARM Cortex-M microc
 loads the firmware and target configuration from the device storage partition
 and then runs the programming flow without needing a host PC.
 
+## Hardware revision builds
+
+Select the board revision when configuring or building the project:
+
+```sh
+idf.py -B build-rev6 -D SI_HW_REV=rev6 build
+```
+
+Supported values are `rev3`, `rev5`, and `rev6`; `rev5` remains the default.
+Each revision uses its own build-directory `sdkconfig` so changing revisions
+does not reuse pin assignments from another board.
+
+The Rev 6 configuration enables the split, SN74AXC2T245-translated SWD
+interface and uses the GPIO assignments from the Rev 6 KiCad schematic. Its
+NT279VJ-C10-01-V1 LCD is currently disabled because this repository does not
+yet contain a matching panel driver.
+
 In the documentation below, unless otherwise specified:
 - The **target** means an ARM Cortex-M microcontroller like STM32, that is to be programmed. 
 - The **host** means the Soul Injector device itself.

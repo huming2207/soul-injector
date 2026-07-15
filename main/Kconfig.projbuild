@@ -50,6 +50,11 @@ menu "Soul Injector Configuration"
             depends on SI_DISP_SPI
             prompt "ZJY NFP114H 1.14 inch ST7789, SPI"
 
+        config SI_DISP_PANEL_NT279VJ
+            bool
+            depends on SI_DISP_SPI
+            prompt "JYC NT279VJ-C10-01-V1 2.79 inch NV3007, SPI"
+
     endchoice
 
     config SI_DISP_PANEL_NFP114H_ALT_INIT_CFG

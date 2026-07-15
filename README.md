@@ -18,8 +18,7 @@ does not reuse pin assignments from another board.
 
 The Rev 6 configuration enables the split, SN74AXC2T245-translated SWD
 interface and uses the GPIO assignments from the Rev 6 KiCad schematic. Its
-NT279VJ-C10-01-V1 LCD is currently disabled because this repository does not
-yet contain a matching panel driver.
+NT279VJ-C10-01-V1 LCD uses the NV3007 panel driver and is enabled by default.
 
 In the documentation below, unless otherwise specified:
 - The **target** means an ARM Cortex-M microcontroller like STM32, that is to be programmed. 

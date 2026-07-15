@@ -1,0 +1,308 @@
+#include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
+
+#include "ui_composer_279.hpp"
+
+#include "esp_lvgl_port.h"
+
+esp_err_t ui_composer_279::display_init()
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::MESSAGE) {
+        reload_base_obj();
+        auto ret = msg_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            lvgl_port_unlock();
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::MESSAGE;
+        }
+    }
+
+    msg_screen.set_header_text("READY");
+    msg_screen.set_comment_text("Detecting target");
+    msg_screen.set_color(lv_color_white(), lv_color_black());
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_279::display_erase(uint8_t percentage)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_erase: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (percentage == UINT8_MAX) {
+        if (screen_state != ui_screen::MESSAGE) {
+            reload_base_obj();
+            auto ret = msg_screen.init(base_obj);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Can't setup message screen");
+                lvgl_port_unlock();
+                return ESP_ERR_NO_MEM;
+            } else {
+                screen_state = ui_screen::MESSAGE;
+            }
+        }
+
+        msg_screen.set_header_text("ERASING");
+        msg_screen.set_comment_text("Full chip erase");
+        msg_screen.set_color(lv_color_make(0x7a, 0xff, 0xff), lv_color_black()); // Light cyan bar + black text
+
+        lvgl_port_unlock();
+        return ESP_OK;
+    } else {
+        if (screen_state != ui_screen::PROGRESS) {
+            reload_base_obj();
+            auto ret = progress_screen.init(base_obj);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Can't setup message screen");
+                lvgl_port_unlock();
+                return ESP_ERR_NO_MEM;
+            } else {
+                screen_state = ui_screen::PROGRESS;
+                progress_screen.set_header_text("ERASING");
+                progress_screen.set_progress_bar_color(lv_color_make(0x7a, 0xff, 0xff), lv_color_white()); // Light cyan bar + white
+            }
+        }
+
+        char comment[32] = { 0 };
+        snprintf(comment, sizeof(comment), "%03u %%", percentage);
+        progress_screen.set_comment_text(comment);
+        progress_screen.set_progress(percentage, 100);
+
+        lvgl_port_unlock();
+        return ESP_OK;
+    }
+}
+
+esp_err_t ui_composer_279::display_test(size_t done, size_t total, const char *test_msg)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_test: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::PROGRESS) {
+        reload_base_obj();
+        auto ret = progress_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            lvgl_port_unlock();
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::PROGRESS;
+        }
+    }
+
+    progress_screen.set_header_text("TESTING");
+    progress_screen.set_progress_bar_color(lv_color_make(0xcb, 0xc3, 0xe3), lv_color_white()); // Light purple + white
+
+    if (test_msg == nullptr) {
+        char comment[32] = { 0 };
+        snprintf(comment, sizeof(comment), "%u of %u", done, total);
+        progress_screen.set_comment_text(comment);
+    } else {
+        progress_screen.set_comment_text(test_msg);
+    }
+
+    progress_screen.set_progress(done, total);
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_279::display_program(uint8_t percentage)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_prog: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (percentage == UINT8_MAX) {
+        if (screen_state != ui_screen::MESSAGE) {
+            reload_base_obj();
+            auto ret = msg_screen.init(base_obj);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Can't setup message screen");
+                lvgl_port_unlock();
+                return ESP_ERR_NO_MEM;
+            } else {
+                screen_state = ui_screen::MESSAGE;
+            }
+        }
+
+        msg_screen.set_header_text("PROGRAMMING");
+        msg_screen.set_comment_text("Just wait");
+        msg_screen.set_color(lv_color_make(255, 255, 0), lv_color_black());
+
+        lvgl_port_unlock();
+        return ESP_OK;
+    } else {
+        if (screen_state != ui_screen::PROGRESS) {
+            reload_base_obj();
+            auto ret = progress_screen.init(base_obj);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Can't setup message screen");
+                lvgl_port_unlock();
+                return ESP_ERR_NO_MEM;
+            } else {
+                screen_state = ui_screen::PROGRESS;
+                progress_screen.set_header_text("PROGRAMMING");
+                progress_screen.set_progress_bar_color(lv_color_make(255, 255, 0), lv_color_white());
+            }
+        }
+
+        char comment[32] = { 0 };
+        snprintf(comment, sizeof(comment), "%03u %%", percentage);
+        progress_screen.set_comment_text(comment);
+        progress_screen.set_progress(percentage, 100);
+
+        lvgl_port_unlock();
+        return ESP_OK;
+    }
+}
+
+esp_err_t ui_composer_279::display_done()
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_done: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::MESSAGE) {
+        reload_base_obj();
+        auto ret = msg_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            lvgl_port_unlock();
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::MESSAGE;
+        }
+    }
+
+    msg_screen.set_header_text("DONE");
+    msg_screen.set_comment_text("Move to next one");
+    msg_screen.set_color(lv_color_make(0x10, 0xf0, 0x10), lv_color_black());
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_279::display_error(const char *header, const char *err_msg)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_err: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::MESSAGE) {
+        reload_base_obj();
+        auto ret = msg_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            lvgl_port_unlock();
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::MESSAGE;
+        }
+    }
+
+    msg_screen.set_header_text(header);
+    msg_screen.set_comment_text(err_msg);
+    msg_screen.set_color(lv_color_make(0xff, 0x10, 0x10), lv_color_black());
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_279::display_config()
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_cfg: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::MESSAGE) {
+        reload_base_obj();
+        auto ret = msg_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            lvgl_port_unlock();
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::MESSAGE;
+        }
+    }
+
+    msg_screen.set_header_text("CONFIG");
+    msg_screen.set_comment_text("Connect me to USB");
+    msg_screen.set_color(lv_color_white(), lv_color_black());
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_279::display_current(double min_ua, double max_ua, double avg_ua, const char *state, lv_color_t state_color)
+{
+    if (wait_for_ui_mod() != ESP_OK) {
+        ESP_LOGW(TAG, "display_pwr: can't lock");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (screen_state != ui_screen::CURRENT) {
+        reload_base_obj();
+        auto ret = current_screen.init(base_obj);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't setup message screen");
+            lvgl_port_unlock();
+            return ESP_ERR_NO_MEM;
+        } else {
+            screen_state = ui_screen::CURRENT;
+        }
+    }
+
+    char i_reading[128] = { 0 };
+    snprintf(i_reading, sizeof(i_reading), "Avg %.8g uA\nMin %.8g uA\nMax %.8g uA", avg_ua, min_ua, max_ua);
+    current_screen.set_current_main(i_reading);
+    current_screen.set_state(state, state_color);
+
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_composer_279::init()
+{
+    return ESP_OK;
+}
+
+void ui_composer_279::reload_base_obj()
+{
+    if (base_obj != nullptr) {
+        lv_obj_del(base_obj);
+        base_obj = nullptr;
+    }
+
+    base_obj = lv_obj_create(lv_scr_act());
+    lv_obj_set_pos(base_obj, 0, 0);
+    lv_obj_set_size(base_obj, 428, 142);
+    lv_obj_set_style_bg_color(base_obj, lv_color_hex(0xff000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_left(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_right(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_top(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_bottom(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(base_obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(base_obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+esp_err_t ui_composer_279::wait_for_ui_mod(uint32_t wait_ticks) const
+{
+    return lvgl_port_lock(pdTICKS_TO_MS(wait_ticks)) ? ESP_OK : ESP_ERR_TIMEOUT;
+}

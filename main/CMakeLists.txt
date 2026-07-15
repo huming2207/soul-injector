@@ -20,12 +20,18 @@ endif()
 
 if(CONFIG_SI_DISP_ENABLE)
     list(APPEND SI_MAIN_SRCS
+        "driver/lcd/esp_lcd_panel_nv3007.c" "driver/lcd/esp_lcd_panel_nv3007.h"
         "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
         "driver/lcd/nfp114h_panel.cpp" "driver/lcd/nfp114h_panel.hpp"
+        "driver/lcd/nt279vj_panel.cpp" "driver/lcd/nt279vj_panel.hpp"
         "ui/ui_composer_114.cpp" "ui/ui_composer_114.hpp"
         "ui/ui_screen_progress_114.cpp" "ui/ui_screen_progress_114.hpp"
         "ui/ui_screen_message_114.cpp" "ui/ui_screen_message_114.hpp"
         "ui/ui_screen_current_114.cpp" "ui/ui_screen_current_114.hpp"
+        "ui/ui_composer_279.cpp" "ui/ui_composer_279.hpp"
+        "ui/ui_screen_progress_279.cpp" "ui/ui_screen_progress_279.hpp"
+        "ui/ui_screen_message_279.cpp" "ui/ui_screen_message_279.hpp"
+        "ui/ui_screen_current_279.cpp" "ui/ui_screen_current_279.hpp"
     )
 endif()
 

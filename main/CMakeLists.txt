@@ -69,6 +69,7 @@ idf_component_register(
         "ina228"
         "esp_lvgl_port"
         "spi_flash"
+        "esp-serial-flasher"
 
     REQUIRES
         "tinyusb"

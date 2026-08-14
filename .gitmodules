@@ -22,3 +22,6 @@
 [submodule "components/lvgl"]
 	path = components/lvgl
 	url = https://github.com/lvgl/lvgl.git
+[submodule "components/esp-serial-flasher"]
+	path = components/esp-serial-flasher
+	url = https://github.com/espressif/esp-serial-flasher.git

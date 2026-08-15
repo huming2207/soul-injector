@@ -426,7 +426,7 @@ esp_err_t swd_prog::erase_sector(uint32_t start_addr, uint32_t end_addr)
         return ESP_ERR_INVALID_STATE;
     }
 
-    for (uint32_t idx = 0; idx < sector_cnt - 1; idx += 1) {
+    for (uint32_t idx = 0; idx < sector_cnt; idx += 1) {
         swd_ret = swd_flash_syscall_exec(&syscall, fa.pc_erase_sector.value(),               // ErasePage PC = 173
                                          fa.flash_start.value() + (idx * flash_sector_size), // r0 = flash base addr
                                          0, 0, 0,                                            // r1, r2 = ignored

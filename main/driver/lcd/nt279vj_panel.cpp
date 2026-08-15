@@ -81,7 +81,7 @@ esp_err_t nt279vj_panel::init()
     ret = ret ?: esp_lcd_panel_init(panel_handle);
     ret = ret ?: esp_lcd_panel_swap_xy(panel_handle, true);
     ret = ret ?: esp_lcd_panel_mirror(panel_handle, true, false);
-    ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 0, 12);
+    ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 0, 14);
     ret = ret ?: set_backlight(100);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "nt279vj: can't setup LCD");

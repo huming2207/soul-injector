@@ -347,6 +347,12 @@ namespace
                 ret = ret ?: yaml_doc::get_u32(range, "end", &region.end);
                 if (ret != ESP_OK)
                     return ret;
+                if (region.end <= region.start) {
+                    ESP_LOGE(
+                        TAG, "invalid RAM region 0x%08lx-0x%08lx: end must be greater than start", region.start, region.end
+                    );
+                    return ESP_ERR_INVALID_SIZE;
+                }
                 ESP_LOGD(TAG, "RAM region 0x%08lx-0x%08lx", region.start, region.end);
                 cfg.ram_region_count++;
             }

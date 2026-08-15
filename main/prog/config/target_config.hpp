@@ -80,7 +80,7 @@ namespace si::config
         /** True when [addr, addr+len) lies entirely inside this region, without overflow. */
         bool contains_range(uint32_t addr, uint32_t len) const
         {
-            return addr >= start && len <= end - addr;
+            return end >= start && addr >= start && addr <= end && len <= end - addr;
         }
     };
 

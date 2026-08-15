@@ -223,7 +223,11 @@ esp_err_t fw_asset_manager::init(const char *variant_name)
     int64_t ts = esp_timer_get_time();
 
     // Round 1: parse (family determines which firmware files must be verified).
+    // Seed the temporary with the current generation so the parser's
+    // "preserve and bump" contract counts across reloads instead of
+    // restarting at 1 every time.
     si::config::target_config tmp = {};
+    tmp.generation = cfg.generation;
     uint8_t *new_algo_bin = nullptr;
     auto ret = si::config::parse_target_yaml(TARGET_YAML_PATH, variant_name, tmp, &new_algo_bin);
     if (ret != ESP_OK) {

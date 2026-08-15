@@ -68,11 +68,12 @@ esp_err_t ui_composer_279::display_erase(uint8_t percentage)
             } else {
                 screen_state = ui_screen::PROGRESS;
                 progress_screen.set_header_text("ERASING");
-                progress_screen.set_progress_bar_color(lv_color_make(0x7a, 0xff, 0xff), lv_color_white()); // Light cyan bar + white
+                progress_screen.set_progress_bar_color(lv_color_make(0x7a, 0xff, 0xff),
+                                                       lv_color_white()); // Light cyan bar + white
             }
         }
 
-        char comment[32] = { 0 };
+        char comment[32] = {0};
         snprintf(comment, sizeof(comment), "%03u %%", percentage);
         progress_screen.set_comment_text(comment);
         progress_screen.set_progress(percentage, 100);
@@ -105,7 +106,7 @@ esp_err_t ui_composer_279::display_test(size_t done, size_t total, const char *t
     progress_screen.set_progress_bar_color(lv_color_make(0xcb, 0xc3, 0xe3), lv_color_white()); // Light purple + white
 
     if (test_msg == nullptr) {
-        char comment[32] = { 0 };
+        char comment[32] = {0};
         snprintf(comment, sizeof(comment), "%u of %u", done, total);
         progress_screen.set_comment_text(comment);
     } else {
@@ -158,7 +159,7 @@ esp_err_t ui_composer_279::display_program(uint8_t percentage)
             }
         }
 
-        char comment[32] = { 0 };
+        char comment[32] = {0};
         snprintf(comment, sizeof(comment), "%03u %%", percentage);
         progress_screen.set_comment_text(comment);
         progress_screen.set_progress(percentage, 100);
@@ -268,7 +269,7 @@ esp_err_t ui_composer_279::display_current(double min_ua, double max_ua, double 
         }
     }
 
-    char i_reading[128] = { 0 };
+    char i_reading[128] = {0};
     snprintf(i_reading, sizeof(i_reading), "Avg %.8g uA\nMin %.8g uA\nMax %.8g uA", avg_ua, min_ua, max_ua);
     current_screen.set_current_main(i_reading);
     current_screen.set_state(state, state_color);

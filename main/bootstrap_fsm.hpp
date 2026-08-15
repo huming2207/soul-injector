@@ -18,8 +18,7 @@
 class bootstrap_fsm
 {
 public:
-    enum evt_bits : uint32_t
-    {
+    enum evt_bits : uint32_t {
         BIT_TARGET_DISCONNECTED = (1UL << 0UL),
         BIT_TARGET_CONNECTED = (1UL << 1UL),
     };
@@ -60,13 +59,11 @@ private:
     EventGroupHandle_t evt_group = nullptr;
     display_manager *display = nullptr;
     ui_composer *composer = nullptr;
-    char sn_str[32] = { 0 };
+    char sn_str[32] = {0};
     wifi_manager wifi = {};
 
 private:
     static const constexpr char TAG[] = "bootstrap_fsm";
-    static const constexpr gpio_num_t DET_IO_PIN =
-        static_cast<gpio_num_t>(CONFIG_SI_TARGET_DETECT_PIN);
+    static const constexpr gpio_num_t DET_IO_PIN = static_cast<gpio_num_t>(CONFIG_SI_TARGET_DETECT_PIN);
     static const constexpr char DATA_PARTITION_PATH[] = "/data";
-
 };

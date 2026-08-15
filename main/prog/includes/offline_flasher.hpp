@@ -2,20 +2,21 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
+
 #include <led_ctrl.hpp>
 #include <esp_err.h>
 
 #ifdef CONFIG_SI_SG_PROG_RIG
 #include "current_tester.hpp"
 #endif
-#include "swd_prog.hpp"
+#include "config/target_config.hpp"
 #include "display_manager.hpp"
 #include "procedure_executor.hpp"
+#include "target_backend.hpp"
 
 namespace flasher
 {
-    enum pg_state
-    {
+    enum pg_state {
         ERROR = -1,
         LOAD_ASSET = 0,
         PRE_PROGRAM = 1,
@@ -30,8 +31,12 @@ namespace flasher
         SG_CURRENT_TEST = 0xf0,
 #endif
     };
-}
+} // namespace flasher
 
+/**
+ * Offline programming state machine. Family-agnostic: every target operation
+ * is delegated to a target_backend selected from target.yaml (`family` key).
+ */
 class offline_flasher
 {
 public:
@@ -49,7 +54,7 @@ private:
     bool asset_loaded = false;
     led_ctrl &led = led_ctrl::instance();
     uint32_t written_len = 0;
-    swd_prog *swd = swd_prog::instance();
+    target_backend *backend = nullptr;
 
     display_manager *display = nullptr;
     ui_composer *composer = nullptr;
@@ -72,6 +77,7 @@ public:
     esp_err_t handle_states();
 
 private:
+    void select_backend();
     void on_pre_program();
     void on_load_asset();
     void on_detect();
@@ -87,4 +93,3 @@ private:
     void on_current_test();
 #endif
 };
-

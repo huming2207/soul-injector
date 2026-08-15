@@ -18,4 +18,3 @@ private:
 private:
     static const constexpr char TAG[] = "pwr_test";
 };
-

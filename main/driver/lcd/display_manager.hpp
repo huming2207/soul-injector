@@ -52,13 +52,13 @@ private:
     disp_panel_if *panel = (disp_panel_if *)(new nt279vj_panel());
 #endif
 #ifdef CONFIG_SI_DISP_PANEL_NT279VJ
-    ui_composer_279 composer {};
+    ui_composer_279 composer{};
 #else
-    ui_composer_114 composer {};
+    ui_composer_114 composer{};
 #endif
 #else
     disp_panel_if *panel = nullptr;
-    ui_composer_noop composer {};
+    ui_composer_noop composer{};
 #endif
 
 private:

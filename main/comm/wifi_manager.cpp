@@ -64,7 +64,7 @@ void wifi_manager::event_handler(void *_ctx, esp_event_base_t evt_base, int32_t 
     } else if (evt_base == IP_EVENT && evt_id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGW(TAG, "Got IP!");
         if (ctx->got_ip_cb) {
-            auto *event = (ip_event_got_ip_t*) evt_data;
+            auto *event = (ip_event_got_ip_t *)evt_data;
             ctx->got_ip_cb(&event->ip_info);
         }
     }

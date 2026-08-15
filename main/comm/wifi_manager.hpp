@@ -20,4 +20,3 @@ private:
 private:
     static const constexpr char TAG[] = "wifi_mgr";
 };
-

@@ -31,11 +31,11 @@ private:
     lv_display_t *display = nullptr;
 
     static constexpr lvgl_port_cfg_t LVGL_CFG = {
-        .task_priority = 3,         /* LVGL task priority */
-        .task_stack = 32768,        /* LVGL task stack size */
-        .task_affinity = -1,        /* LVGL task pinned to core (-1 is no affinity) */
-        .task_max_sleep_ms = 500,   /* Maximum sleep in LVGL task */
+        .task_priority = 3,       /* LVGL task priority */
+        .task_stack = 32768,      /* LVGL task stack size */
+        .task_affinity = -1,      /* LVGL task pinned to core (-1 is no affinity) */
+        .task_max_sleep_ms = 500, /* Maximum sleep in LVGL task */
         .task_stack_caps = MALLOC_CAP_SPIRAM,
-        .timer_period_ms = 5        /* LVGL timer tick period in ms */
+        .timer_period_ms = 5 /* LVGL timer tick period in ms */
     };
 };

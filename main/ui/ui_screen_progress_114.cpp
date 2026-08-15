@@ -87,7 +87,7 @@ void ui_screen_progress_114::set_comment_text(const char *text)
     lv_label_set_text(comment_label, text);
 }
 
-void ui_screen_progress_114::set_progress_bar_color(lv_color_t indicator_color, lv_color_t bg_color )
+void ui_screen_progress_114::set_progress_bar_color(lv_color_t indicator_color, lv_color_t bg_color)
 {
     if (progress_bar == nullptr) {
         return;

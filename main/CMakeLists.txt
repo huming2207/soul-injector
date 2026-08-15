@@ -3,6 +3,12 @@ set(SI_MAIN_SRCS
     "prog/swd_prog.cpp" "prog/includes/swd_prog.hpp"
     "prog/fw_asset_manager.cpp" "prog/includes/fw_asset_manager.hpp"
     "prog/offline_flasher.cpp" "prog/includes/offline_flasher.hpp"
+    "prog/target_backend.hpp"
+    "prog/swd_cortexm_backend.cpp" "prog/swd_cortexm_backend.hpp"
+    "prog/esp32_serial_backend.cpp" "prog/esp32_serial_backend.hpp"
+    "prog/config/yaml_doc.cpp" "prog/config/yaml_doc.hpp"
+    "prog/config/target_config.hpp"
+    "prog/config/target_config_parser.cpp" "prog/config/target_config_parser.hpp"
     "prog/includes/led_ctrl.hpp"
     "prog/includes/current_tester.hpp"
     "prog/procedure_executor.cpp" "prog/includes/procedure_executor.hpp"
@@ -41,7 +47,9 @@ idf_component_register(
 
     INCLUDE_DIRS
         "."
+        "prog"
         "prog/includes"
+        "prog/config"
         "comm"
         "driver" "driver/lcd"
         "external"

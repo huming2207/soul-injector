@@ -278,3 +278,32 @@ menu "Soul Injector Configuration"
             ALERT (interrupt) pin for power tester
 
 endmenu
+
+menu "Soul Injector ESP32 Target Programming"
+
+    config SI_ESP32_TARGET_UART_NUM
+        int "ESP32 target UART peripheral"
+        range 0 2
+        default 1
+        help
+            UART peripheral used to talk to the ESP32 target ROM bootloader.
+            Must not be the console UART.
+
+    config SI_ESP32_TARGET_UART_TX_PIN
+        int "ESP32 target UART TX GPIO"
+        range -1 48
+        default -1
+        help
+            Host GPIO connected to the ESP32 target RX. Set to -1 until the
+            Rev 7 pinout is final; programming an esp32-family target.yaml
+            will fail detection while unset.
+
+    config SI_ESP32_TARGET_UART_RX_PIN
+        int "ESP32 target UART RX GPIO"
+        range -1 48
+        default -1
+        help
+            Host GPIO connected to the ESP32 target TX. Set to -1 until the
+            Rev 7 pinout is final.
+
+endmenu

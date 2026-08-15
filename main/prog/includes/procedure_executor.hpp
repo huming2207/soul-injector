@@ -1,128 +1,113 @@
 #pragma once
 
 #include <cstdint>
-#include <vector>
 #include <cstring>
+#include <variant>
 
 #include <esp_err.h>
 #include <esp_log.h>
 #include <ryml.hpp>
 
+#include "config/yaml_doc.hpp"
+#include "target_backend.hpp"
 
+/**
+ * YAML-driven pre/post programming procedure executor.
+ *
+ * Each step is a trivially-copyable value type stored in a fixed-capacity
+ * in-object array: no heap allocation at parse or execute time. Steps are
+ * dispatched through std::visit on a std::variant, and target operations go
+ * through target_backend so the same YAML procedures work for every target
+ * family (SWD today, ESP32 serial next).
+ *
+ * YAML shape (unchanged from previous releases):
+ *
+ *   steps:
+ *     - type: WRITE_32
+ *       addr: 0x40000000
+ *       data: 0x00000001
+ */
 class procedure_executor
 {
 public:
-    enum step_type : int32_t
-    {
-        UNKNOWN_TYPE = -1,
-        READ_32 = 0,
-        WRITE_32 = 1,
-        READ_BLOB = 2,
-        WRITE_BLOB = 3,
-        READ_MOD_WRITE_32 = 4,
-        POLL_32 = 5,
-        DELAY_MS = 6,
-        SWD_REINIT = 7,
-        SWD_RESET_TARGET = 8,
-        SWD_HALT_TARGET = 9,
-        SWD_WAIT_HALT = 10,
+    // NOTE: no default member initialiser here. An NSDMI would make the step
+    // structs non-trivially default constructible before the enclosing class
+    // is complete, which breaks std::variant's default constructor (diagnosed
+    // by both GCC and clangd). Every construction path value-initialises:
+    // `read32_step s = {};` zeroes all fields including ignore_error.
+    struct step_common {
+        bool ignore_error;
     };
 
-    struct step_rw32
-    {
+    struct read32_step : step_common {
+        uint32_t addr;
+    };
+
+    struct write32_step : step_common {
         uint32_t addr;
         uint32_t data;
     };
 
-    struct step_rwblob
-    {
+    struct read_mod_write32_step : step_common {
         uint32_t addr;
-        uint8_t *buf;
-        size_t buf_len;
+        uint32_t mask; // AND mask
+        uint32_t data; // OR data
     };
 
-    struct step_rmw32
-    {
+    struct poll32_step : step_common {
         uint32_t addr;
-        uint32_t mask; // The "AND" mask
-        uint32_t data; // The data to be "OR'ed"
+        uint32_t mask;
+        uint32_t expected;
+        uint32_t timeout_ms;
     };
 
-    struct step_poll32
-    {
-        // It's like while (!timeout--) { if (((*(volatile uint32_t *)(uintptr_t)addr) & mask) == expected) { break; } else { continue; }  }
-        uint32_t addr;
-        uint32_t mask; // The mask to be waited
-        uint32_t expected; // Expected bit
-        uint32_t timeout_ms; // Timeout
-    };
-
-    struct step_delay_ms
-    {
+    struct delay_ms_step : step_common {
         uint32_t delay_ms;
     };
 
-    struct step
-    {
-        bool ignore_error;
-        step_type type;
-        union {
-            step_rw32 rw32;
-            step_rwblob rwblob;
-            step_rmw32 rmw32;
-            step_poll32 poll32;
-            step_delay_ms delay_ms;
-        } op;
+    struct swd_reinit_step : step_common {
     };
 
+    struct reset_target_step : step_common {
+    };
+
+    struct halt_target_step : step_common {
+    };
+
+    struct wait_halt_step : step_common {
+    };
+
+    using step = std::variant<read32_step, write32_step, read_mod_write32_step, poll32_step, delay_ms_step, swd_reinit_step,
+                              reset_target_step, halt_target_step, wait_halt_step>;
+
+    static constexpr size_t MAX_STEPS = 96;
+
 public:
-    procedure_executor() : steps({}) {}
-    explicit procedure_executor(std::vector<procedure_executor::step> const &_steps);
+    procedure_executor() = default;
 
+    /** Parse a procedure YAML. Replaces any previously loaded steps. */
     esp_err_t load_yaml(const char *path);
-    esp_err_t execute();
-    void clear();
 
-private:
-    esp_err_t exec_rw32(procedure_executor::step *curr_step);
-    esp_err_t exec_rwblob(procedure_executor::step *curr_step);
-    esp_err_t exec_rmw32(procedure_executor::step *curr_step);
-    esp_err_t exec_poll32(procedure_executor::step *curr_step);
-    esp_err_t exec_delay_ms(procedure_executor::step *curr_step);
-    esp_err_t exec_swd_reinit(procedure_executor::step *curr_step);
-    esp_err_t exec_swd_reset(procedure_executor::step *curr_step);
-    esp_err_t exec_swd_halt(procedure_executor::step *curr_step);
-    esp_err_t exec_swd_wait_halt(procedure_executor::step *curr_step);
-    step_type string_to_type(ryml::csubstr type_str)
+    /** Execute all steps against @p backend; aborts on the first unignored failure. */
+    esp_err_t execute(target_backend &backend);
+
+    void clear()
     {
-        if (type_str == "READ_32") return READ_32;
-        if (type_str == "WRITE_32") return WRITE_32;
-        if (type_str == "READ_BLOB") return READ_BLOB;
-        if (type_str == "WRITE_BLOB") return WRITE_BLOB;
-        if (type_str == "READ_MOD_WRITE_32") return READ_MOD_WRITE_32;
-        if (type_str == "POLL_32") return POLL_32;
-        if (type_str == "DELAY_MS") return DELAY_MS;
-        if (type_str == "SWD_REINIT") return SWD_REINIT;
-        if (type_str == "SWD_RESET_TARGET") return SWD_RESET_TARGET;
-        if (type_str == "SWD_HALT_TARGET") return SWD_HALT_TARGET;
-        if (type_str == "SWD_WAIT_HALT") return SWD_WAIT_HALT;
-
-        ESP_LOGW(TAG, "load_yml: skipping unknown type: %.*s", type_str.size(), type_str.data());
-        return UNKNOWN_TYPE; // Default fallback
+        step_count = 0;
     }
 
-    uint32_t parse_number(const ryml::ConstNodeRef& node)
+    size_t size() const
     {
-        if (node.invalid() || node.is_seed()) return 0;
-        ryml::csubstr val = node.val();
-        char buf[32];
-        size_t len = val.len < sizeof(buf) - 1 ? val.len : sizeof(buf) - 1;
-        std::memcpy(buf, val.str, len);
-        buf[len] = '\0';
-        return std::strtoul(buf, nullptr, 0);
+        return step_count;
     }
 
 private:
-    std::vector<procedure_executor::step> steps;
+    static esp_err_t parse_step(ryml::ConstNodeRef node, size_t idx, step &out);
+    static esp_err_t exec_one(const step &s, target_backend &backend);
+
+    // Uninitialised until assigned; reads are guarded by step_count.
+    step steps[MAX_STEPS];
+    size_t step_count = 0;
+
     static constexpr char TAG[] = "procedure_exec";
 };

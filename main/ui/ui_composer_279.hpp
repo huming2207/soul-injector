@@ -38,5 +38,4 @@ public:
 
 public:
     static const constexpr char TAG[] = "ui_composer";
-
 };

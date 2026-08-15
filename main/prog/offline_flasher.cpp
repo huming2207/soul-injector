@@ -1,13 +1,15 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+
 #include <esp_err.h>
 #include <esp_log.h>
-#include <led_ctrl.hpp>
-#include <fw_asset_manager.hpp>
-#include <esp_crc.h>
 #include <esp_timer.h>
 
 #include "offline_flasher.hpp"
+
+#include "esp32_serial_backend.hpp"
+#include "fw_asset_manager.hpp"
+#include "swd_cortexm_backend.hpp"
 
 void offline_flasher::init(bool force_reload_asset)
 {
@@ -20,6 +22,21 @@ void offline_flasher::init(bool force_reload_asset)
     state = flasher::LOAD_ASSET;
 }
 
+void offline_flasher::select_backend()
+{
+    const si::config::target_config &cfg = fw_asset_manager::instance()->config();
+    switch (cfg.family) {
+    case si::config::target_family::esp32_serial:
+        backend = esp32_serial_backend::instance();
+        break;
+    case si::config::target_family::swd_cortex_m:
+    default:
+        backend = swd_cortexm_backend::instance();
+        break;
+    }
+    ESP_LOGI(TAG, "select_backend: using %s", backend->name());
+}
+
 void offline_flasher::on_error()
 {
     led.set_color(0x80, 0x00, 0x00);
@@ -29,40 +46,30 @@ void offline_flasher::on_erase()
 {
     ESP_LOGI(TAG, "Erasing");
     composer->display_erase(UINT8_MAX);
-    uint32_t start_addr = 0, end_addr = 0;
-    auto *asset = fw_asset_manager::instance();
-    auto ret = asset->get_flash_start_addr(&start_addr);
-    ret = ret ?: asset->get_flash_end_addr(&end_addr);
-    if (ret != ESP_OK) {
+
+    auto ret = backend->erase();
+    if (ret == ESP_ERR_INVALID_STATE) {
         composer->display_error("CFG ERROR", "Flash address\nnot provided");
         state = flasher::ERROR;
         ESP_LOGE(TAG, "Failed to read flash addresses");
+    } else if (ret != ESP_OK) {
+        composer->display_error("ERROR", "Cannot erase target!\nPlease try again!");
+        state = flasher::ERROR;
     } else {
-        ret = swd->erase_chip();
-        if (ret != ESP_OK) {
-            ret = swd->erase_sector(start_addr, end_addr);
-        }
-
-        if (ret != ESP_OK) {
-            composer->display_error("ERROR", "Cannot erase target!\nPlease try again!");
-            state = flasher::ERROR;
-        } else {
-            state = flasher::PROGRAM;
-        }
+        state = flasher::PROGRAM;
     }
 }
 
 void offline_flasher::on_program()
 {
     composer->display_program(100);
-    auto ret = swd->program_file(fw_asset_manager::FIRMWARE_PATH, &written_len);
+    auto ret = backend->program(&written_len);
     if (ret != ESP_OK) {
         composer->display_error("ERROR", "Cannot program target!\nPlease try again!");
         state = flasher::ERROR;
     } else {
         state = flasher::VERIFY;
     }
-
 }
 
 void offline_flasher::on_detect()
@@ -70,13 +77,13 @@ void offline_flasher::on_detect()
     ESP_LOGI(TAG, "Detecting");
 
     composer->display_init();
-    auto ret = swd->init();
+    auto ret = backend->detect();
     uint32_t max_retry = 10;
     while (ret != ESP_OK && max_retry > 0) {
         ESP_LOGE(TAG, "Detect failed, retrying");
         max_retry -= 1;
         vTaskDelay(pdMS_TO_TICKS(30));
-        ret = swd->init();
+        ret = backend->detect();
     }
 
     if (max_retry == 0 && ret != ESP_OK) {
@@ -96,8 +103,7 @@ void offline_flasher::on_verify()
 {
     led.set_color(0x68, 0x26, 0x99); // Purple?
     composer->display_program(100);
-    //ui_cmder->display_test(&test);
-    auto ret = swd->verify(fw_asset_manager::FIRMWARE_PATH, UINT32_MAX, written_len);
+    auto ret = backend->verify(written_len);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to verify!");
         composer->display_error("ERROR", "Failed to verify\nPlease try again");
@@ -108,29 +114,29 @@ void offline_flasher::on_verify()
     }
 }
 
-
 void offline_flasher::on_self_test()
 {
     led.set_color(0, 0xb7, 0xeb); // Cyan??
     ESP_LOGI(TAG, "Run self test");
 
-    auto *asset = fw_asset_manager::instance();
-    const std::vector<fw_asset_manager::test_item> &items = asset->get_test_items();
-    for (size_t idx = 0; idx < items.size(); idx += 1) {
-        composer->display_test(idx, (items.size() - 1), nullptr);
+    const si::config::target_config &cfg = fw_asset_manager::instance()->config();
+    for (size_t idx = 0; idx < cfg.test_count; idx += 1) {
+        const si::config::test_item &item = cfg.tests[idx];
+        composer->display_test(idx, (cfg.test_count - 1), nullptr);
 
-        if (items[idx].type == fw_asset_manager::INTERNAL_SIMPLE_TEST) {
+        if (item.type == si::config::test_item::INTERNAL_SIMPLE_TEST) {
             uint32_t func_ret = UINT32_MAX;
-            ESP_LOGW(TAG, "Self test: 0x%08lx, %s type %u", items[idx].addr, items[idx].name, items[idx].type);
-            auto ret = swd->self_test(items[idx].addr, nullptr, 0, &func_ret);
+            ESP_LOGW(TAG, "Self test: 0x%08lx, %s type %u", item.addr, item.name, item.type);
+            auto ret = backend->self_test(item, &func_ret);
             if (ret == ESP_ERR_NOT_SUPPORTED) {
-                ESP_LOGW(TAG, "No self test config found, skipping");
+                ESP_LOGW(TAG, "No self test support for this target, skipping");
                 state = flasher::DONE;
                 return;
             } else if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "Self test @ 0x%08lx failed, host error 0x%x, function returned 0x%lx", items[idx].addr, ret, func_ret);
-                char msg[128] = { 0 };
-                snprintf(msg, sizeof(msg), "Test failed at\n%u of %u @ 0x%08lx;\n%s", idx + 1, items.size(), items[idx].addr, items[idx].name);
+                ESP_LOGW(TAG, "Self test @ 0x%08lx failed, host error 0x%x, function returned 0x%lx", item.addr, ret, func_ret);
+                char msg[128] = {0};
+                snprintf(msg, sizeof(msg), "Test failed at\n%u of %u @ 0x%08lx;\n%s", idx + 1, cfg.test_count, item.addr,
+                         item.name);
                 composer->display_error("ERROR", msg);
                 state = flasher::ERROR;
                 return;
@@ -138,37 +144,27 @@ void offline_flasher::on_self_test()
 
             if (func_ret != 0) {
                 ESP_LOGW(TAG, "Self test failed, host returned 0x%x, target returned error 0x%lx", ret, func_ret);
-                char msg[128] = { 0 };
-                snprintf(msg, sizeof(msg), "Test failed @ 0x%08lx;\n%s\nRet=%lu", items[idx].addr, items[idx].name, func_ret);
+                char msg[128] = {0};
+                snprintf(msg, sizeof(msg), "Test failed @ 0x%08lx;\n%s\nRet=%lu", item.addr, item.name, func_ret);
                 composer->display_error("ERROR", msg);
                 state = flasher::ERROR;
                 return;
             }
 
-
             ESP_LOGW(TAG, "Self test OK, host returned 0x%x, function returned 0x%lx", ret, func_ret);
 
-        } else if (items[idx].type == fw_asset_manager::INTERNAL_EXTEND_TEST) {
+        } else if (item.type == si::config::test_item::INTERNAL_EXTEND_TEST) {
             ESP_LOGW(TAG, "Unsupported InternalExtendTest type!");
-        } else if (items[idx].type == fw_asset_manager::INTERNAL_SIMPLE_TEST) {
-            ESP_LOGW(TAG, "Unsupported ExternalTest type!");
         }
-
     }
 
-    swd_prog::trigger_nrst();
+    backend->reset_target();
     state = flasher::POST_PROGRAM;
 }
 
 void offline_flasher::on_post_program()
 {
-    swd_off();
-    vTaskDelay(1);
-    swd_init();
-    vTaskDelay(1);
-    swd_trigger_nrst();
-    vTaskDelay(1);
-    swd_init_debug();
+    backend->begin_session();
 
     auto ret = post_program_steps.load_yaml(POST_PROG_STEP_FILE);
     if (ret != ESP_OK) {
@@ -181,7 +177,7 @@ void offline_flasher::on_post_program()
         return;
     }
 
-    ret = post_program_steps.execute();
+    ret = post_program_steps.execute(*backend);
     if (ret != ESP_OK) {
         ESP_LOGI(TAG, "post_prog: execution error: 0x%x", ret);
         composer->display_error("ERROR", "Post-program fail");
@@ -191,21 +187,20 @@ void offline_flasher::on_post_program()
 
     ESP_LOGI(TAG, "post_prog: OK");
 
+    backend->release_transport();
 
 #ifndef CONFIG_SI_SG_PROG_RIG
     state = flasher::DONE;
 #else
     state = flasher::SG_CURRENT_TEST;
 #endif
-
 }
-
 
 #ifdef CONFIG_SI_SG_PROG_RIG
 void offline_flasher::on_current_test()
 {
-    // Shut up the SWD to run firmware
-    swd_prog::reset_gpio();
+    // Shut up the target transport to run firmware
+    backend->release_transport();
 
     double min = 0, max = 0, avg = 0;
     auto ret = pwr_test.init((gpio_num_t)CONFIG_SI_SG_PWR_TESTER_ALERT);
@@ -227,61 +222,61 @@ void offline_flasher::on_current_test()
 esp_err_t offline_flasher::handle_states()
 {
     switch (state) {
-        case flasher::PRE_PROGRAM: {
-            on_pre_program();
-            break;
-        }
+    case flasher::PRE_PROGRAM: {
+        on_pre_program();
+        break;
+    }
 
-        case flasher::LOAD_ASSET: {
-            on_load_asset();
-            break;
-        }
+    case flasher::LOAD_ASSET: {
+        on_load_asset();
+        break;
+    }
 
-        case flasher::DETECT: {
-            on_detect();
-            break;
-        }
+    case flasher::DETECT: {
+        on_detect();
+        break;
+    }
 
-        case flasher::ERASE: {
-            on_erase();
-            break;
-        }
+    case flasher::ERASE: {
+        on_erase();
+        break;
+    }
 
-        case flasher::PROGRAM: {
-            on_program();
-            break;
-        }
+    case flasher::PROGRAM: {
+        on_program();
+        break;
+    }
 
-        case flasher::ERROR: {
-            on_error();
-            return ESP_FAIL;
-        }
+    case flasher::ERROR: {
+        on_error();
+        return ESP_FAIL;
+    }
 
-        case flasher::DONE: {
-            on_done();
-            return ESP_OK;
-        }
+    case flasher::DONE: {
+        on_done();
+        return ESP_OK;
+    }
 
-        case flasher::VERIFY: {
-            on_verify();
-            break;
-        }
+    case flasher::VERIFY: {
+        on_verify();
+        break;
+    }
 
-        case flasher::POST_PROGRAM: {
-            on_post_program();
-            break;
-        }
+    case flasher::POST_PROGRAM: {
+        on_post_program();
+        break;
+    }
 
-        case flasher::SELF_TEST: {
-            on_self_test();
-            break;
-        }
+    case flasher::SELF_TEST: {
+        on_self_test();
+        break;
+    }
 
 #ifdef CONFIG_SI_SG_PROG_RIG
-        case flasher::SG_CURRENT_TEST: {
-            on_current_test();
-            break;
-        }
+    case flasher::SG_CURRENT_TEST: {
+        on_current_test();
+        break;
+    }
 #endif
     }
 
@@ -291,13 +286,7 @@ esp_err_t offline_flasher::handle_states()
 void offline_flasher::on_pre_program()
 {
     led.set_color(0, 0xb7, 0xeb); // Cyan??
-    swd_off();
-    vTaskDelay(1);
-    swd_init();
-    vTaskDelay(1);
-    swd_trigger_nrst();
-    vTaskDelay(1);
-    swd_init_debug();
+    backend->begin_session();
 
     auto ret = pre_program_steps.load_yaml(PRE_PROG_STEP_FILE);
     if (ret != ESP_OK) {
@@ -306,7 +295,7 @@ void offline_flasher::on_pre_program()
         return;
     }
 
-    ret = pre_program_steps.execute();
+    ret = pre_program_steps.execute(*backend);
     if (ret != ESP_OK) {
         ESP_LOGI(TAG, "pre_prog: execution error: 0x%x", ret);
         composer->display_error("ERROR", "Pre-program fail");
@@ -336,6 +325,7 @@ void offline_flasher::on_load_asset()
         return;
     }
 
+    select_backend();
     asset_loaded = true;
     state = flasher::PRE_PROGRAM;
 }

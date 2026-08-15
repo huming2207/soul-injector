@@ -69,6 +69,14 @@ It is recommended to have a `.sha256` file in place to avoid flash corruption.
 `target.yaml` describes what target is being
 programmed and how the flash algorithm should be called.
 
+An optional top-level `family` key selects the programming backend:
+
+- `cortex-m` (default when the key is absent): SWD programming of ARM
+  Cortex-M targets using a flash algorithm, as described below.
+- `esp32`: UART programming of Espressif targets (ESP32, ESP32-S2/S3/S31,
+  C-series, ...) using the ROM bootloader and flasher stub. See
+  [ESP32 targets](#esp32-targets) below.
+
 The file must contain:
 
 - `variants`: target variants. If there is only one variant it is selected
@@ -96,6 +104,41 @@ An optional top-level `self_tests` list can define functions to run after
 programming and firmware verify. Each item can contain `type`, `addr`, and
 `name`. Currently simple internal tests are executed; unsupported test types are
 logged and skipped.
+
+### ESP32 targets
+
+When `family: esp32` is set, the selected variant describes the Espressif
+target instead of a flash algorithm:
+
+```yaml
+family: esp32
+variants:
+  - name: esp32s31
+    chip: esp32s31
+    flash_size_kb: 4096 # optional; omit to auto-detect from the target
+    baud: 921600        # optional; default 115200
+    images:
+      - { path: /data/bootloader.bin, offset: 0x0 }
+      - { path: /data/partitions.bin, offset: 0x8000 }
+      - { path: /data/ota_data.bin, offset: 0xe000 }
+      - { path: /data/firmware.bin, offset: 0x10000 }
+```
+
+- `chip` is matched against the chip reported by the target at connect time;
+  programming aborts on mismatch.
+- `images` lists every binary to flash with its flash offset, in write order.
+  Copy each file (and an optional `.sha256` sidecar) onto the storage
+  partition.
+- When `flash_size_kb` is omitted the host asks the target via the UART
+  protocol. Keeping the explicit value is recommended on production rigs
+  because some flash chips misreport their capacity.
+- Each image is MD5-verified on the target as part of writing, and the whole
+  image set is read back and compared afterwards.
+- Pre/post programming step files are family-agnostic for reset steps, but
+  SWD register steps (`READ_32`, `WRITE_32`, ...) are not supported for
+  esp32 targets and will fail the procedure.
+- The host UART wiring and pins are configured through the *Soul Injector
+  ESP32 Target Programming* Kconfig menu.
 
 ### Pre and post programming step files
 

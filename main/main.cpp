@@ -12,7 +12,6 @@ extern "C" void app_main(void)
 
     psa_crypto_init();
 
-
     auto *main_fsm = bootstrap_fsm::instance();
     main_fsm->init();
 

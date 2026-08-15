@@ -89,14 +89,14 @@ esp_err_t bootstrap_fsm::init()
 esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
 {
     is_usb_exposed = expose_usb;
-    uint8_t sn_buf[16] = { 0 };
+    uint8_t sn_buf[16] = {0};
     uint64_t flash_uid = 0;
     esp_efuse_mac_get_default(sn_buf);
     esp_flash_read_unique_chip_id(esp_flash_default_chip, &flash_uid);
     memcpy(sn_buf + 6, &flash_uid, sizeof(uint64_t));
-    snprintf(sn_str, sizeof(sn_str), "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
-             sn_buf[0], sn_buf[1], sn_buf[2], sn_buf[3], sn_buf[4], sn_buf[5], sn_buf[6], sn_buf[7],
-             sn_buf[8], sn_buf[9], sn_buf[10], sn_buf[11], sn_buf[12], sn_buf[13]);
+    snprintf(sn_str, sizeof(sn_str), "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x", sn_buf[0], sn_buf[1], sn_buf[2],
+             sn_buf[3], sn_buf[4], sn_buf[5], sn_buf[6], sn_buf[7], sn_buf[8], sn_buf[9], sn_buf[10], sn_buf[11], sn_buf[12],
+             sn_buf[13]);
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -122,18 +122,18 @@ esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
     }
 
     const tinyusb_msc_storage_config_t storage_cfg = {
-        .medium = { .wl_handle = wl_handle },
-        .fat_fs = {
-            .base_path = const_cast<char *>(DATA_PARTITION_PATH),
-            .config = {
-                .format_if_mount_failed = true,
-                .max_files = 10,
-                .allocation_unit_size = 0,
-                .disk_status_check_enable = false, .use_one_fat = false
+        .medium = {.wl_handle = wl_handle},
+        .fat_fs =
+            {
+                .base_path = const_cast<char *>(DATA_PARTITION_PATH),
+                .config = {.format_if_mount_failed = true,
+                           .max_files = 10,
+                           .allocation_unit_size = 0,
+                           .disk_status_check_enable = false,
+                           .use_one_fat = false},
+                .do_not_format = false,
+                .format_flags = FM_ANY,
             },
-            .do_not_format = false,
-            .format_flags = FM_ANY,
-        },
 
         // Expected logic:
         // 1. when device starts from power-on reset, it exposes data partition to USB;
@@ -151,18 +151,19 @@ esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
     // Verification: Wait for the mount to be ready in the application VFS
     if (!expose_usb) {
         ret = wait_for_vfs_ready();
-        if (ret != ESP_OK) return ret;
+        if (ret != ESP_OK)
+            return ret;
     }
 
     static char lang[2] = {0x09, 0x04};
     static const char *desc_str[6] = {
-        lang,                // 0: is supported language is English (0x0409)
+        lang,                                                        // 0: is supported language is English (0x0409)
         const_cast<char *>(CONFIG_TINYUSB_DESC_MANUFACTURER_STRING), // 1: Manufacturer
         const_cast<char *>(CONFIG_TINYUSB_DESC_PRODUCT_STRING),      // 2: Product
-        sn_str,             // 3: Serials, should use chip ID
+        sn_str,                                                      // 3: Serials, should use chip ID
         const_cast<char *>(CONFIG_TINYUSB_DESC_PRODUCT_STRING),      // 4: CDC Interface
         const_cast<char *>(CONFIG_TINYUSB_DESC_MSC_STRING),          // 5: MSC Interface
-};
+    };
 
     ESP_LOGI(TAG, "USB Composite initialization");
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
@@ -176,13 +177,11 @@ esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
         return ret;
     }
 
-    tinyusb_config_cdcacm_t acm_cfg = {
-        .cdc_port = TINYUSB_CDC_ACM_0,
-        .callback_rx = nullptr,
-        .callback_rx_wanted_char = nullptr,
-        .callback_line_state_changed = nullptr,
-        .callback_line_coding_changed = nullptr
-    };
+    tinyusb_config_cdcacm_t acm_cfg = {.cdc_port = TINYUSB_CDC_ACM_0,
+                                       .callback_rx = nullptr,
+                                       .callback_rx_wanted_char = nullptr,
+                                       .callback_line_state_changed = nullptr,
+                                       .callback_line_coding_changed = nullptr};
     ret = tinyusb_cdcacm_init(&acm_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "setup_storage: failed at tinyusb_cdcacm_init: 0x%x %s", ret, esp_err_to_name(ret));
@@ -282,7 +281,9 @@ void bootstrap_fsm::run_fsm_task()
     is_usb_exposed = false;
     wait_for_vfs_ready();
 
-    flasher->init();
+    // Assets may have changed while storage was exposed over USB MSC,
+    // so force a full reload (hash check + re-parse) every reconnect.
+    flasher->init(true);
 }
 
 void bootstrap_fsm::det_io_isr_handler(void *_ctx)
@@ -290,7 +291,6 @@ void bootstrap_fsm::det_io_isr_handler(void *_ctx)
     auto *timer = (TimerHandle_t)_ctx;
     BaseType_t higher_priority_waken = pdFALSE;
     xTimerStartFromISR(timer, &higher_priority_waken);
-
 
     if (higher_priority_waken == pdTRUE) {
         portYIELD_FROM_ISR();
@@ -314,4 +314,3 @@ void bootstrap_fsm::det_pin_debounce_timer(TimerHandle_t timer_handle)
         }
     }
 }
-

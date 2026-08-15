@@ -9,11 +9,11 @@
 esp_err_t nt279vj_panel::init()
 {
     gpio_config_t pwr_io_cfg = {
-            .pin_bit_mask = (1ULL << CONFIG_SI_DISP_PANEL_BKL),
-            .mode = GPIO_MODE_OUTPUT,
-            .pull_up_en = GPIO_PULLUP_ENABLE,
-            .pull_down_en = GPIO_PULLDOWN_DISABLE,
-            .intr_type = GPIO_INTR_DISABLE,
+        .pin_bit_mask = (1ULL << CONFIG_SI_DISP_PANEL_BKL),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
     };
 
     auto ret = gpio_config(&pwr_io_cfg);
@@ -94,32 +94,31 @@ esp_err_t nt279vj_panel::init()
         return ret;
     }
 
-    lvgl_port_display_cfg_t disp_cfg = {
-        .io_handle = io_handle,
-        .panel_handle = panel_handle,
-        .control_handle = nullptr,
-        .buffer_size = LCD_H_RES * LCD_V_RES,
-        .double_buffer = true,
-        .trans_size = 0,
-        .hres = LCD_H_RES,
-        .vres = LCD_V_RES,
-        .monochrome = false,
-        .rotation = {
-            .swap_xy = true,
-            .mirror_x = true,
-            .mirror_y = false,
-        },
-        .rounder_cb = nullptr,
-        .color_format = LV_COLOR_FORMAT_RGB565,
-        .flags = {
-            .buff_dma = true,
-            .buff_spiram = true,
-            .sw_rotate = false,
-            .swap_bytes = true,
-            .full_refresh = false,
-            .direct_mode = false,
-        }
-    };
+    lvgl_port_display_cfg_t disp_cfg = {.io_handle = io_handle,
+                                        .panel_handle = panel_handle,
+                                        .control_handle = nullptr,
+                                        .buffer_size = LCD_H_RES * LCD_V_RES,
+                                        .double_buffer = true,
+                                        .trans_size = 0,
+                                        .hres = LCD_H_RES,
+                                        .vres = LCD_V_RES,
+                                        .monochrome = false,
+                                        .rotation =
+                                            {
+                                                .swap_xy = true,
+                                                .mirror_x = true,
+                                                .mirror_y = false,
+                                            },
+                                        .rounder_cb = nullptr,
+                                        .color_format = LV_COLOR_FORMAT_RGB565,
+                                        .flags = {
+                                            .buff_dma = true,
+                                            .buff_spiram = true,
+                                            .sw_rotate = false,
+                                            .swap_bytes = true,
+                                            .full_refresh = false,
+                                            .direct_mode = false,
+                                        }};
 
     display = lvgl_port_add_disp(&disp_cfg);
     if (display == nullptr) {
@@ -166,7 +165,7 @@ void nt279vj_panel::unlock()
     lvgl_port_unlock();
 }
 
-lv_display_t* nt279vj_panel::get_lv_disp()
+lv_display_t *nt279vj_panel::get_lv_disp()
 {
     return display;
 }

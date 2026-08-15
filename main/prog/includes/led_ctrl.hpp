@@ -10,7 +10,7 @@
 class led_ctrl
 {
 public:
-    static led_ctrl& instance()
+    static led_ctrl &instance()
     {
         static led_ctrl instance;
         return instance;

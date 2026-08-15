@@ -15,8 +15,9 @@
  * Programming flow per connect:
  *  detect()  - enter bootloader (BOOT + NRST via the host SWD header pins),
  *              esp_loader_connect_with_stub, match the chip against the
- *              target.yaml `chip` name, resolve flash size (YAML override or
- *              esp_loader_flash_detect_size), optionally raise the baud rate.
+ *              target.yaml `chip` name, constrain access to the smaller of
+ *              configured and detected flash sizes, validate image ranges,
+ *              then optionally raise the baud rate.
  *  erase()   - no-op: esp_loader_flash_start erases the regions it writes.
  *  program() - stream every configured image (bootloader, partition table,
  *              app, ...) with esp_loader_flash_start/write/finish; finish()
@@ -63,10 +64,12 @@ private:
     esp_err_t program_one_image(const char *path, uint32_t offset, uint32_t *written_len);
     esp_err_t verify_one_image(const char *path, uint32_t offset);
     esp_err_t connect_locked();
+    esp_err_t validate_images(uint32_t flash_limit);
 
     esp32_port_t port = {};
     esp_loader_t loader = {};
     bool connected = false;
+    uint32_t flash_limit = 0;
 
     /** Static staging blocks (no heap in the hot path; singleton lives in .bss). */
     uint8_t block[4096] = {};

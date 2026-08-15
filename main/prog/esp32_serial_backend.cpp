@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <sys/stat.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>
@@ -67,6 +68,7 @@ struct chip_name_map_t {
 
 /** Cap for the flash_size_kb YAML override; guards the * 1024 multiplication. */
 static constexpr uint32_t MAX_FLASH_SIZE_KB = 256 * 1024; // 256 MB
+static constexpr uint32_t FLASH_SECTOR_SIZE = 4096;
 
 static const chip_name_map_t chip_name_map[] = {
     {"esp8266", ESP8266_CHIP}, {"esp32", ESP32_CHIP},     {"esp32s2", ESP32S2_CHIP},   {"esp32s3", ESP32S3_CHIP},
@@ -95,11 +97,68 @@ esp_err_t esp32_serial_backend::begin_session()
     return ESP_OK;
 }
 
+esp_err_t esp32_serial_backend::validate_images(uint32_t limit)
+{
+    struct image_range {
+        uint32_t sector_start;
+        uint32_t sector_end;
+    };
+
+    const si::config::target_config &cfg = fw_asset_manager::instance()->config();
+    image_range ranges[si::config::target_config::MAX_IMAGES] = {};
+
+    for (size_t i = 0; i < cfg.image_count; i++) {
+        const si::config::esp32_image &image = cfg.images[i];
+        struct stat st = {};
+        if (stat(image.path, &st) != 0) {
+            ESP_LOGE(TAG, "detect: cannot stat image %s", image.path);
+            return ESP_ERR_NOT_FOUND;
+        }
+        if (st.st_size <= 0 || static_cast<uint64_t>(st.st_size) > UINT32_MAX - 3u) {
+            ESP_LOGE(TAG, "detect: image %s has invalid size %lld", image.path, static_cast<long long>(st.st_size));
+            return ESP_ERR_INVALID_SIZE;
+        }
+        if ((image.offset & 3u) != 0) {
+            ESP_LOGE(TAG, "detect: image %s offset 0x%08lx is not 4-byte aligned", image.path, image.offset);
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        const uint32_t real_len = static_cast<uint32_t>(st.st_size);
+        const uint32_t padded_len = (real_len + 3u) & ~3u;
+        if (image.offset > limit || padded_len > limit - image.offset) {
+            ESP_LOGE(
+                TAG, "detect: image %s (%lu bytes) at 0x%08lx does not fit in %lu bytes of flash", image.path,
+                (unsigned long)padded_len, image.offset, (unsigned long)limit
+            );
+            return ESP_ERR_INVALID_SIZE;
+        }
+
+        const uint64_t byte_end = static_cast<uint64_t>(image.offset) + padded_len;
+        const uint64_t sector_end = (byte_end + FLASH_SECTOR_SIZE - 1u) & ~(static_cast<uint64_t>(FLASH_SECTOR_SIZE) - 1u);
+        ranges[i] = {
+            .sector_start = image.offset & ~(FLASH_SECTOR_SIZE - 1u),
+            .sector_end = static_cast<uint32_t>(sector_end),
+        };
+
+        for (size_t prev = 0; prev < i; prev++) {
+            if (ranges[i].sector_start < ranges[prev].sector_end && ranges[prev].sector_start < ranges[i].sector_end) {
+                ESP_LOGE(
+                    TAG, "detect: image %s overlaps an erase sector used by %s", image.path, cfg.images[prev].path
+                );
+                return ESP_ERR_INVALID_ARG;
+            }
+        }
+    }
+
+    return ESP_OK;
+}
+
 esp_err_t esp32_serial_backend::connect_locked()
 {
     if (connected) {
         return ESP_OK;
     }
+    flash_limit = 0;
 
     const si::config::target_config &cfg = fw_asset_manager::instance()->config();
 
@@ -145,24 +204,36 @@ esp_err_t esp32_serial_backend::connect_locked()
         return ESP_ERR_INVALID_STATE;
     }
 
-    // Flash size: YAML override wins, otherwise ask the target.
-    uint32_t flash_size = 0;
+    // Match esptool's policy: constrain writes to the smaller of the configured
+    // size and the physical size when detection succeeds. The configured size
+    // is only authoritative when physical detection is unavailable.
+    uint32_t detected_size = 0;
+    uint32_t configured_size = 0;
     if (cfg.flash_size_kb.has_value()) {
-        if (cfg.flash_size_kb.value() > MAX_FLASH_SIZE_KB) {
+        if (cfg.flash_size_kb.value() == 0 || cfg.flash_size_kb.value() > MAX_FLASH_SIZE_KB) {
             ESP_LOGE(
-                TAG, "detect: flash_size_kb %lu KB exceeds the %lu KB limit", (unsigned long)cfg.flash_size_kb.value(),
+                TAG, "detect: flash_size_kb %lu KB is outside the 1-%lu KB range", (unsigned long)cfg.flash_size_kb.value(),
                 (unsigned long)MAX_FLASH_SIZE_KB
             );
             esp_loader_deinit(&loader);
             return ESP_ERR_INVALID_SIZE;
         }
-        flash_size = cfg.flash_size_kb.value() * 1024;
+        configured_size = cfg.flash_size_kb.value() * 1024;
 
-        uint32_t detected = 0;
-        if (esp_loader_flash_detect_size(&loader, &detected) == ESP_LOADER_SUCCESS && detected != flash_size) {
+        err = esp_loader_flash_detect_size(&loader, &detected_size);
+        if (err == ESP_LOADER_SUCCESS) {
+            flash_limit = std::min(configured_size, detected_size);
+            if (detected_size != configured_size) {
+                ESP_LOGW(
+                    TAG, "detect: configured flash size %lu differs from detected size %lu; limiting access to %lu bytes",
+                    (unsigned long)configured_size, (unsigned long)detected_size, (unsigned long)flash_limit
+                );
+            }
+        } else {
+            flash_limit = configured_size;
             ESP_LOGW(
-                TAG, "detect: detected flash size %lu differs from target.yaml override %lu; using override", (unsigned long)detected,
-                (unsigned long)flash_size
+                TAG, "detect: flash size detection failed (%s); using configured size %lu bytes", loader_err_str(err),
+                (unsigned long)flash_limit
             );
         }
 
@@ -181,17 +252,25 @@ esp_err_t esp32_serial_backend::connect_locked()
          * instead of silently corrupting an unrelated field.
          */
         static_assert(offsetof(esp_loader_t, _target_flash_size) > 0, "esp_loader_t layout changed? _target_flash_size missing");
-        loader._target_flash_size = flash_size;
+        loader._target_flash_size = flash_limit;
     } else {
-        err = esp_loader_flash_detect_size(&loader, &flash_size);
+        err = esp_loader_flash_detect_size(&loader, &detected_size);
         if (err != ESP_LOADER_SUCCESS) {
             ESP_LOGE(TAG, "detect: flash size detection failed: %s", loader_err_str(err));
             esp_loader_deinit(&loader);
             return loader_err_to_esp(err);
         }
-        loader._target_flash_size = flash_size; // same workaround, detected value
+        flash_limit = detected_size;
+        loader._target_flash_size = flash_limit; // same workaround, detected value
     }
-    ESP_LOGI(TAG, "detect: chip %s, flash %lu KB", cfg.chip, (unsigned long)(flash_size / 1024));
+    ESP_LOGI(TAG, "detect: chip %s, accessible flash %lu KB", cfg.chip, (unsigned long)(flash_limit / 1024));
+
+    auto validate_ret = validate_images(flash_limit);
+    if (validate_ret != ESP_OK) {
+        esp_loader_deinit(&loader);
+        flash_limit = 0;
+        return validate_ret;
+    }
 
     // Raise the transfer rate once the stub is running.
     if (cfg.baud > 115200) {
@@ -206,6 +285,7 @@ esp_err_t esp32_serial_backend::connect_locked()
              */
             ESP_LOGE(TAG, "detect: cannot change baud to %lu, failing connection", (unsigned long)cfg.baud);
             esp_loader_deinit(&loader);
+            flash_limit = 0;
             return loader_err_to_esp(err);
         }
     }
@@ -266,6 +346,11 @@ esp_err_t esp32_serial_backend::program_one_image(const char *path, uint32_t off
     const uint32_t real_len = static_cast<uint32_t>(file_len);
     const uint32_t padded_len = (real_len + 3) & ~3u;
     const uint32_t pad_len = padded_len - real_len;
+    if ((offset & 3u) != 0 || offset > flash_limit || padded_len > flash_limit - offset) {
+        ESP_LOGE(TAG, "program: %s no longer fits at 0x%08lx", path, offset);
+        fclose(file);
+        return ESP_ERR_INVALID_SIZE;
+    }
 
     esp_loader_flash_cfg_t flash_cfg = {
         .offset = offset,
@@ -376,7 +461,13 @@ esp_err_t esp32_serial_backend::verify_one_image(const char *path, uint32_t offs
      * loop so a truncated or erroring source fails the verify loudly.
      */
     const uint32_t real_len = static_cast<uint32_t>(file_len);
-    const uint32_t pad_len = ((real_len + 3) & ~3u) - real_len;
+    const uint32_t padded_len = (real_len + 3) & ~3u;
+    const uint32_t pad_len = padded_len - real_len;
+    if ((offset & 3u) != 0 || offset > flash_limit || padded_len > flash_limit - offset) {
+        ESP_LOGE(TAG, "verify: %s no longer fits at 0x%08lx", path, offset);
+        fclose(file);
+        return ESP_ERR_INVALID_SIZE;
+    }
 
     uint32_t offset_cursor = offset;
     uint32_t file_remaining = real_len;
@@ -483,6 +574,7 @@ esp_err_t esp32_serial_backend::release_transport()
         esp_loader_deinit(&loader);
         connected = false;
     }
+    flash_limit = 0;
     return ESP_OK;
 }
 

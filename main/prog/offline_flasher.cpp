@@ -16,6 +16,12 @@ void offline_flasher::init(bool force_reload_asset)
     display = display_manager::instance();
     composer = display->get_composer();
     if (force_reload_asset) {
+        // Belt-and-braces: a forced reload starts a new session, so any
+        // transport a previous (aborted) session left open must be released,
+        // otherwise the backend short-circuits its next connect on stale state.
+        if (backend != nullptr) {
+            backend->release_transport();
+        }
         asset_loaded = false;
     }
 
@@ -39,6 +45,13 @@ void offline_flasher::select_backend()
 
 void offline_flasher::on_error()
 {
+    // Terminal error path: release the transport so the backend cannot carry
+    // stale connection state into the next session (the FSM waits for target
+    // disconnect/reconnect and then reloads assets; a still-connected backend
+    // would short-circuit its connect sequence on the new target).
+    if (backend != nullptr) {
+        backend->release_transport();
+    }
     led.set_color(0x80, 0x00, 0x00);
 }
 
@@ -95,6 +108,11 @@ void offline_flasher::on_detect()
 
 void offline_flasher::on_done()
 {
+    // Terminal success path: release the transport (idempotent for backends
+    // that already released it in POST_PROGRAM / SG_CURRENT_TEST).
+    if (backend != nullptr) {
+        backend->release_transport();
+    }
     led.set_color(0, 80, 0); // Green
     composer->display_done();
 }
@@ -129,8 +147,16 @@ void offline_flasher::on_self_test()
             ESP_LOGW(TAG, "Self test: 0x%08lx, %s type %u", item.addr, item.name, item.type);
             auto ret = backend->self_test(item, &func_ret);
             if (ret == ESP_ERR_NOT_SUPPORTED) {
-                ESP_LOGW(TAG, "No self test support for this target, skipping");
-                state = flasher::DONE;
+                /*
+                 * This backend/family has no self test support (always the
+                 * case for esp32 targets when self_tests entries exist).
+                 * Skip the remaining tests but still run POST_PROGRAM - the
+                 * post-program procedure and the SG rig current test must
+                 * not be silently skipped.
+                 */
+                ESP_LOGW(TAG, "Self test not supported on this target, skipping remaining tests");
+                backend->reset_target();
+                state = flasher::POST_PROGRAM;
                 return;
             } else if (ret != ESP_OK) {
                 ESP_LOGW(TAG, "Self test @ 0x%08lx failed, host error 0x%x, function returned 0x%lx", item.addr, ret, func_ret);
@@ -169,6 +195,8 @@ void offline_flasher::on_post_program()
     auto ret = post_program_steps.load_yaml(POST_PROG_STEP_FILE);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "post_prog: Can't load YAML, skipping");
+        // Leaving the transport connected here would poison the next session.
+        backend->release_transport();
 #ifndef CONFIG_SI_SG_PROG_RIG
         state = flasher::DONE;
 #else

@@ -71,6 +71,17 @@ namespace si::config
         {
             return end - start;
         }
+
+        bool contains(uint32_t addr) const
+        {
+            return addr >= start && addr < end;
+        }
+
+        /** True when [addr, addr+len) lies entirely inside this region, without overflow. */
+        bool contains_range(uint32_t addr, uint32_t len) const
+        {
+            return addr >= start && len <= end - addr;
+        }
     };
 
     /** One flash image for esp32 family targets (bootloader, partitions, app, ...). */
@@ -154,10 +165,41 @@ namespace si::config
         uint32_t generation = 0;
 
         /**
-     * Largest contiguous !Ram region, or nullptr when the YAML had no RAM
-     * information. The old parser merged all regions into one fake
-     * contiguous span which fabricated RAM across address holes.
-     */
+         * The RAM region that hosts the flash algorithm, selected by
+         * containment: it must hold the algorithm blob at load_address and
+         * (when present) contain data_section_offset, i.e. the algorithm's code
+         * and static data live there. Selecting by "largest region" is wrong
+         * when a bigger separate bank exists - the algorithm would be
+         * validated against RAM it never occupies.
+         *
+         * The caller (swd_prog) additionally verifies the region can hold the
+         * stack and page buffers above the algorithm. Returns nullptr when no
+         * region contains the algorithm blob.
+         */
+        const ram_region *algo_ram_region() const
+        {
+            if (!has_algo) {
+                return nullptr;
+            }
+            for (size_t i = 0; i < ram_region_count; i++) {
+                const ram_region &r = ram_regions[i];
+                if (!r.contains_range(algo.load_address, algo.algo_bin_len)) {
+                    continue;
+                }
+                if (algo.data_section_offset.has_value() && !r.contains(algo.data_section_offset.value())) {
+                    // Code fits but static base lives elsewhere (e.g. a separate
+                    // DTCM bank); still usable - swd_prog logs a warning.
+                    return &r;
+                }
+                return &r;
+            }
+            return nullptr;
+        }
+
+        /**
+         * Largest contiguous !Ram region, or nullptr. Kept for diagnostics;
+         * algorithm placement must go through algo_ram_region().
+         */
         const ram_region *largest_ram_region() const
         {
             const ram_region *best = nullptr;

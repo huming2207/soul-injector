@@ -34,8 +34,8 @@ typedef struct {
 static esp_err_t panel_nv3007_del(esp_lcd_panel_t *panel);
 static esp_err_t panel_nv3007_reset(esp_lcd_panel_t *panel);
 static esp_err_t panel_nv3007_init(esp_lcd_panel_t *panel);
-static esp_err_t panel_nv3007_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
-                                          const void *color_data);
+static esp_err_t
+panel_nv3007_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end, const void *color_data);
 static esp_err_t panel_nv3007_mirror(esp_lcd_panel_t *panel, bool mirror_x, bool mirror_y);
 static esp_err_t panel_nv3007_swap_xy(esp_lcd_panel_t *panel, bool swap_axes);
 static esp_err_t panel_nv3007_set_gap(esp_lcd_panel_t *panel, int x_gap, int y_gap);
@@ -167,17 +167,21 @@ static const nv3007_init_cmd_t LCD_INIT_SEQ[] = {
     {LCD_CMD_DISPON, {0}, 0, 200},
 };
 
-esp_err_t esp_lcd_new_panel_nv3007(const esp_lcd_panel_io_handle_t io, const esp_lcd_panel_dev_config_t *panel_dev_config,
-                                   esp_lcd_panel_handle_t *ret_panel)
+esp_err_t esp_lcd_new_panel_nv3007(
+    const esp_lcd_panel_io_handle_t io, const esp_lcd_panel_dev_config_t *panel_dev_config, esp_lcd_panel_handle_t *ret_panel
+)
 {
     esp_err_t ret = ESP_OK;
     nv3007_panel_t *nv3007 = NULL;
 
     ESP_GOTO_ON_FALSE(io && panel_dev_config && ret_panel, ESP_ERR_INVALID_ARG, err, TAG, "invalid argument");
-    ESP_GOTO_ON_FALSE(panel_dev_config->rgb_ele_order == LCD_RGB_ELEMENT_ORDER_RGB, ESP_ERR_NOT_SUPPORTED, err, TAG,
-                      "unsupported RGB element order");
-    ESP_GOTO_ON_FALSE(panel_dev_config->data_endian == LCD_RGB_DATA_ENDIAN_BIG, ESP_ERR_NOT_SUPPORTED, err, TAG,
-                      "unsupported RGB data endian");
+    ESP_GOTO_ON_FALSE(
+        panel_dev_config->rgb_ele_order == LCD_RGB_ELEMENT_ORDER_RGB, ESP_ERR_NOT_SUPPORTED, err, TAG,
+        "unsupported RGB element order"
+    );
+    ESP_GOTO_ON_FALSE(
+        panel_dev_config->data_endian == LCD_RGB_DATA_ENDIAN_BIG, ESP_ERR_NOT_SUPPORTED, err, TAG, "unsupported RGB data endian"
+    );
     ESP_GOTO_ON_FALSE(panel_dev_config->bits_per_pixel == 16, ESP_ERR_NOT_SUPPORTED, err, TAG, "unsupported pixel width");
 
     nv3007 = calloc(1, sizeof(nv3007_panel_t));
@@ -255,8 +259,9 @@ static esp_err_t panel_nv3007_init(esp_lcd_panel_t *panel)
     for (size_t idx = 0; idx < sizeof(LCD_INIT_SEQ) / sizeof(LCD_INIT_SEQ[0]); idx += 1) {
         const nv3007_init_cmd_t *entry = &LCD_INIT_SEQ[idx];
         const void *data = entry->data_bytes > 0 ? entry->data : NULL;
-        ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(nv3007->io, entry->cmd, data, entry->data_bytes), TAG,
-                            "io tx param failed");
+        ESP_RETURN_ON_ERROR(
+            esp_lcd_panel_io_tx_param(nv3007->io, entry->cmd, data, entry->data_bytes), TAG, "io tx param failed"
+        );
         if (entry->delay_ms > 0) {
             vTaskDelay(pdMS_TO_TICKS(entry->delay_ms));
         }
@@ -265,8 +270,8 @@ static esp_err_t panel_nv3007_init(esp_lcd_panel_t *panel)
     return ESP_OK;
 }
 
-static esp_err_t panel_nv3007_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
-                                          const void *color_data)
+static esp_err_t
+panel_nv3007_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end, const void *color_data)
 {
     nv3007_panel_t *nv3007 = __containerof(panel, nv3007_panel_t, base);
 
@@ -275,24 +280,32 @@ static esp_err_t panel_nv3007_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
     y_start += nv3007->y_gap;
     y_end += nv3007->y_gap;
 
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(nv3007->io, LCD_CMD_CASET,
-                                                  (uint8_t[]){
-                                                      (x_start >> 8) & 0xff,
-                                                      x_start & 0xff,
-                                                      ((x_end - 1) >> 8) & 0xff,
-                                                      (x_end - 1) & 0xff,
-                                                  },
-                                                  4),
-                        TAG, "io tx param failed");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(nv3007->io, LCD_CMD_RASET,
-                                                  (uint8_t[]){
-                                                      (y_start >> 8) & 0xff,
-                                                      y_start & 0xff,
-                                                      ((y_end - 1) >> 8) & 0xff,
-                                                      (y_end - 1) & 0xff,
-                                                  },
-                                                  4),
-                        TAG, "io tx param failed");
+    ESP_RETURN_ON_ERROR(
+        esp_lcd_panel_io_tx_param(
+            nv3007->io, LCD_CMD_CASET,
+            (uint8_t[]){
+                (x_start >> 8) & 0xff,
+                x_start & 0xff,
+                ((x_end - 1) >> 8) & 0xff,
+                (x_end - 1) & 0xff,
+            },
+            4
+        ),
+        TAG, "io tx param failed"
+    );
+    ESP_RETURN_ON_ERROR(
+        esp_lcd_panel_io_tx_param(
+            nv3007->io, LCD_CMD_RASET,
+            (uint8_t[]){
+                (y_start >> 8) & 0xff,
+                y_start & 0xff,
+                ((y_end - 1) >> 8) & 0xff,
+                (y_end - 1) & 0xff,
+            },
+            4
+        ),
+        TAG, "io tx param failed"
+    );
 
     size_t len = (x_end - x_start) * (y_end - y_start) * 2;
     ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(nv3007->io, LCD_CMD_RAMWR, color_data, len), TAG, "io tx color failed");

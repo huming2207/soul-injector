@@ -77,8 +77,9 @@ public:
     struct wait_halt_step : step_common {
     };
 
-    using step = std::variant<read32_step, write32_step, read_mod_write32_step, poll32_step, delay_ms_step, swd_reinit_step,
-                              reset_target_step, halt_target_step, wait_halt_step>;
+    using step = std::variant<
+        read32_step, write32_step, read_mod_write32_step, poll32_step, delay_ms_step, swd_reinit_step, reset_target_step, halt_target_step,
+        wait_halt_step>;
 
     static constexpr size_t MAX_STEPS = 96;
 

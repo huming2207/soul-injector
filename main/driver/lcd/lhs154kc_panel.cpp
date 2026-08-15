@@ -93,31 +93,28 @@ esp_err_t lhs154kc_panel::init()
         return ret;
     }
 
-    lvgl_port_display_cfg_t disp_cfg = {.io_handle = io_handle,
-                                        .panel_handle = panel_handle,
-                                        .control_handle = nullptr,
-                                        .buffer_size = 240 * 240,
-                                        .double_buffer = true,
-                                        .trans_size = 0,
-                                        .hres = 240,
-                                        .vres = 240,
-                                        .monochrome = false,
-                                        .rotation =
-                                            {
-                                                .swap_xy = false,
-                                                .mirror_x = false,
-                                                .mirror_y = false,
-                                            },
-                                        .rounder_cb = nullptr,
-                                        .color_format = LV_COLOR_FORMAT_RGB565,
-                                        .flags = {
-                                            .buff_dma = true,
-                                            .buff_spiram = true,
-                                            .sw_rotate = false,
-                                            .swap_bytes = true,
-                                            .full_refresh = false,
-                                            .direct_mode = false,
-                                        }};
+    lvgl_port_display_cfg_t disp_cfg = {
+        .io_handle = io_handle,
+        .panel_handle = panel_handle,
+        .control_handle = nullptr,
+        .buffer_size = 240 * 240,
+        .double_buffer = true,
+        .trans_size = 0,
+        .hres = 240,
+        .vres = 240,
+        .monochrome = false,
+        .rotation = {.swap_xy = false, .mirror_x = false, .mirror_y = false},
+        .rounder_cb = nullptr,
+        .color_format = LV_COLOR_FORMAT_RGB565,
+        .flags = {
+            .buff_dma = true,
+            .buff_spiram = true,
+            .sw_rotate = false,
+            .swap_bytes = true,
+            .full_refresh = false,
+            .direct_mode = false,
+        }
+    };
 
     display = lvgl_port_add_disp(&disp_cfg);
     if (display == nullptr) {
@@ -174,8 +171,7 @@ esp_err_t lhs154kc_panel::send_sequence(const lhs154kc::seq_t *seq, size_t seq_c
     esp_err_t ret = ESP_OK;
 
     for (size_t idx = 0; idx < seq_cnt; idx += 1) {
-        ret =
-            ret ?: esp_lcd_panel_io_tx_param(io_handle, seq[idx].reg, (seq[idx].len > 0 ? seq[idx].data : nullptr), seq[idx].len);
+        ret = ret ?: esp_lcd_panel_io_tx_param(io_handle, seq[idx].reg, (seq[idx].len > 0 ? seq[idx].data : nullptr), seq[idx].len);
     }
 
     return ret;

@@ -209,8 +209,10 @@ esp_err_t procedure_executor::exec_one(const step &s, target_backend &backend)
                 val = (val & concrete.mask) | concrete.data;
                 return backend.write_mem32(concrete.addr, val);
             } else if constexpr (std::is_same_v<T, poll32_step>) {
-                ESP_LOGI(TAG, "exec: poll32 0x%08lx mask 0x%08lx @ 0x%08lx, timeout %lums", concrete.expected, concrete.mask,
-                         concrete.addr, concrete.timeout_ms);
+                ESP_LOGI(
+                    TAG, "exec: poll32 0x%08lx mask 0x%08lx @ 0x%08lx, timeout %lums", concrete.expected, concrete.mask, concrete.addr,
+                    concrete.timeout_ms
+                );
                 int64_t deadline_us = esp_timer_get_time() + (int64_t)concrete.timeout_ms * 1000;
                 do {
                     uint32_t val = 0;
@@ -255,7 +257,8 @@ esp_err_t procedure_executor::exec_one(const step &s, target_backend &backend)
                 return ESP_ERR_NOT_SUPPORTED;
             }
         },
-        s);
+        s
+    );
 }
 
 esp_err_t procedure_executor::execute(target_backend &backend)
@@ -273,10 +276,10 @@ esp_err_t procedure_executor::execute(target_backend &backend)
                 [](auto &&concrete) {
                     return concrete.ignore_error;
                 },
-                steps[i]);
+                steps[i]
+            );
             if (ignore) {
-                ESP_LOGW(TAG, "exec: step %zu/%zu failed (0x%x) but ignore_error is set, continuing", i + 1, step_count,
-                         step_ret);
+                ESP_LOGW(TAG, "exec: step %zu/%zu failed (0x%x) but ignore_error is set, continuing", i + 1, step_count, step_ret);
             } else {
                 ESP_LOGE(TAG, "exec: step %zu/%zu failed (0x%x), aborting", i + 1, step_count, step_ret);
                 return step_ret;

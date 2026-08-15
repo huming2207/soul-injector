@@ -65,10 +65,8 @@ private:
     esp_err_t run_algo_init(swd_def::init_mode mode);
     esp_err_t run_algo_uninit(swd_def::init_mode mode);
     static inline uint32_t next_multiple_of(uint32_t input, uint32_t of);
-    inline esp_err_t perform_double_buffered_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page,
-                                                     uint32_t addr_offset);
-    inline esp_err_t perform_simple_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page,
-                                            uint32_t addr_offset);
+    inline esp_err_t perform_double_buffered_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset);
+    inline esp_err_t perform_simple_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset);
 
     /** Access to the currently loaded flash algorithm config. */
     static const si::config::flash_algorithm &algo();

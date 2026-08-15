@@ -47,8 +47,7 @@ esp_err_t ui_composer_noop::display_config()
     return ESP_OK;
 }
 
-esp_err_t ui_composer_noop::display_current(double min_ua, double max_ua, double avg_ua, const char *state,
-                                            lv_color_t state_color)
+esp_err_t ui_composer_noop::display_current(double min_ua, double max_ua, double avg_ua, const char *state, lv_color_t state_color)
 {
     (void)min_ua;
     (void)max_ua;

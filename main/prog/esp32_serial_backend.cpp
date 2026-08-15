@@ -140,8 +140,7 @@ esp_err_t esp32_serial_backend::connect_locked()
         return ESP_ERR_INVALID_STATE;
     }
     if (actual != wanted) {
-        ESP_LOGE(TAG, "detect: target chip mismatch: connected %d but target.yaml says %s (%d)", (int)actual, cfg.chip,
-                 (int)wanted);
+        ESP_LOGE(TAG, "detect: target chip mismatch: connected %d but target.yaml says %s (%d)", (int)actual, cfg.chip, (int)wanted);
         esp_loader_deinit(&loader);
         return ESP_ERR_INVALID_STATE;
     }
@@ -150,8 +149,10 @@ esp_err_t esp32_serial_backend::connect_locked()
     uint32_t flash_size = 0;
     if (cfg.flash_size_kb.has_value()) {
         if (cfg.flash_size_kb.value() > MAX_FLASH_SIZE_KB) {
-            ESP_LOGE(TAG, "detect: flash_size_kb %lu KB exceeds the %lu KB limit", (unsigned long)cfg.flash_size_kb.value(),
-                     (unsigned long)MAX_FLASH_SIZE_KB);
+            ESP_LOGE(
+                TAG, "detect: flash_size_kb %lu KB exceeds the %lu KB limit", (unsigned long)cfg.flash_size_kb.value(),
+                (unsigned long)MAX_FLASH_SIZE_KB
+            );
             esp_loader_deinit(&loader);
             return ESP_ERR_INVALID_SIZE;
         }
@@ -159,8 +160,10 @@ esp_err_t esp32_serial_backend::connect_locked()
 
         uint32_t detected = 0;
         if (esp_loader_flash_detect_size(&loader, &detected) == ESP_LOADER_SUCCESS && detected != flash_size) {
-            ESP_LOGW(TAG, "detect: detected flash size %lu differs from target.yaml override %lu; using override",
-                     (unsigned long)detected, (unsigned long)flash_size);
+            ESP_LOGW(
+                TAG, "detect: detected flash size %lu differs from target.yaml override %lu; using override", (unsigned long)detected,
+                (unsigned long)flash_size
+            );
         }
 
         /*
@@ -294,8 +297,10 @@ esp_err_t esp32_serial_backend::program_one_image(const char *path, uint32_t off
         uint32_t want = std::min((size_t)file_remaining, sizeof(block));
         size_t got = fread(block, 1, want, file);
         if (got != want) {
-            ESP_LOGE(TAG, "program: short read on %s at %lu/%lu bytes%s", path, (unsigned long)(real_len - file_remaining),
-                     (unsigned long)real_len, ferror(file) ? " (I/O error)" : " (file truncated?)");
+            ESP_LOGE(
+                TAG, "program: short read on %s at %lu/%lu bytes%s", path, (unsigned long)(real_len - file_remaining), (unsigned long)real_len,
+                ferror(file) ? " (I/O error)" : " (file truncated?)"
+            );
             fclose(file);
             return ESP_FAIL;
         }
@@ -309,8 +314,10 @@ esp_err_t esp32_serial_backend::program_one_image(const char *path, uint32_t off
 
         err = esp_loader_flash_write(&loader, &flash_cfg, block, send_len);
         if (err != ESP_LOADER_SUCCESS) {
-            ESP_LOGE(TAG, "program: flash_write failed for %s at %lu/%lu: %s", path, (unsigned long)(real_len - file_remaining),
-                     (unsigned long)real_len, loader_err_str(err));
+            ESP_LOGE(
+                TAG, "program: flash_write failed for %s at %lu/%lu: %s", path, (unsigned long)(real_len - file_remaining), (unsigned long)real_len,
+                loader_err_str(err)
+            );
             fclose(file);
             return loader_err_to_esp(err);
         }
@@ -377,8 +384,10 @@ esp_err_t esp32_serial_backend::verify_one_image(const char *path, uint32_t offs
         uint32_t want = std::min((size_t)file_remaining, sizeof(block));
         size_t got = fread(block, 1, want, file);
         if (got != want) {
-            ESP_LOGE(TAG, "verify: short read on %s at %lu/%lu bytes%s", path, (unsigned long)(real_len - file_remaining),
-                     (unsigned long)real_len, ferror(file) ? " (I/O error)" : " (file truncated?)");
+            ESP_LOGE(
+                TAG, "verify: short read on %s at %lu/%lu bytes%s", path, (unsigned long)(real_len - file_remaining), (unsigned long)real_len,
+                ferror(file) ? " (I/O error)" : " (file truncated?)"
+            );
             fclose(file);
             return ESP_FAIL;
         }

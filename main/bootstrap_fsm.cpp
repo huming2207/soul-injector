@@ -94,9 +94,10 @@ esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
     esp_efuse_mac_get_default(sn_buf);
     esp_flash_read_unique_chip_id(esp_flash_default_chip, &flash_uid);
     memcpy(sn_buf + 6, &flash_uid, sizeof(uint64_t));
-    snprintf(sn_str, sizeof(sn_str), "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x", sn_buf[0], sn_buf[1], sn_buf[2],
-             sn_buf[3], sn_buf[4], sn_buf[5], sn_buf[6], sn_buf[7], sn_buf[8], sn_buf[9], sn_buf[10], sn_buf[11], sn_buf[12],
-             sn_buf[13]);
+    snprintf(
+        sn_str, sizeof(sn_str), "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x", sn_buf[0], sn_buf[1], sn_buf[2], sn_buf[3], sn_buf[4],
+        sn_buf[5], sn_buf[6], sn_buf[7], sn_buf[8], sn_buf[9], sn_buf[10], sn_buf[11], sn_buf[12], sn_buf[13]
+    );
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -126,11 +127,12 @@ esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
         .fat_fs =
             {
                 .base_path = const_cast<char *>(DATA_PARTITION_PATH),
-                .config = {.format_if_mount_failed = true,
-                           .max_files = 10,
-                           .allocation_unit_size = 0,
-                           .disk_status_check_enable = false,
-                           .use_one_fat = false},
+                .config =
+                    {.format_if_mount_failed = true,
+                     .max_files = 10,
+                     .allocation_unit_size = 0,
+                     .disk_status_check_enable = false,
+                     .use_one_fat = false},
                 .do_not_format = false,
                 .format_flags = FM_ANY,
             },
@@ -177,11 +179,13 @@ esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
         return ret;
     }
 
-    tinyusb_config_cdcacm_t acm_cfg = {.cdc_port = TINYUSB_CDC_ACM_0,
-                                       .callback_rx = nullptr,
-                                       .callback_rx_wanted_char = nullptr,
-                                       .callback_line_state_changed = nullptr,
-                                       .callback_line_coding_changed = nullptr};
+    tinyusb_config_cdcacm_t acm_cfg = {
+        .cdc_port = TINYUSB_CDC_ACM_0,
+        .callback_rx = nullptr,
+        .callback_rx_wanted_char = nullptr,
+        .callback_line_state_changed = nullptr,
+        .callback_line_coding_changed = nullptr
+    };
     ret = tinyusb_cdcacm_init(&acm_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "setup_storage: failed at tinyusb_cdcacm_init: 0x%x %s", ret, esp_err_to_name(ret));

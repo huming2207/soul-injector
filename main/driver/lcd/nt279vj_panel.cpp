@@ -94,31 +94,28 @@ esp_err_t nt279vj_panel::init()
         return ret;
     }
 
-    lvgl_port_display_cfg_t disp_cfg = {.io_handle = io_handle,
-                                        .panel_handle = panel_handle,
-                                        .control_handle = nullptr,
-                                        .buffer_size = LCD_H_RES * LCD_V_RES,
-                                        .double_buffer = true,
-                                        .trans_size = 0,
-                                        .hres = LCD_H_RES,
-                                        .vres = LCD_V_RES,
-                                        .monochrome = false,
-                                        .rotation =
-                                            {
-                                                .swap_xy = true,
-                                                .mirror_x = true,
-                                                .mirror_y = false,
-                                            },
-                                        .rounder_cb = nullptr,
-                                        .color_format = LV_COLOR_FORMAT_RGB565,
-                                        .flags = {
-                                            .buff_dma = true,
-                                            .buff_spiram = true,
-                                            .sw_rotate = false,
-                                            .swap_bytes = true,
-                                            .full_refresh = false,
-                                            .direct_mode = false,
-                                        }};
+    lvgl_port_display_cfg_t disp_cfg = {
+        .io_handle = io_handle,
+        .panel_handle = panel_handle,
+        .control_handle = nullptr,
+        .buffer_size = LCD_H_RES * LCD_V_RES,
+        .double_buffer = true,
+        .trans_size = 0,
+        .hres = LCD_H_RES,
+        .vres = LCD_V_RES,
+        .monochrome = false,
+        .rotation = {.swap_xy = true, .mirror_x = true, .mirror_y = false},
+        .rounder_cb = nullptr,
+        .color_format = LV_COLOR_FORMAT_RGB565,
+        .flags = {
+            .buff_dma = true,
+            .buff_spiram = true,
+            .sw_rotate = false,
+            .swap_bytes = true,
+            .full_refresh = false,
+            .direct_mode = false,
+        }
+    };
 
     display = lvgl_port_add_disp(&disp_cfg);
     if (display == nullptr) {

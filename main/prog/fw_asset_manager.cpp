@@ -250,7 +250,9 @@ esp_err_t fw_asset_manager::init(const char *variant_name)
     cfg = tmp;
 
     ts = esp_timer_get_time() - ts;
-    ESP_LOGI(TAG, "init: OK (%lld ms): family=%s variant=%s gen=%lu algo_bin=%zu bytes", ts / 1000,
-             si::config::family_to_str(cfg.family), cfg.variant_name, (unsigned long)cfg.generation, cfg.algo.algo_bin_len);
+    ESP_LOGI(
+        TAG, "init: OK (%lld ms): family=%s variant=%s gen=%lu algo_bin=%zu bytes", ts / 1000, si::config::family_to_str(cfg.family),
+        cfg.variant_name, (unsigned long)cfg.generation, cfg.algo.algo_bin_len
+    );
     return ESP_OK;
 }

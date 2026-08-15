@@ -317,8 +317,10 @@ namespace
             return ret;
         fa.algo_bin = *algo_bin_out;
 
-        ESP_LOGI(TAG, "algorithm '%s': load=0x%08lx pc_init=%s pc_erase_all=%s bin=%zu bytes", fa.name, fa.load_address,
-                 fa.pc_init.has_value() ? "yes" : "no", fa.pc_erase_all.has_value() ? "yes" : "no", fa.algo_bin_len);
+        ESP_LOGI(
+            TAG, "algorithm '%s': load=0x%08lx pc_init=%s pc_erase_all=%s bin=%zu bytes", fa.name, fa.load_address,
+            fa.pc_init.has_value() ? "yes" : "no", fa.pc_erase_all.has_value() ? "yes" : "no", fa.algo_bin_len
+        );
 
         cfg.has_algo = true;
 
@@ -335,8 +337,7 @@ namespace
                     continue;
                 }
                 if (cfg.ram_region_count >= target_config::MAX_RAM_REGIONS) {
-                    ESP_LOGE(TAG, "more than %zu !Ram regions; increase target_config::MAX_RAM_REGIONS",
-                             target_config::MAX_RAM_REGIONS);
+                    ESP_LOGE(TAG, "more than %zu !Ram regions; increase target_config::MAX_RAM_REGIONS", target_config::MAX_RAM_REGIONS);
                     return ESP_ERR_INVALID_SIZE;
                 }
 
@@ -352,8 +353,10 @@ namespace
 
             const ram_region *largest = cfg.largest_ram_region();
             if (largest != nullptr) {
-                ESP_LOGI(TAG, "largest RAM region 0x%08lx-0x%08lx (%lu bytes, %zu regions total)", largest->start, largest->end,
-                         largest->size(), cfg.ram_region_count);
+                ESP_LOGI(
+                    TAG, "largest RAM region 0x%08lx-0x%08lx (%lu bytes, %zu regions total)", largest->start, largest->end, largest->size(),
+                    cfg.ram_region_count
+                );
             }
         }
 
@@ -501,8 +504,9 @@ namespace si::config
         cfg = tmp;
         *algo_bin_out = new_algo_bin;
 
-        ESP_LOGI(TAG, "parsed %s: variant '%s', generation %lu, %zu self tests", path, cfg.variant_name,
-                 (unsigned long)cfg.generation, cfg.test_count);
+        ESP_LOGI(
+            TAG, "parsed %s: variant '%s', generation %lu, %zu self tests", path, cfg.variant_name, (unsigned long)cfg.generation, cfg.test_count
+        );
         return ESP_OK;
     }
 

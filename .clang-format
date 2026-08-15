@@ -1,5 +1,5 @@
 BasedOnStyle: LLVM
-ColumnLimit: 130
+ColumnLimit: 150
 IndentWidth: 4
 ContinuationIndentWidth: 4
 TabWidth: 4
@@ -26,7 +26,7 @@ AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLambdasOnASingleLine: Empty
 AllowShortLoopsOnASingleLine: false
-AlignAfterOpenBracket: Align
+AlignAfterOpenBracket: BlockIndent
 AccessModifierOffset: -4
 BinPackArguments: true
 BinPackParameters: true

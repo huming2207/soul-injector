@@ -189,9 +189,15 @@ void offline_flasher::on_self_test()
 
 void offline_flasher::on_post_program()
 {
-    backend->begin_session();
+    auto ret = backend->begin_session();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "post_prog: cannot begin backend session: 0x%x", ret);
+        composer->display_error("ERROR", "Post-program fail");
+        state = flasher::ERROR;
+        return;
+    }
 
-    auto ret = post_program_steps.load_yaml(POST_PROG_STEP_FILE);
+    ret = post_program_steps.load_yaml(POST_PROG_STEP_FILE);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "post_prog: Can't load YAML, skipping");
         // Leaving the transport connected here would poison the next session.
@@ -313,9 +319,15 @@ esp_err_t offline_flasher::handle_states()
 void offline_flasher::on_pre_program()
 {
     led.set_color(0, 0xb7, 0xeb); // Cyan??
-    backend->begin_session();
+    auto ret = backend->begin_session();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "pre_prog: cannot begin backend session: 0x%x", ret);
+        composer->display_error("ERROR", "Pre-program fail");
+        state = flasher::ERROR;
+        return;
+    }
 
-    auto ret = pre_program_steps.load_yaml(PRE_PROG_STEP_FILE);
+    ret = pre_program_steps.load_yaml(PRE_PROG_STEP_FILE);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "pre_prog: Can't load YAML, skipping");
         state = flasher::DETECT; // To detect

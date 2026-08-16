@@ -5,6 +5,7 @@
 #include <cstring>
 #include <sys/stat.h>
 
+#include <driver/gpio.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 
@@ -93,8 +94,54 @@ static bool chip_from_name(const char *name, target_chip_t &out)
 
 esp_err_t esp32_serial_backend::begin_session()
 {
-    // Nothing SWD-like to bring up; the UART transport is opened in detect().
+    // Pre-program procedures run before detect(), so prepare only the control
+    // pins here. Opening the UART or entering download mode remains detect()'s
+    // responsibility.
+    return prepare_control_pins();
+}
+
+esp_err_t esp32_serial_backend::prepare_control_pins()
+{
+    const gpio_num_t reset_pin = (gpio_num_t)CONFIG_ESP_SWD_NRST_PIN;
+    const int reset_deasserted = SERIAL_FLASHER_RESET_INVERT ? 0 : 1;
+
+    esp_err_t ret = gpio_reset_pin(reset_pin);
+    ret = ret ?: gpio_set_pull_mode(reset_pin, GPIO_PULLUP_ONLY);
+    ret = ret ?: gpio_set_level(reset_pin, reset_deasserted);
+    ret = ret ?: gpio_set_direction(reset_pin, GPIO_MODE_OUTPUT);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "session: cannot configure target reset GPIO %d: %s", (int)reset_pin, esp_err_to_name(ret));
+        return ret;
+    }
+
+#if CONFIG_ESP_SWD_BOOT_PIN >= 0
+    const gpio_num_t boot_pin = (gpio_num_t)CONFIG_ESP_SWD_BOOT_PIN;
+    const int boot_deasserted = SERIAL_FLASHER_BOOT_INVERT ? 0 : 1;
+    ret = gpio_reset_pin(boot_pin);
+    ret = ret ?: gpio_set_pull_mode(boot_pin, GPIO_PULLUP_ONLY);
+    ret = ret ?: gpio_set_level(boot_pin, boot_deasserted);
+    ret = ret ?: gpio_set_direction(boot_pin, GPIO_MODE_OUTPUT);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "session: cannot configure target boot GPIO %d: %s", (int)boot_pin, esp_err_to_name(ret));
+        return ret;
+    }
+#endif
+
     return ESP_OK;
+}
+
+esp_err_t esp32_serial_backend::pulse_reset()
+{
+    const gpio_num_t reset_pin = (gpio_num_t)CONFIG_ESP_SWD_NRST_PIN;
+    const int reset_asserted = SERIAL_FLASHER_RESET_INVERT ? 1 : 0;
+    const int reset_deasserted = SERIAL_FLASHER_RESET_INVERT ? 0 : 1;
+
+    esp_err_t ret = gpio_set_level(reset_pin, reset_asserted);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    vTaskDelay(pdMS_TO_TICKS(SERIAL_FLASHER_RESET_HOLD_TIME_MS));
+    return gpio_set_level(reset_pin, reset_deasserted);
 }
 
 esp_err_t esp32_serial_backend::validate_images(uint32_t limit)
@@ -127,8 +174,8 @@ esp_err_t esp32_serial_backend::validate_images(uint32_t limit)
         const uint32_t padded_len = (real_len + 3u) & ~3u;
         if (image.offset > limit || padded_len > limit - image.offset) {
             ESP_LOGE(
-                TAG, "detect: image %s (%lu bytes) at 0x%08lx does not fit in %lu bytes of flash", image.path,
-                (unsigned long)padded_len, image.offset, (unsigned long)limit
+                TAG, "detect: image %s (%lu bytes) at 0x%08lx does not fit in %lu bytes of flash", image.path, (unsigned long)padded_len,
+                image.offset, (unsigned long)limit
             );
             return ESP_ERR_INVALID_SIZE;
         }
@@ -142,9 +189,7 @@ esp_err_t esp32_serial_backend::validate_images(uint32_t limit)
 
         for (size_t prev = 0; prev < i; prev++) {
             if (ranges[i].sector_start < ranges[prev].sector_end && ranges[prev].sector_start < ranges[i].sector_end) {
-                ESP_LOGE(
-                    TAG, "detect: image %s overlaps an erase sector used by %s", image.path, cfg.images[prev].path
-                );
+                ESP_LOGE(TAG, "detect: image %s overlaps an erase sector used by %s", image.path, cfg.images[prev].path);
                 return ESP_ERR_INVALID_ARG;
             }
         }
@@ -232,8 +277,7 @@ esp_err_t esp32_serial_backend::connect_locked()
         } else {
             flash_limit = configured_size;
             ESP_LOGW(
-                TAG, "detect: flash size detection failed (%s); using configured size %lu bytes", loader_err_str(err),
-                (unsigned long)flash_limit
+                TAG, "detect: flash size detection failed (%s); using configured size %lu bytes", loader_err_str(err), (unsigned long)flash_limit
             );
         }
 
@@ -581,10 +625,15 @@ esp_err_t esp32_serial_backend::release_transport()
 esp_err_t esp32_serial_backend::reset_target()
 {
     if (connected) {
+        // Also clears the library's stub/SPI state before pulsing reset.
         esp_loader_reset_target(&loader);
         return ESP_OK;
     }
-    return ESP_ERR_INVALID_STATE;
+
+    // A pre-program reset happens before detect() has opened the serial
+    // loader. Drive the control pin directly in that case.
+    esp_err_t ret = prepare_control_pins();
+    return ret == ESP_OK ? pulse_reset() : ret;
 }
 
 esp_err_t esp32_serial_backend::reinit_debug()

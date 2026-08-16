@@ -65,6 +65,8 @@ private:
     esp_err_t verify_one_image(const char *path, uint32_t offset);
     esp_err_t connect_locked();
     esp_err_t validate_images(uint32_t flash_limit);
+    esp_err_t prepare_control_pins();
+    esp_err_t pulse_reset();
 
     esp32_port_t port = {};
     esp_loader_t loader = {};

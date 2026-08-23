@@ -11,6 +11,62 @@
 
 #include "fw_asset_manager.hpp"
 
+namespace
+{
+    const si::config::target_config &esp32_control_cfg()
+    {
+        return fw_asset_manager::instance()->config();
+    }
+
+    void esp32_backend_reset_target(esp_loader_port_t *port)
+    {
+        esp32_port_t *p = container_of(port, esp32_port_t, port);
+        const si::config::target_config &cfg = esp32_control_cfg();
+        const int assert = cfg.reset_assert_level == si::config::assert_level::high ? 1 : 0;
+        const int deassert = cfg.reset_assert_level == si::config::assert_level::high ? 0 : 1;
+
+        gpio_set_level(p->reset_pin, assert);
+        vTaskDelay(pdMS_TO_TICKS(SERIAL_FLASHER_RESET_HOLD_TIME_MS));
+        gpio_set_level(p->reset_pin, deassert);
+    }
+
+    void esp32_backend_enter_bootloader(esp_loader_port_t *port)
+    {
+        esp32_port_t *p = container_of(port, esp32_port_t, port);
+        const si::config::target_config &cfg = esp32_control_cfg();
+        const int boot_assert = cfg.boot_assert_level == si::config::assert_level::high ? 1 : 0;
+        const int boot_deassert = cfg.boot_assert_level == si::config::assert_level::high ? 0 : 1;
+        const int reset_assert = cfg.reset_assert_level == si::config::assert_level::high ? 1 : 0;
+        const int reset_deassert = cfg.reset_assert_level == si::config::assert_level::high ? 0 : 1;
+
+        gpio_set_level(p->boot_pin, boot_assert);
+        gpio_set_level(p->reset_pin, reset_assert);
+        vTaskDelay(pdMS_TO_TICKS(SERIAL_FLASHER_RESET_HOLD_TIME_MS));
+        gpio_set_level(p->reset_pin, reset_deassert);
+        vTaskDelay(pdMS_TO_TICKS(SERIAL_FLASHER_BOOT_HOLD_TIME_MS));
+        gpio_set_level(p->boot_pin, boot_deassert);
+    }
+} // namespace
+
+static const esp_loader_port_ops_t esp32_uart_ops_custom = {
+    .init = esp32_uart_ops.init,
+    .deinit = esp32_uart_ops.deinit,
+    .enter_bootloader = esp32_backend_enter_bootloader,
+    .reset_target = esp32_backend_reset_target,
+    .start_timer = esp32_uart_ops.start_timer,
+    .remaining_time = esp32_uart_ops.remaining_time,
+    .delay_ms = esp32_uart_ops.delay_ms,
+    .log = esp32_uart_ops.log,
+    .log_hex = esp32_uart_ops.log_hex,
+    .change_transmission_rate = esp32_uart_ops.change_transmission_rate,
+    .write = esp32_uart_ops.write,
+    .read = esp32_uart_ops.read,
+    .spi_set_cs = esp32_uart_ops.spi_set_cs,
+    .sdio_write = esp32_uart_ops.sdio_write,
+    .sdio_read = esp32_uart_ops.sdio_read,
+    .sdio_card_init = esp32_uart_ops.sdio_card_init,
+};
+
 static esp_err_t loader_err_to_esp(esp_loader_error_t err)
 {
     switch (err) {
@@ -102,8 +158,9 @@ esp_err_t esp32_serial_backend::begin_session()
 
 esp_err_t esp32_serial_backend::prepare_control_pins()
 {
+    const si::config::target_config &cfg = fw_asset_manager::instance()->config();
     const gpio_num_t reset_pin = (gpio_num_t)CONFIG_ESP_SWD_NRST_PIN;
-    const int reset_deasserted = SERIAL_FLASHER_RESET_INVERT ? 0 : 1;
+    const int reset_deasserted = cfg.reset_assert_level == si::config::assert_level::high ? 0 : 1;
 
     esp_err_t ret = gpio_reset_pin(reset_pin);
     ret = ret ?: gpio_set_pull_mode(reset_pin, GPIO_PULLUP_ONLY);
@@ -116,7 +173,7 @@ esp_err_t esp32_serial_backend::prepare_control_pins()
 
 #if CONFIG_ESP_SWD_BOOT_PIN >= 0
     const gpio_num_t boot_pin = (gpio_num_t)CONFIG_ESP_SWD_BOOT_PIN;
-    const int boot_deasserted = SERIAL_FLASHER_BOOT_INVERT ? 0 : 1;
+    const int boot_deasserted = cfg.boot_assert_level == si::config::assert_level::high ? 0 : 1;
     ret = gpio_reset_pin(boot_pin);
     ret = ret ?: gpio_set_pull_mode(boot_pin, GPIO_PULLUP_ONLY);
     ret = ret ?: gpio_set_level(boot_pin, boot_deasserted);
@@ -132,9 +189,10 @@ esp_err_t esp32_serial_backend::prepare_control_pins()
 
 esp_err_t esp32_serial_backend::pulse_reset()
 {
+    const si::config::target_config &cfg = fw_asset_manager::instance()->config();
     const gpio_num_t reset_pin = (gpio_num_t)CONFIG_ESP_SWD_NRST_PIN;
-    const int reset_asserted = SERIAL_FLASHER_RESET_INVERT ? 1 : 0;
-    const int reset_deasserted = SERIAL_FLASHER_RESET_INVERT ? 0 : 1;
+    const int reset_asserted = cfg.reset_assert_level == si::config::assert_level::high ? 1 : 0;
+    const int reset_deasserted = cfg.reset_assert_level == si::config::assert_level::high ? 0 : 1;
 
     esp_err_t ret = gpio_set_level(reset_pin, reset_asserted);
     if (ret != ESP_OK) {
@@ -208,7 +266,7 @@ esp_err_t esp32_serial_backend::connect_locked()
     const si::config::target_config &cfg = fw_asset_manager::instance()->config();
 
     port = {};
-    port.port.ops = &esp32_uart_ops;
+    port.port.ops = &esp32_uart_ops_custom;
     port.baud_rate = 115200; // ROM loader sync rate; raised after connect
     port.uart_port = CONFIG_SI_ESP32_TARGET_UART_NUM;
     port.uart_rx_pin = (gpio_num_t)CONFIG_SI_ESP32_TARGET_UART_RX_PIN;
@@ -651,12 +709,33 @@ esp_err_t esp32_serial_backend::wait_halt()
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-esp_err_t esp32_serial_backend::read_mem32(uint32_t /*addr*/, uint32_t * /*val*/)
+esp_err_t esp32_serial_backend::read_mem32(uint32_t addr, uint32_t *val)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    if (val == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!connected) {
+        ESP_LOGE(TAG, "read_mem32: target not connected; register access is only available after detect()");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_loader_error_t err = esp_loader_read_register(&loader, addr, val);
+    if (err != ESP_LOADER_SUCCESS) {
+        ESP_LOGE(TAG, "read_mem32: register read @ 0x%08lx failed: %s", addr, loader_err_str(err));
+    }
+    return loader_err_to_esp(err);
 }
 
-esp_err_t esp32_serial_backend::write_mem32(uint32_t /*addr*/, uint32_t /*val*/)
+esp_err_t esp32_serial_backend::write_mem32(uint32_t addr, uint32_t val)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    if (!connected) {
+        ESP_LOGE(TAG, "write_mem32: target not connected; register access is only available after detect()");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_loader_error_t err = esp_loader_write_register(&loader, addr, val);
+    if (err != ESP_LOADER_SUCCESS) {
+        ESP_LOGE(TAG, "write_mem32: register write @ 0x%08lx failed: %s", addr, loader_err_str(err));
+    }
+    return loader_err_to_esp(err);
 }

@@ -373,7 +373,25 @@ namespace
     // ESP32 parsing
     // -------------------------------------------------------------------
 
-    esp_err_t parse_esp32(ryml::ConstNodeRef /*root*/, ryml::ConstNodeRef variant, target_config &cfg)
+    esp_err_t parse_assert_level(ryml::ConstNodeRef node, const char *key, si::config::assert_level &out)
+    {
+        if (!node.has_child(key)) {
+            return ESP_OK;
+        }
+
+        ryml::csubstr val = node[key].val();
+        if (val == "low") {
+            out = si::config::assert_level::low;
+        } else if (val == "high") {
+            out = si::config::assert_level::high;
+        } else {
+            ESP_LOGE(TAG, "control_pins.%s must be 'low' or 'high' (got '%.*s')", key, (int)val.len, val.str);
+            return ESP_ERR_INVALID_ARG;
+        }
+        return ESP_OK;
+    }
+
+    esp_err_t parse_esp32(ryml::ConstNodeRef root, ryml::ConstNodeRef variant, target_config &cfg)
     {
         auto ret = yaml_doc::get_str(variant, "chip", cfg.chip, sizeof(cfg.chip));
         if (ret != ESP_OK) {
@@ -392,6 +410,20 @@ namespace
         if (ret != ESP_OK)
             return ret;
         cfg.baud = baud.value_or(115200);
+
+        // Board-level control pin polarity. Defaults are already set in the
+        // target_config initialisers; only override fields that are present.
+        if (root.has_child("control_pins")) {
+            ryml::ConstNodeRef pins = root["control_pins"];
+            if (!pins.is_map()) {
+                ESP_LOGE(TAG, "'control_pins' is not a map");
+                return ESP_ERR_INVALID_STATE;
+            }
+            ret = parse_assert_level(pins, "reset_assert_level", cfg.reset_assert_level);
+            ret = ret ?: parse_assert_level(pins, "boot_assert_level", cfg.boot_assert_level);
+            if (ret != ESP_OK)
+                return ret;
+        }
 
         if (!variant.has_child("images")) {
             ESP_LOGE(TAG, "esp32 family requires an 'images' list");

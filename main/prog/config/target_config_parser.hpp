@@ -36,6 +36,9 @@
  * Schema (esp32 family):
  *
  *   family: esp32
+ *   control_pins:               # optional; board-level electrical convention
+ *     reset_assert_level: high  # low (default) | high
+ *     boot_assert_level: low    # low (default) | high
  *   variants:
  *     - name: esp32s31
  *       chip: esp32s31

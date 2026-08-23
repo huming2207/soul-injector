@@ -49,6 +49,16 @@ namespace si::config
         return false;
     }
 
+    /**
+     * Physical level that asserts a target control signal. Used by the esp32
+     * family for the programming-header reset/boot pins, because that is a
+     * board-level wiring property and differs between board revisions.
+     */
+    enum class assert_level : uint8_t {
+        low = 0,
+        high = 1,
+    };
+
     /** Self test entry (top-level `self_tests` in target.yaml). */
     struct test_item {
         enum type : int32_t {
@@ -156,6 +166,12 @@ namespace si::config
         size_t image_count = 0;
         std::optional<uint32_t> flash_size_kb; // absent = detect from the target
         uint32_t baud = 115200;                // programming baud rate
+
+        // Programming-header control pin electrical conventions (board-level).
+        // Defaults match the legacy direct GPIO revisions: reset and boot are
+        // both asserted by driving the header pin low.
+        assert_level reset_assert_level = assert_level::low;
+        assert_level boot_assert_level = assert_level::low;
 
         // ---- common ----
         test_item tests[MAX_TESTS] = {};

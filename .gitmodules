@@ -25,3 +25,6 @@
 [submodule "components/esp-serial-flasher"]
 	path = components/esp-serial-flasher
 	url = https://github.com/espressif/esp-serial-flasher.git
+[submodule "components/sidp_client"]
+	path = components/sidp_client
+	url = https://github.com/huming2207/sidp_client

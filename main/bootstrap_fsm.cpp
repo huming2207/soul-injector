@@ -179,19 +179,6 @@ esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
         return ret;
     }
 
-    tinyusb_config_cdcacm_t acm_cfg = {
-        .cdc_port = TINYUSB_CDC_ACM_0,
-        .callback_rx = nullptr,
-        .callback_rx_wanted_char = nullptr,
-        .callback_line_state_changed = nullptr,
-        .callback_line_coding_changed = nullptr
-    };
-    ret = tinyusb_cdcacm_init(&acm_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "setup_storage: failed at tinyusb_cdcacm_init: 0x%x %s", ret, esp_err_to_name(ret));
-        return ret;
-    }
-
     // Set back to expose to MSC
     if (expose_usb) {
         ret = tinyusb_msc_set_storage_mount_point(tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_USB);

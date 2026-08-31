@@ -13,7 +13,6 @@
 #include <tinyusb.h>
 #include <tinyusb_default_config.h>
 #include <tinyusb_msc.h>
-#include <tinyusb_cdc_acm.h>
 
 class bootstrap_fsm
 {

@@ -85,3 +85,8 @@ idf_component_register(
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-deprecated-enum-enum-conversion" "-fpermissive")
+
+# The bundled ryml header recognizes RISC-V CPUs but lacks a RISC-V platform branch.
+if(CONFIG_IDF_TARGET_ESP32S31)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE "_C4_PLATFORM_HPP_")
+endif()

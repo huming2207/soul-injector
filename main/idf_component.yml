@@ -18,3 +18,4 @@ dependencies:
   #   # All dependencies of `main` are public by default.
   #   public: true
   espressif/usb: '*'
+  espressif/esp_modem: ^2.1.0

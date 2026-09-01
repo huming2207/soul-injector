@@ -14,6 +14,9 @@ set(SI_MAIN_SRCS
     "prog/procedure_executor.cpp" "prog/includes/procedure_executor.hpp"
     "comm/wifi_manager.cpp" "comm/wifi_manager.hpp"
     "comm/modem_manager.cpp" "comm/modem_manager.hpp"
+    "comm/quectel_dte.cpp" "comm/quectel_dte.hpp"
+    "comm/ping_test.cpp" "comm/ping_test.hpp"
+    "comm/modem_manager.cpp" "comm/modem_manager.hpp"
     "bootstrap_fsm.cpp" "bootstrap_fsm.hpp"
     "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
     "ui/ui_composer_noop.cpp" "ui/ui_composer_noop.hpp"
@@ -42,6 +45,9 @@ if(CONFIG_SI_DISP_ENABLE)
     )
 endif()
 
+# esp_modem's UART terminal creator lives in the component's private headers
+idf_component_get_property(ESP_MODEM_DIR espressif__esp_modem COMPONENT_DIR)
+
 idf_component_register(
     SRCS
         ${SI_MAIN_SRCS}
@@ -55,6 +61,7 @@ idf_component_register(
         "driver" "driver/lcd"
         "external"
         "ui"
+        "${ESP_MODEM_DIR}/private_include"
 
     PRIV_REQUIRES
         "swd_esp"

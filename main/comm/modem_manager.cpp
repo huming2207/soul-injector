@@ -11,6 +11,7 @@
 #include <driver/gpio.h>
 #include "esp_modem_config.h"
 #include "modem_manager.hpp"
+#include "quectel_dte.hpp"
 
 esp_err_t modem_manager::init()
 {
@@ -38,10 +39,24 @@ esp_err_t modem_manager::init()
     gpio_set_level(CELL_PWRKEY_PIN, 0);
     gpio_set_level(CELL_RST_PIN, 0);
 
-    // Hold DTR low so the modem won't enter sleep mode
+    // DTR defaults high, which lets the modem sleep, the Quectel DTE pulls it low to wake the modem up
     gpio_reset_pin(CELL_DTR_PIN);
     gpio_set_direction(CELL_DTR_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_level(CELL_DTR_PIN, 0);
+    gpio_set_pull_mode(CELL_DTR_PIN, GPIO_PULLUP_ONLY);
+    gpio_set_level(CELL_DTR_PIN, 1);
+
+    // Turn the modem's status LEDs on, the modem blinks them itself through its status pins
+    gpio_config_t led_cfg = {};
+    led_cfg.pin_bit_mask = (1ULL << CELL_LED_PIN);
+    led_cfg.mode = GPIO_MODE_OUTPUT;
+    led_cfg.intr_type = GPIO_INTR_DISABLE;
+    ret = ret ?: gpio_config(&led_cfg);
+    ret = ret ?: gpio_set_pull_mode(CELL_LED_PIN, GPIO_PULLUP_ONLY);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Can't config the modem's status LEDs: 0x%x %s", ret, esp_err_to_name(ret));
+        return ret;
+    }
+    gpio_set_level(CELL_LED_PIN, 1);
 
     esp_netif_config_t netif_cfg = ESP_NETIF_DEFAULT_PPP();
     netif = esp_netif_new(&netif_cfg);
@@ -106,14 +121,10 @@ void modem_manager::modem_task_func(void *_ctx)
 
 void modem_manager::modem_task_handler()
 {
-    // The modem may already be running (e.g. after a soft reboot), in that case the first setup attempt
-    // just succeeds and the power key is never touched. Pressing the power key on a running modem would
-    // power it off instead!
+    // Force a power on, the modem's power state is unknown after each reboot
+    power_on();
+
     esp_err_t ret = setup_modem();
-    if (ret != ESP_OK) {
-        power_on();
-        ret = setup_modem();
-    }
 
     while (true) {
         while (ret != ESP_OK) {
@@ -137,9 +148,10 @@ void modem_manager::modem_task_handler()
                 continue;
             }
 
-            // Connected, now just wait till the link drops, then re-dial
+            // Connected, wait till the link drops, then recover the radio and re-dial
             xEventGroupWaitBits(evt_group, BIT_LINK_DOWN, pdTRUE, pdFALSE, portMAX_DELAY);
-            ESP_LOGW(TAG, "PPP link down, re-dialing");
+            ESP_LOGW(TAG, "PPP link down, recovering the radio");
+            recover_radio();
         }
     }
 }
@@ -196,7 +208,7 @@ esp_err_t modem_manager::setup_modem()
 
     esp_modem_dce_config_t dce_config = ESP_MODEM_DCE_DEFAULT_CONFIG(CELL_APN);
 
-    dte = esp_modem::create_uart_dte(&dte_config);
+    dte = QuectelDTE::create(&dte_config, CELL_DTR_PIN);
     if (dte == nullptr) {
         ESP_LOGE(TAG, "Can't create the UART DTE");
         return ESP_FAIL;
@@ -208,19 +220,43 @@ esp_err_t modem_manager::setup_modem()
         return ESP_FAIL;
     }
 
+    // Start every setup session from a clean event state
+    xEventGroupClearBits(evt_group, BIT_CONNECTED | BIT_LINK_DOWN);
+
     // Wait for the modem to answer AT commands, it may still be booting up
-    esp_modem::command_result res = esp_modem::command_result::TIMEOUT;
-    for (uint32_t attempt = 0; attempt < SYNC_RETRY_ATTEMPTS; attempt++) {
-        res = dce->sync();
-        if (res == esp_modem::command_result::OK) {
-            break;
+    if (wait_till_synced(SYNC_RETRY_ATTEMPTS, SYNC_RETRY_DELAY_MS)) {
+        // Raise the baud rate, the modem side first and then the host side
+        if (dce->set_baud(CELL_BAUD_FAST) != esp_modem::command_result::OK) {
+            ESP_LOGE(TAG, "Can't raise the modem's baud rate");
+            return ESP_FAIL;
         }
-        vTaskDelay(pdMS_TO_TICKS(SYNC_RETRY_DELAY_MS));
+        if (uart_set_baudrate(CELL_UART_PORT, CELL_BAUD_FAST) != ESP_OK) {
+            ESP_LOGE(TAG, "Can't raise the UART's baud rate");
+            return ESP_FAIL;
+        }
+        if (!wait_till_synced(BAUD_SYNC_ATTEMPTS, BAUD_SYNC_DELAY_MS)) {
+            ESP_LOGE(TAG, "The modem doesn't respond after the baud rate change");
+            return ESP_ERR_TIMEOUT;
+        }
+    } else {
+        // The modem may have been left at the fast baud rate from a previous session
+        uart_set_baudrate(CELL_UART_PORT, CELL_BAUD_FAST);
+        if (!wait_till_synced(BAUD_SYNC_ATTEMPTS, BAUD_SYNC_DELAY_MS)) {
+            ESP_LOGE(TAG, "The modem doesn't respond to AT");
+            return ESP_ERR_TIMEOUT;
+        }
     }
 
-    if (res != esp_modem::command_result::OK) {
-        ESP_LOGE(TAG, "The modem doesn't respond to AT");
-        return ESP_ERR_TIMEOUT;
+    // Ignore DTR line state changes so they won't hang up the data call
+    std::string out = {};
+    if (dce->at("AT&D0", out, 300) != esp_modem::command_result::OK) {
+        ESP_LOGW(TAG, "Can't disable the DTR's default function");
+    }
+
+    // Put the modem to sleep when the DTR line goes high, the Quectel DTE toggles DTR for every transaction
+    out.clear();
+    if (dce->at("AT+QSCLK=1", out, 300) != esp_modem::command_result::OK) {
+        ESP_LOGW(TAG, "Can't enable the modem's sleep mode");
     }
 
     // Match the modem's flow control with the UART's hardware flow control
@@ -229,12 +265,36 @@ esp_err_t modem_manager::setup_modem()
         return ESP_FAIL;
     }
 
+    // Put back the host-side hardware flow control
+    uart_wait_tx_done(CELL_UART_PORT, portMAX_DELAY);
+    if (uart_set_hw_flow_ctrl(CELL_UART_PORT, UART_HW_FLOWCTRL_CTS_RTS, UART_HW_FIFO_LEN(CELL_UART_PORT) - 8) != ESP_OK) {
+        ESP_LOGE(TAG, "Can't set the UART's hardware flow control");
+        return ESP_FAIL;
+    }
+
+    if (!wait_till_synced(BAUD_SYNC_ATTEMPTS, BAUD_SYNC_DELAY_MS)) {
+        ESP_LOGE(TAG, "The modem doesn't respond after the flow control setup");
+        return ESP_ERR_TIMEOUT;
+    }
+
     std::string imei = {};
     if (dce->get_imei(imei) == esp_modem::command_result::OK) {
         ESP_LOGI(TAG, "Modem IMEI: %s", imei.c_str());
     }
 
     return ESP_OK;
+}
+
+bool modem_manager::wait_till_synced(uint32_t attempts, uint32_t delay_ms)
+{
+    for (uint32_t attempt = 0; attempt < attempts; attempt++) {
+        if (dce->sync() == esp_modem::command_result::OK) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+
+    return false;
 }
 
 esp_err_t modem_manager::wait_for_registration()
@@ -288,6 +348,8 @@ esp_err_t modem_manager::dial_out()
         }
 
         ESP_LOGW(TAG, "Dial out failed (attempt %lu)", (unsigned long)(attempt + 1));
+        // Fall back to command mode, so the next dial attempt starts from a known state
+        dce->set_mode(esp_modem::modem_mode::COMMAND_MODE);
         vTaskDelay(pdMS_TO_TICKS(DIAL_RETRY_DELAY_MS));
     }
 
@@ -331,6 +393,31 @@ int32_t modem_manager::parse_cereg(const std::string &out)
     return (int32_t)stat;
 }
 
+void modem_manager::recover_radio()
+{
+    // Return to command mode first, the radio commands won't get through in data mode
+    if (!dce->set_mode(esp_modem::modem_mode::COMMAND_MODE)) {
+        ESP_LOGW(TAG, "Can't return to command mode for the radio recovery");
+        return;
+    }
+
+    std::string out = {};
+    if (dce->at("AT+CFUN=0", out, CFUN_TIMEOUT_MS) != esp_modem::command_result::OK) {
+        ESP_LOGE(TAG, "Can't turn the radio off");
+        return;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(RADIO_RECOVER_DELAY_MS));
+
+    out.clear();
+    if (dce->at("AT+CFUN=1", out, CFUN_TIMEOUT_MS) != esp_modem::command_result::OK) {
+        ESP_LOGE(TAG, "Can't turn the radio back on");
+        return;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(RADIO_RECOVER_DELAY_MS));
+}
+
 void modem_manager::ip_event_handler(void *_ctx, esp_event_base_t evt_base, int32_t evt_id, void *evt_data)
 {
     auto *ctx = static_cast<modem_manager *>(_ctx);
@@ -346,11 +433,15 @@ void modem_manager::ip_event_handler(void *_ctx, esp_event_base_t evt_base, int3
             ctx->got_ip_cb(&event->ip_info);
         }
     } else if (evt_id == IP_EVENT_PPP_LOST_IP) {
-        ESP_LOGW(TAG, "Lost IP!");
-        xEventGroupClearBits(ctx->evt_group, BIT_CONNECTED);
-        xEventGroupSetBits(ctx->evt_group, BIT_LINK_DOWN);
-        if (ctx->lost_ip_cb) {
-            ctx->lost_ip_cb();
+        // Only treat this as a link loss when the link was actually up, otherwise intentional
+        // netif stops during mode switches would look like accidental disconnections
+        if ((xEventGroupGetBits(ctx->evt_group) & BIT_CONNECTED) != 0) {
+            ESP_LOGW(TAG, "Lost IP!");
+            xEventGroupClearBits(ctx->evt_group, BIT_CONNECTED);
+            xEventGroupSetBits(ctx->evt_group, BIT_LINK_DOWN);
+            if (ctx->lost_ip_cb) {
+                ctx->lost_ip_cb();
+            }
         }
     }
 }
@@ -363,11 +454,15 @@ void modem_manager::ppp_event_handler(void *_ctx, esp_event_base_t evt_base, int
     }
 
     if (evt_id > NETIF_PPP_ERRORNONE && evt_id <= NETIF_PPP_ERRORLOOPBACK) {
-        ESP_LOGW(TAG, "Got PPP error 0x%lx", (unsigned long)evt_id);
-        xEventGroupClearBits(ctx->evt_group, BIT_CONNECTED);
-        xEventGroupSetBits(ctx->evt_group, BIT_LINK_DOWN);
-        if (ctx->lost_ip_cb) {
-            ctx->lost_ip_cb();
+        // Only treat this as a link loss when the link was actually up, an intentional netif stop
+        // during a mode switch also reports as a PPP error (NETIF_PPP_ERRORUSER)
+        if ((xEventGroupGetBits(ctx->evt_group) & BIT_CONNECTED) != 0) {
+            ESP_LOGW(TAG, "Got PPP error 0x%lx", (unsigned long)evt_id);
+            xEventGroupClearBits(ctx->evt_group, BIT_CONNECTED);
+            xEventGroupSetBits(ctx->evt_group, BIT_LINK_DOWN);
+            if (ctx->lost_ip_cb) {
+                ctx->lost_ip_cb();
+            }
         }
     }
 }

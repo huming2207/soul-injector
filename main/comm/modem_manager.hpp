@@ -77,8 +77,10 @@ private:
     void hardware_reset();
     void dispose_modem();
     esp_err_t setup_modem();
+    bool wait_till_synced(uint32_t attempts, uint32_t delay_ms);
     esp_err_t wait_for_registration();
     esp_err_t dial_out();
+    void recover_radio();
     static int32_t parse_cereg(const std::string &out);
 
 private:
@@ -101,12 +103,15 @@ private:
     static const constexpr int CELL_RTS_PIN = 42;
     static const constexpr int CELL_CTS_PIN = 43;
     static const constexpr int CELL_BAUD_RATE = 115200;
+    static const constexpr int CELL_BAUD_FAST = 921600;
 
     // Modem's control lines, PWRKEY and RESET_N are pulled low through open-drain drivers,
     // DTR goes through the level shifter as is
     static const constexpr gpio_num_t CELL_PWRKEY_PIN = GPIO_NUM_49;
     static const constexpr gpio_num_t CELL_RST_PIN = GPIO_NUM_48;
     static const constexpr gpio_num_t CELL_DTR_PIN = GPIO_NUM_45;
+    // Enables the modem's status LEDs, the modem drives them itself through its status pins
+    static const constexpr gpio_num_t CELL_LED_PIN = GPIO_NUM_40;
 
     // TODO: hardcoded APN for now
     static const constexpr char CELL_APN[] = "quectel.st.std";
@@ -116,6 +121,12 @@ private:
     // Sync (AT) attempts before the modem is considered dead
     static const constexpr uint32_t SYNC_RETRY_ATTEMPTS = 20;
     static const constexpr uint32_t SYNC_RETRY_DELAY_MS = 500;
+    // Sync attempts after a baud rate or a flow control change
+    static const constexpr uint32_t BAUD_SYNC_ATTEMPTS = 10;
+    static const constexpr uint32_t BAUD_SYNC_DELAY_MS = 100;
+    // Radio off/on recovery for an unexpected link loss
+    static const constexpr uint32_t CFUN_TIMEOUT_MS = 20000;
+    static const constexpr uint32_t RADIO_RECOVER_DELAY_MS = 30000;
     // Network registration poll, registration can legitimately take a while on LTE
     static const constexpr uint32_t REG_MAX_ATTEMPTS = 450;
     static const constexpr uint32_t REG_POLL_DELAY_MS = 2000;

@@ -13,6 +13,7 @@ set(SI_MAIN_SRCS
     "prog/includes/current_tester.hpp"
     "prog/procedure_executor.cpp" "prog/includes/procedure_executor.hpp"
     "comm/wifi_manager.cpp" "comm/wifi_manager.hpp"
+    "comm/modem_manager.cpp" "comm/modem_manager.hpp"
     "bootstrap_fsm.cpp" "bootstrap_fsm.hpp"
     "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
     "ui/ui_composer_noop.cpp" "ui/ui_composer_noop.hpp"

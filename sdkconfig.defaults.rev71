@@ -1,5 +1,6 @@
 # Soul Injector Rev 7.1 hardware defaults.
 CONFIG_SI_DEVICE_BUILD="7.1"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 
 # Rev 7.1 NT279VJ-C10-01-V1 display.
 CONFIG_SI_DISP_ENABLE=y

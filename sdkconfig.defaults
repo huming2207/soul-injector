@@ -1,7 +1,4 @@
-    # This file was generated using idf.py save-defconfig. It can be edited manually.
-    # Espressif IoT Development Framework (ESP-IDF) 6.0.0 Project Minimal Configuration
-    #
-    # default:
+# Common Soul Injector defaults shared by all supported hardware revisions.
 CONFIG_APP_RETRIEVE_LEN_ELF_SHA=16
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y

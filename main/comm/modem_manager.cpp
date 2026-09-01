@@ -2,6 +2,7 @@
 // Created by hu on 1/9/26.
 //
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <esp_event.h>
@@ -9,9 +10,11 @@
 #include <esp_netif.h>
 #include <esp_netif_ppp.h>
 #include <driver/gpio.h>
+#include <esp_sleep.h>
 #include "esp_modem_config.h"
 #include "modem_manager.hpp"
 #include "quectel_dte.hpp"
+#include "driver/uart_wakeup.h"
 
 esp_err_t modem_manager::init()
 {
@@ -92,6 +95,11 @@ esp_err_t modem_manager::init()
 bool modem_manager::is_connected()
 {
     return evt_group != nullptr && (xEventGroupGetBits(evt_group) & BIT_CONNECTED) != 0;
+}
+
+esp_netif_t *modem_manager::get_netif() const
+{
+    return netif;
 }
 
 esp_err_t modem_manager::wait_for_connect(uint32_t timeout_ticks)
@@ -230,10 +238,23 @@ esp_err_t modem_manager::setup_modem()
             ESP_LOGE(TAG, "Can't raise the modem's baud rate");
             return ESP_FAIL;
         }
+
+        esp_err_t ret = esp_sleep_enable_uart_wakeup(CELL_UART_PORT);
+
+        uart_wakeup_cfg_t wakeup_cfg = {};
+        wakeup_cfg.wakeup_mode = UART_WK_MODE_FIFO_THRESH;
+        wakeup_cfg.rx_fifo_threshold = 1;
+        ret = ret ?: uart_wakeup_setup(CELL_UART_PORT, &wakeup_cfg);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Wakeup setup failed");
+            return ESP_FAIL;
+        }
+
         if (uart_set_baudrate(CELL_UART_PORT, CELL_BAUD_FAST) != ESP_OK) {
             ESP_LOGE(TAG, "Can't raise the UART's baud rate");
             return ESP_FAIL;
         }
+
         if (!wait_till_synced(BAUD_SYNC_ATTEMPTS, BAUD_SYNC_DELAY_MS)) {
             ESP_LOGE(TAG, "The modem doesn't respond after the baud rate change");
             return ESP_ERR_TIMEOUT;
@@ -337,6 +358,9 @@ esp_err_t modem_manager::dial_out()
         }
     }
 
+    // Log the signal strength before dialing, this covers the first dial and every re-dial after a drop
+    log_servingcell();
+
     xEventGroupClearBits(evt_group, BIT_CONNECTED);
 
     // Dial out and switch the DTE to the PPP data mode
@@ -391,6 +415,31 @@ int32_t modem_manager::parse_cereg(const std::string &out)
     }
 
     return (int32_t)stat;
+}
+
+void modem_manager::log_servingcell()
+{
+    std::string out = {};
+    if (dce->at(R"(AT+QENG="servingcell")", out, 300) != esp_modem::command_result::OK) {
+        ESP_LOGW(TAG, "Can't query the serving cell");
+        return;
+    }
+
+    const char *lte = strstr(out.c_str(), "\"LTE\"");
+    if (lte == nullptr) {
+        // Not camped on an LTE cell (e.g. still searching), no signal fields to parse
+        ESP_LOGW(TAG, "Serving cell: %.*s", (int)out.length(), out.c_str());
+        return;
+    }
+
+    // LTE field list after "LTE":
+    // <duplex>,<mcc>,<mnc>,<cellid>,<pcid>,<earfcn>,<band>,<ul_bw>,<dl_bw>,<tac>,<rsrp>,<rsrq>,<rssi>,<sinr>,<srxlev>
+    int rsrp = 0, rsrq = 0, rssi = 0, sinr = 0;
+    if (sscanf(lte, "\"LTE\",%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%d,%d,%d,%d", &rsrp, &rsrq, &rssi, &sinr) == 4) {
+        ESP_LOGI(TAG, "Serving cell RSRP: %d dBm, RSRQ: %d dB, RSSI: %d dBm, SINR: %d dB", rsrp, rsrq, rssi, sinr);
+    } else {
+        ESP_LOGW(TAG, "Serving cell: %.*s", (int)out.length(), out.c_str());
+    }
 }
 
 void modem_manager::recover_radio()

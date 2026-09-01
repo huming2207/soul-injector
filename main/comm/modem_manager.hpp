@@ -67,6 +67,12 @@ public:
     void set_got_ip_cb(const std::function<void(esp_netif_ip_info_t *)> &cb);
     void set_lost_ip_cb(const std::function<void()> &cb);
 
+    /**
+     * Get the PPP netif handle the modem dials through
+     * @return esp_netif_t handle, nullptr when not initialised
+     */
+    esp_netif_t *get_netif() const;
+
 private:
     static void modem_task_func(void *_ctx);
     static void ip_event_handler(void *_ctx, esp_event_base_t evt_base, int32_t evt_id, void *evt_data);
@@ -80,6 +86,7 @@ private:
     bool wait_till_synced(uint32_t attempts, uint32_t delay_ms);
     esp_err_t wait_for_registration();
     esp_err_t dial_out();
+    void log_servingcell();
     void recover_radio();
     static int32_t parse_cereg(const std::string &out);
 

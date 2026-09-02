@@ -14,6 +14,8 @@
 #include <tinyusb_default_config.h>
 #include <tinyusb_msc.h>
 
+#include "modem_manager.hpp"
+
 class bootstrap_fsm
 {
 public:
@@ -57,6 +59,7 @@ private:
     TimerHandle_t det_debounce_timer = nullptr;
     EventGroupHandle_t evt_group = nullptr;
     display_manager *display = nullptr;
+    modem_manager *modem = nullptr;
     ui_composer *composer = nullptr;
     char sn_str[32] = {0};
     wifi_manager wifi = {};

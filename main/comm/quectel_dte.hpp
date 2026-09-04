@@ -1,12 +1,8 @@
-//
-// Created by hu on 1/9/26.
-//
-
-#ifndef SOULINJECTOR_QUECTEL_DTE_HPP
-#define SOULINJECTOR_QUECTEL_DTE_HPP
+#pragma once
 
 #include <memory>
 #include <string>
+#include <esp_pm.h>
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include "cxx_include/esp_modem_dte.hpp"
@@ -24,6 +20,11 @@ public:
         const esp_modem_dte_config *config, std::unique_ptr<esp_modem::Terminal> terminal, uart_port_t port, gpio_num_t dtr = GPIO_NUM_NC
     ) : esp_modem::DTE(config, std::move(terminal)), dtr_pin(dtr), uart_port(port)
     {
+        esp_err_t ret = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, TAG, &pm_lock);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Can't create the modem setup PM lock: 0x%x %s", ret, esp_err_to_name(ret));
+        }
+
     }
     ~QuectelDTE() override = default;
 
@@ -58,6 +59,7 @@ private:
 private:
     gpio_num_t dtr_pin;
     uart_port_t uart_port;
+    esp_pm_lock_handle_t pm_lock = nullptr;
+    static constexpr char TAG[] = "quectel_dte";
 };
 
-#endif //SOULINJECTOR_QUECTEL_DTE_HPP

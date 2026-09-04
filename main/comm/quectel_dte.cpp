@@ -1,6 +1,4 @@
-//
-// Created by hu on 1/9/26.
-//
+#include <esp_pm.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -38,6 +36,7 @@ void QuectelDTE::wake_modem()
     }
 
     gpio_set_level(dtr_pin, 0); // Low for waking the modem up
+    esp_pm_lock_acquire(pm_lock);
     vTaskDelay(1);
 }
 
@@ -49,12 +48,19 @@ void QuectelDTE::allow_sleep()
 
     uart_wait_tx_done(uart_port, portMAX_DELAY);
     gpio_set_level(dtr_pin, 1); // High for letting the modem sleep again
+    esp_pm_lock_release(pm_lock);
 }
 
 std::shared_ptr<QuectelDTE> QuectelDTE::create(const esp_modem_dte_config *config, gpio_num_t dtr)
 {
+    if (gpio_sleep_sel_dis(dtr) != ESP_OK) {
+        ESP_LOGE(TAG, "create: DTR pin invalid for light sleep");
+        return nullptr;
+    }
+
     auto terminal = esp_modem::create_uart_terminal(config);
     if (terminal == nullptr) {
+        ESP_LOGE(TAG, "create: failed to create");
         return nullptr;
     }
 

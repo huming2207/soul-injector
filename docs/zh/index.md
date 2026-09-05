@@ -15,3 +15,8 @@
 
 - [编程流程](programming-flow.md) — 每个目标执行的状态机流程。
 - [存储与文件](storage-files.md) — USB MSC 使用方式及 `/data` 分区上的文件。
+
+## 工程笔记
+
+- [后续低功耗优化](low-power-optimisation.md) — S31 与模组睡眠、MAIN_RI
+  唤醒、建议变更及测量计划。

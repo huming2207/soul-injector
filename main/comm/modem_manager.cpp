@@ -1,7 +1,3 @@
-//
-// Created by hu on 1/9/26.
-//
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -9,6 +5,7 @@
 #include <esp_log.h>
 #include <esp_netif.h>
 #include <esp_netif_ppp.h>
+#include <esp_pm.h>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
 #include "esp_modem_config.h"
@@ -45,8 +42,12 @@ esp_err_t modem_manager::init()
     // DTR defaults high, which lets the modem sleep, the Quectel DTE pulls it low to wake the modem up
     gpio_reset_pin(CELL_DTR_PIN);
     gpio_set_direction(CELL_DTR_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_pull_mode(CELL_DTR_PIN, GPIO_PULLUP_ONLY);
-    gpio_set_level(CELL_DTR_PIN, 1);
+    gpio_set_pull_mode(CELL_DTR_PIN, GPIO_PULLDOWN_ONLY);
+    gpio_set_level(CELL_DTR_PIN, 0);
+    gpio_sleep_sel_dis(CELL_RTS_PIN);
+    gpio_sleep_sel_dis(CELL_CTS_PIN);
+    gpio_sleep_sel_dis(CELL_PWRKEY_PIN);
+    gpio_sleep_sel_dis(CELL_RST_PIN);
 
     // Turn the modem's status LEDs on, the modem blinks them itself through its status pins
     gpio_config_t led_cfg = {};
@@ -54,12 +55,12 @@ esp_err_t modem_manager::init()
     led_cfg.mode = GPIO_MODE_OUTPUT;
     led_cfg.intr_type = GPIO_INTR_DISABLE;
     ret = ret ?: gpio_config(&led_cfg);
-    ret = ret ?: gpio_set_pull_mode(CELL_LED_PIN, GPIO_PULLUP_ONLY);
+    ret = ret ?: gpio_set_pull_mode(CELL_LED_PIN, GPIO_PULLDOWN_ONLY);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Can't config the modem's status LEDs: 0x%x %s", ret, esp_err_to_name(ret));
         return ret;
     }
-    gpio_set_level(CELL_LED_PIN, 1);
+    gpio_set_level(CELL_LED_PIN, 0);
 
     esp_netif_config_t netif_cfg = ESP_NETIF_DEFAULT_PPP();
     netif = esp_netif_new(&netif_cfg);
@@ -129,10 +130,33 @@ void modem_manager::modem_task_func(void *_ctx)
 
 void modem_manager::modem_task_handler()
 {
+    esp_err_t ret = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "modem", &pm_lock);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Can't create the modem setup PM lock: 0x%x %s", ret, esp_err_to_name(ret));
+        return;
+    }
+
+    ret = esp_pm_lock_acquire(pm_lock);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Can't acquire the modem setup PM lock: 0x%x %s", ret, esp_err_to_name(ret));
+        esp_pm_lock_delete(pm_lock);
+        return;
+    }
+
     // Force a power on, the modem's power state is unknown after each reboot
     power_on();
+    ret = setup_modem();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Modem setup failed");
+        vTaskDelay(portMAX_DELAY); // Or what else? do we do?
+    }
 
-    esp_err_t ret = setup_modem();
+    ret = esp_pm_lock_release(pm_lock);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Can't acquire the modem setup PM lock: 0x%x %s", ret, esp_err_to_name(ret));
+        esp_pm_lock_delete(pm_lock);
+        return;
+    }
 
     while (true) {
         while (ret != ESP_OK) {
@@ -177,6 +201,16 @@ void modem_manager::power_on()
     gpio_set_level(CELL_PWRKEY_PIN, 0); // Release the power key
 
     vTaskDelay(pdMS_TO_TICKS(MODEM_BOOT_DELAY_MS)); // Wait till the modem boots up
+}
+
+void modem_manager::power_off()
+{
+    ESP_LOGI(TAG, "Modem turning off!");
+
+    gpio_set_level(CELL_PWRKEY_PIN, 0);
+    vTaskDelay(pdMS_TO_TICKS(700));
+    gpio_set_level(CELL_PWRKEY_PIN, 1);
+    vTaskDelay(pdMS_TO_TICKS(2000));
 }
 
 void modem_manager::hardware_reset()
@@ -239,16 +273,16 @@ esp_err_t modem_manager::setup_modem()
             return ESP_FAIL;
         }
 
-        esp_err_t ret = esp_sleep_enable_uart_wakeup(CELL_UART_PORT);
-
-        uart_wakeup_cfg_t wakeup_cfg = {};
-        wakeup_cfg.wakeup_mode = UART_WK_MODE_FIFO_THRESH;
-        wakeup_cfg.rx_fifo_threshold = 1;
-        ret = ret ?: uart_wakeup_setup(CELL_UART_PORT, &wakeup_cfg);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Wakeup setup failed");
-            return ESP_FAIL;
-        }
+        // esp_err_t ret = esp_sleep_enable_uart_wakeup(CELL_UART_PORT);
+        //
+        // uart_wakeup_cfg_t wakeup_cfg = {};
+        // wakeup_cfg.wakeup_mode = UART_WK_MODE_FIFO_THRESH;
+        // wakeup_cfg.rx_fifo_threshold = 1;
+        // ret = ret ?: uart_wakeup_setup(CELL_UART_PORT, &wakeup_cfg);
+        // if (ret != ESP_OK) {
+        //     ESP_LOGE(TAG, "Wakeup setup failed");
+        //     return ESP_FAIL;
+        // }
 
         if (uart_set_baudrate(CELL_UART_PORT, CELL_BAUD_FAST) != ESP_OK) {
             ESP_LOGE(TAG, "Can't raise the UART's baud rate");
@@ -268,8 +302,13 @@ esp_err_t modem_manager::setup_modem()
         }
     }
 
-    // Ignore DTR line state changes so they won't hang up the data call
     std::string out = {};
+    out.clear();
+    if (dce->at("AT+CFUN=0", out, 300000) != esp_modem::command_result::OK) {
+        ESP_LOGW(TAG, "Can't set CFUN=0");
+    }
+
+    // Ignore DTR line state changes so they won't hang up the data call
     if (dce->at("AT&D0", out, 300) != esp_modem::command_result::OK) {
         ESP_LOGW(TAG, "Can't disable the DTR's default function");
     }
@@ -298,9 +337,14 @@ esp_err_t modem_manager::setup_modem()
         return ESP_ERR_TIMEOUT;
     }
 
-    std::string imei = {};
-    if (dce->get_imei(imei) == esp_modem::command_result::OK) {
-        ESP_LOGI(TAG, "Modem IMEI: %s", imei.c_str());
+    out.clear();
+    if (dce->at("AT+CFUN=1", out, 300000) != esp_modem::command_result::OK) {
+        ESP_LOGW(TAG, "Can't set CFUN=1");
+    }
+
+    out.clear();
+    if (dce->get_imei(out) == esp_modem::command_result::OK) {
+        ESP_LOGI(TAG, "Modem IMEI: %s", out.c_str());
     }
 
     return ESP_OK;

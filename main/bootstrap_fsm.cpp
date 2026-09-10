@@ -16,23 +16,26 @@
 
 esp_err_t bootstrap_fsm::init()
 {
+    ESP_LOGI(TAG, "Setting up modem");
+    modem = modem_manager::instance();
+    esp_err_t ret = modem->init();
+    ret = ret ?: ping_test::instance()->init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "init: Failed to set up modem: 0x%x %s", ret, esp_err_to_name(ret));
+        return ret;
+    }
+
+    vTaskDelay(portMAX_DELAY); // Nothing else should be executed
+
     ESP_LOGI(TAG, "Setting up display");
     display = display_manager::instance();
-    modem = modem_manager::instance();
     auto &led = led_ctrl::instance();
-    esp_err_t ret = display->init();
+    ret = display->init();
     composer = display->get_composer();
     ret = ret ?: composer->init();
     ret = ret ?: led.init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up display: 0x%x %s", ret, esp_err_to_name(ret));
-        return ret;
-    }
-
-    ret = modem->init();
-    ret = ret ?: ping_test::instance()->init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "init: Failed to set up modem: 0x%x %s", ret, esp_err_to_name(ret));
         return ret;
     }
 

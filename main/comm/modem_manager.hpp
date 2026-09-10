@@ -1,7 +1,3 @@
-//
-// Created by hu on 1/9/26.
-//
-
 #ifndef SOULINJECTOR_MODEM_MANAGER_HPP
 #define SOULINJECTOR_MODEM_MANAGER_HPP
 
@@ -18,6 +14,7 @@
 #include <soc/gpio_num.h>
 #include "cxx_include/esp_modem_api.hpp"
 #include "cxx_include/esp_modem_dce_factory.hpp"
+#include <esp_pm.h>
 
 class modem_manager
 {
@@ -80,6 +77,7 @@ private:
 
     void modem_task_handler();
     void power_on();
+    void power_off();
     void hardware_reset();
     void dispose_modem();
     esp_err_t setup_modem();
@@ -93,6 +91,7 @@ private:
 private:
     bool inited = false;
     EventGroupHandle_t evt_group = nullptr;
+    esp_pm_lock_handle_t pm_lock = nullptr;
     esp_netif_t *netif = nullptr;
     TaskHandle_t modem_task = nullptr;
     std::unique_ptr<esp_modem::DCE> dce = nullptr;
@@ -107,8 +106,8 @@ private:
     static const constexpr uart_port_t CELL_UART_PORT = UART_NUM_1;
     static const constexpr int CELL_TX_PIN = 47; // ESP32's TXD, goes to the modem's RXD
     static const constexpr int CELL_RX_PIN = 46; // ESP32's RXD, comes from the modem's TXD
-    static const constexpr int CELL_RTS_PIN = 42;
-    static const constexpr int CELL_CTS_PIN = 43;
+    static constexpr gpio_num_t CELL_RTS_PIN = GPIO_NUM_42;
+    static constexpr gpio_num_t CELL_CTS_PIN = GPIO_NUM_43;
     static const constexpr int CELL_BAUD_RATE = 115200;
     static const constexpr int CELL_BAUD_FAST = 921600;
 

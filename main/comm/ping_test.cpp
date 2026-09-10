@@ -1,8 +1,4 @@
-//
-// Created by hu on 1/9/26.
-//
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <esp_log.h>
 #include <esp_netif.h>
 #include <lwip/ip_addr.h>

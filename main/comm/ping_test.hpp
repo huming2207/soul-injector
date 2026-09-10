@@ -53,7 +53,7 @@ private:
     static const constexpr char TAG[] = "ping_test";
     static const constexpr char PING_TARGET[] = "8.8.8.8";
     static const constexpr uint32_t PING_COUNT = 5;
-    static const constexpr uint32_t PING_INTERVAL_MS = 30000;
+    static const constexpr uint32_t PING_INTERVAL_MS = 60000;
 };
 
 #endif //SOULINJECTOR_PING_TEST_HPP

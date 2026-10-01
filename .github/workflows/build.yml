@@ -18,9 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         si_hw_rev:
-          - rev3
-          - rev5
-          - rev6
+          - rev71
 
     env:
       GIT_SUBMODULE_FORCE_HTTPS: "true"
@@ -31,9 +29,9 @@ jobs:
       IDF_TOOLS_PATH: "${{ github.workspace }}/esp"
       IDF_CCACHE_ENABLE: "1"
       IDF_CLONE_URL: "https://github.com/espressif/esp-idf.git"
-      IDF_CLONE_BRANCH_OR_TAG: "v6.0.1"
+      IDF_CLONE_BRANCH_OR_TAG: "v6.1"
       IDF_CLONE_SHALLOW: "1"
-      IDF_INSTALL_TARGETS: "esp32s3"
+      IDF_INSTALL_TARGETS: "esp32s31"
       IDF_PYTHON_CHECK_CONSTRAINTS: "yes"
       SI_HW_REV: "${{ matrix.si_hw_rev }}"
 
@@ -52,10 +50,10 @@ jobs:
             ${{ github.workspace }}/.cache/apt
             ${{ github.workspace }}/.cache/pip
             ${{ github.workspace }}/.ccache
-          key: esp-idf-v6.0-v3-${{ runner.os }}-${{ matrix.si_hw_rev }}
+          key: esp-idf-v6.1-v1-${{ runner.os }}-${{ matrix.si_hw_rev }}
           restore-keys: |
-            esp-idf-v6.0-v3-${{ runner.os }}-
-            esp-idf-v6.0-v3-
+            esp-idf-v6.1-v1-${{ runner.os }}-
+            esp-idf-v6.1-v1-
 
       - name: Install host dependencies
         run: |
@@ -92,7 +90,7 @@ jobs:
         run: |
           . "$IDF_PATH/export.sh"
           mkdir -p "build-$SI_HW_REV"
-          idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$GITHUB_WORKSPACE/build-$SI_HW_REV/sdkconfig" set-target esp32s3
+          idf.py --preview -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$GITHUB_WORKSPACE/build-$SI_HW_REV/sdkconfig" set-target esp32s31
           idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$GITHUB_WORKSPACE/build-$SI_HW_REV/sdkconfig" build
 
       - name: Clean cached downloads
@@ -137,7 +135,7 @@ jobs:
         run: |
           ref_slug=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
           mkdir -p release-packages
-          for rev in rev3 rev5; do
+          for rev in rev71; do
             artifact_dir=$(find release-assets -maxdepth 1 -type d -name "soulinjector-${rev}-*" | head -n 1)
             if [ -z "$artifact_dir" ]; then
               echo "Missing artifact for ${rev}" >&2

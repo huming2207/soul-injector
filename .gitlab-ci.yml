@@ -24,9 +24,7 @@ build:
 
   parallel:
     matrix:
-      - SI_HW_REV: rev3
-      - SI_HW_REV: rev5
-      - SI_HW_REV: rev6
+      - SI_HW_REV: rev71
 
   variables:
     # To build the image for a branch or a tag of IDF, pass --build-arg IDF_CLONE_BRANCH_OR_TAG=name.
@@ -37,16 +35,16 @@ build:
     # Use IDF_CLONE_SHALLOW=1 to peform shallow clone (i.e. --depth=1 --shallow-submodules)
     # Use IDF_INSTALL_TARGETS to install tools only for selected chip targets (CSV)
     IDF_CLONE_URL: "https://github.com/espressif/esp-idf.git"
-    IDF_CLONE_BRANCH_OR_TAG: "v6.0.1"
+    IDF_CLONE_BRANCH_OR_TAG: "v6.1"
     IDF_CLONE_SHALLOW: "1"
-    IDF_INSTALL_TARGETS: "esp32s3"
+    IDF_INSTALL_TARGETS: "esp32s31"
 
     # The constraint file has been downloaded and the right Python package versions installed. No need to check and
     # download this at every invocation of the container.
     IDF_PYTHON_CHECK_CONSTRAINTS: "yes"
 
   cache:
-    key: "esp-idf-v6.0-v3"
+    key: "esp-idf-v6.1-v1"
     paths:
       - $IDF_PATH
       - $IDF_TOOLS_PATH
@@ -85,7 +83,7 @@ build:
 
   script:
     - mkdir -p "build-$SI_HW_REV"
-    - idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$CI_PROJECT_DIR/build-$SI_HW_REV/sdkconfig" set-target esp32s3
+    - idf.py --preview -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$CI_PROJECT_DIR/build-$SI_HW_REV/sdkconfig" set-target esp32s31
     - idf.py -B "build-$SI_HW_REV" -D "SI_HW_REV=$SI_HW_REV" -D "SDKCONFIG=$CI_PROJECT_DIR/build-$SI_HW_REV/sdkconfig" build
 
   after_script:

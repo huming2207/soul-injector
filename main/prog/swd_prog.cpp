@@ -23,29 +23,32 @@ esp_err_t swd_prog::load_flash_algorithm()
 {
     swd_off();
     vTaskDelay(1);
-    swd_init();
+    auto init_err = swd_init(pdMS_TO_TICKS(1000));
+    if (init_err != ESP_OK) {
+        return init_err;
+    }
     vTaskDelay(1);
     swd_trigger_nrst();
     vTaskDelay(1);
 
-    auto ret = swd_init_debug();
-    if (ret < 1) {
+    auto ret = swd_init_debug(pdMS_TO_TICKS(1000));
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "load_algo: SWD init failed");
         state = swd_def::UNKNOWN;
-        return ESP_ERR_INVALID_STATE;
+        return ret;
     }
 
     vTaskDelay(1);
 
     ret = swd_halt_target();
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "load_algo: Failed when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
     }
 
     ret = swd_wait_until_halted();
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "load_algo: Timeout when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -62,14 +65,14 @@ esp_err_t swd_prog::load_flash_algorithm()
                                 8); // Force align to 8, for 32-bit ARM Cortex-M. I don't know why but probe-rs did this.
 
     ret = swd_write_word(code_start - sizeof(uint32_t), halt_header);
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "load_algo: Failed when writing flash algorithm header");
         state = swd_def::UNKNOWN;
         return ESP_FAIL;
     }
 
     ret = swd_write_memory(code_start, const_cast<uint8_t *>(fa.algo_bin), algo_bin_len);
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "load_algo: Failed when writing main flash algorithm");
         state = swd_def::UNKNOWN;
         return ESP_FAIL;
@@ -77,7 +80,7 @@ esp_err_t swd_prog::load_flash_algorithm()
 
     // Write stack canary here so it survives target resets between algorithm loads
     ret = swd_write_word(stack_bottom, stack_canary);
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "load_algo: Failed when writing stack canary");
         state = swd_def::UNKNOWN;
         return ESP_FAIL;
@@ -114,7 +117,7 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
         }
 
         auto ret = swd_wait_until_halted();
-        if (ret < 1) {
+        if (ret != ESP_OK) {
             ESP_LOGE(TAG, "algo_init: Timeout when halting");
             state = swd_def::UNKNOWN;
             return ESP_ERR_INVALID_STATE;
@@ -131,7 +134,7 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
             FLASHALGO_RETURN_BOOL, nullptr
         );
 
-        if (ret < 1) {
+        if (ret != ESP_OK) {
             ESP_LOGW(TAG, "algo_init: Failed when init algorithm, returned %d, retrying...", ret);
             init(stack_size); // Re-init SWD as well (so that target will reset)
             retry_cnt -= 1;
@@ -151,7 +154,7 @@ esp_err_t swd_prog::run_algo_uninit(swd_def::init_mode mode)
     const si::config::flash_algorithm &fa = algo();
 
     auto ret = swd_halt_target();
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -163,7 +166,7 @@ esp_err_t swd_prog::run_algo_uninit(swd_def::init_mode mode)
     }
 
     ret = swd_wait_until_halted();
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Timeout when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -176,7 +179,7 @@ esp_err_t swd_prog::run_algo_uninit(swd_def::init_mode mode)
         FLASHALGO_RETURN_BOOL, nullptr
     );
 
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when uninit algorithm");
         state = swd_def::UNKNOWN;
         return ESP_FAIL;
@@ -185,7 +188,7 @@ esp_err_t swd_prog::run_algo_uninit(swd_def::init_mode mode)
     // Check stack canary
     uint32_t curr_stack_canary = 0;
     ret = swd_read_word(stack_bottom, &curr_stack_canary);
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when reading stack canary");
         state = swd_def::UNKNOWN;
         return ESP_FAIL;
@@ -256,23 +259,23 @@ esp_err_t swd_prog::init(uint32_t _stack_size)
 
     ESP_LOGI(TAG, "Algorithm RAM region 0x%08lx-0x%08lx (selected by containment, %zu regions in map)", ram->start, ram->end, cfg.ram_region_count);
     ESP_LOGI(TAG, "Init target");
-    auto ret = swd_init_debug();
-    if (ret < 1) {
+    auto ret = swd_init_debug(pdMS_TO_TICKS(1000));
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when init");
         state = swd_def::UNKNOWN;
-        return ESP_FAIL;
+        return ret;
     }
 
     ESP_LOGI(TAG, "Halt target");
     ret = swd_halt_target();
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
     }
 
     ret = swd_wait_until_halted();
-    if (ret < 1) {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Timeout when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -339,14 +342,14 @@ esp_err_t swd_prog::erase_chip()
     }
 
     auto swd_ret = swd_halt_target();
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when init");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
     }
 
     swd_ret = swd_wait_until_halted();
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Timeout when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -362,7 +365,7 @@ esp_err_t swd_prog::erase_chip()
         FLASHALGO_RETURN_BOOL, nullptr
     );
 
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Chip erase failed, fallback to sector erase");
 
         auto ret = run_algo_uninit(swd_def::ERASE);
@@ -400,14 +403,14 @@ esp_err_t swd_prog::self_test(uint32_t test_id, uint8_t *readout_buf, size_t rea
     }
 
     auto swd_ret = swd_halt_target();
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
     }
 
     swd_ret = swd_wait_until_halted();
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Timeout when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -422,7 +425,7 @@ esp_err_t swd_prog::self_test(uint32_t test_id, uint8_t *readout_buf, size_t rea
         FLASHALGO_RETURN_VALUE, func_return_val
     );
 
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Self-test function returned an unknown error");
         return ESP_FAIL;
     }
@@ -457,14 +460,14 @@ esp_err_t swd_prog::erase_sector(uint32_t start_addr, uint32_t end_addr)
     }
 
     auto swd_ret = swd_halt_target();
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when init");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
     }
 
     swd_ret = swd_wait_until_halted();
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Timeout when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -478,7 +481,7 @@ esp_err_t swd_prog::erase_sector(uint32_t start_addr, uint32_t end_addr)
             FLASHALGO_RETURN_BOOL, nullptr
         );
 
-        if (swd_ret < 1) {
+        if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Erase function returned an unknown error");
             return ESP_FAIL;
         }
@@ -512,7 +515,7 @@ esp_err_t swd_prog::program_page(const uint8_t *buf, size_t len, uint32_t start_
     }
 
     auto swd_ret = swd_halt_target();
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -525,7 +528,7 @@ esp_err_t swd_prog::program_page(const uint8_t *buf, size_t len, uint32_t start_
     }
 
     swd_ret = swd_wait_until_halted();
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Timeout when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -542,7 +545,7 @@ esp_err_t swd_prog::program_page(const uint8_t *buf, size_t len, uint32_t start_
         uint32_t write_size = std::min(fa.page_size.value(), remain_len);
         ESP_LOGD(TAG, "program_page: write size: %lu", write_size);
         swd_ret = swd_write_memory(stack_top + stack_size, (uint8_t *)(buf + (page_idx * fa.page_size.value())), write_size);
-        if (swd_ret < 1) {
+        if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when writing RAM cache");
             state = swd_def::UNKNOWN;
             return ESP_ERR_INVALID_STATE;
@@ -565,7 +568,7 @@ esp_err_t swd_prog::program_page(const uint8_t *buf, size_t len, uint32_t start_
         remain_len -= write_size;
     }
 
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Program function returned an unknown error");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -663,7 +666,7 @@ esp_err_t swd_prog::verify(const char *path, uint32_t start_addr, size_t len)
     const si::config::flash_algorithm &fa = algo();
 
     auto swd_ret = swd_halt_target();
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when halting");
         state = swd_def::UNKNOWN;
         return ESP_ERR_INVALID_STATE;
@@ -696,7 +699,7 @@ esp_err_t swd_prog::verify(const char *path, uint32_t start_addr, size_t len)
         uint8_t orig_buf[512] = {0};
         uint32_t read_len = std::min(sizeof(target_buf), remain_len);
         swd_ret = swd_read_memory((actual_read_addr + offset), target_buf, read_len);
-        if (swd_ret < 1) {
+        if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when reading flash");
             fclose(file);
             return ESP_ERR_INVALID_STATE;
@@ -740,7 +743,7 @@ uint32_t swd_prog::next_multiple_of(uint32_t input, uint32_t of)
 esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset)
 {
     uint32_t remain_len = len;
-    uint8_t swd_ret = 0;
+    esp_err_t swd_ret = ESP_OK;
     uint8_t curr_buf = 0;
     uint32_t curr_buf_addr = stack_top + stack_size;
     auto *buf = (uint8_t *)heap_caps_malloc(page_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
@@ -757,7 +760,7 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
 
         curr_buf_addr = curr_buf == 0 ? (stack_top + stack_size) : (stack_top + stack_size + page_size);
         swd_ret = swd_write_memory(curr_buf_addr, (uint8_t *)buf, write_size);
-        if (swd_ret < 1) {
+        if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when writing RAM cache");
             free(buf);
             state = swd_def::UNKNOWN;
@@ -765,7 +768,7 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
         }
 
         swd_ret = swd_flash_syscall_wait_result(FLASHALGO_RETURN_BOOL, nullptr);
-        if (swd_ret < 1) {
+        if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when checking programming state");
             free(buf);
             state = swd_def::UNKNOWN;
@@ -780,7 +783,7 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
             curr_buf_addr, 0                      // r2 = buf addr
         );
 
-        if (swd_ret < 1) {
+        if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when programming data to target");
             free(buf);
             state = swd_def::UNKNOWN;
@@ -799,7 +802,7 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
     }
 
     swd_ret = swd_flash_syscall_wait_result(FLASHALGO_RETURN_BOOL, nullptr);
-    if (swd_ret < 1) {
+    if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed when checking programming state after finish");
         free(buf);
         state = swd_def::UNKNOWN;
@@ -813,7 +816,7 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
 esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset)
 {
     uint32_t remain_len = len;
-    uint8_t swd_ret = 0;
+    esp_err_t swd_ret = ESP_OK;
     uint32_t curr_buf_addr = stack_top + stack_size;
     auto *buf = (uint8_t *)heap_caps_malloc(page_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     memset(buf, 0, page_size);
@@ -829,7 +832,7 @@ esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t pa
 
         curr_buf_addr = stack_top + stack_size;
         swd_ret = swd_write_memory(curr_buf_addr, (uint8_t *)buf, write_size);
-        if (swd_ret < 1) {
+        if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when writing RAM cache");
             free(buf);
             state = swd_def::UNKNOWN;
@@ -845,7 +848,7 @@ esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t pa
             FLASHALGO_RETURN_BOOL, nullptr
         );
 
-        if (swd_ret < 1) {
+        if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when programming data to target");
             free(buf);
             state = swd_def::UNKNOWN;

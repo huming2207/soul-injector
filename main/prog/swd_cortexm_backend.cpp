@@ -16,11 +16,14 @@ esp_err_t swd_cortexm_backend::begin_session()
     // Same bring-up sequence the old pre/post program handlers used.
     swd_off();
     vTaskDelay(1);
-    swd_init();
+    auto init_err = swd_init(pdMS_TO_TICKS(1000));
+    if (init_err != ESP_OK) {
+        return init_err;
+    }
     vTaskDelay(1);
     swd_trigger_nrst();
     vTaskDelay(1);
-    return swd_init_debug() < 1 ? ESP_FAIL : ESP_OK;
+    return swd_init_debug(pdMS_TO_TICKS(1000));
 }
 
 esp_err_t swd_cortexm_backend::detect()
@@ -80,25 +83,25 @@ esp_err_t swd_cortexm_backend::reinit_debug()
 {
     swd_off();
     vTaskDelay(1);
-    return swd_init_debug() < 1 ? ESP_FAIL : ESP_OK;
+    return swd_init_debug(pdMS_TO_TICKS(1000));
 }
 
 esp_err_t swd_cortexm_backend::halt_target()
 {
-    return swd_halt_target() < 1 ? ESP_FAIL : ESP_OK;
+    return swd_halt_target();
 }
 
 esp_err_t swd_cortexm_backend::wait_halt()
 {
-    return swd_wait_until_halted() < 1 ? ESP_FAIL : ESP_OK;
+    return swd_wait_until_halted();
 }
 
 esp_err_t swd_cortexm_backend::read_mem32(uint32_t addr, uint32_t *val)
 {
-    return swd_read_word(addr, val) < 1 ? ESP_FAIL : ESP_OK;
+    return swd_read_word(addr, val);
 }
 
 esp_err_t swd_cortexm_backend::write_mem32(uint32_t addr, uint32_t val)
 {
-    return swd_write_word(addr, val) < 1 ? ESP_FAIL : ESP_OK;
+    return swd_write_word(addr, val);
 }

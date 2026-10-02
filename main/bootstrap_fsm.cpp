@@ -6,31 +6,22 @@
 #include "esp_flash.h"
 #include "esp_mac.h"
 #include "esp_partition.h"
+#include "esp_vfs_fat.h"
+#include "esp_timer.h"
 #include "fw_asset_manager.hpp"
 #include "http_downloader.hpp"
-#include "modem_manager.hpp"
+#include "job_controller.hpp"
 #include "offline_flasher.hpp"
-#include "ping_test.hpp"
+#include "sidp_service.hpp"
+#include "sidp_transport_cdc.hpp"
 #include "driver/i2c_master.h"
-#include "tinyusb_msc.h"
 
 esp_err_t bootstrap_fsm::init()
 {
-    ESP_LOGI(TAG, "Setting up modem");
-    modem = modem_manager::instance();
-    esp_err_t ret = modem->init();
-    ret = ret ?: ping_test::instance()->init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "init: Failed to set up modem: 0x%x %s", ret, esp_err_to_name(ret));
-        return ret;
-    }
-
-    vTaskDelay(portMAX_DELAY); // Nothing else should be executed
-
     ESP_LOGI(TAG, "Setting up display");
     display = display_manager::instance();
     auto &led = led_ctrl::instance();
-    ret = display->init();
+    esp_err_t ret = display->init();
     composer = display->get_composer();
     ret = ret ?: composer->init();
     ret = ret ?: led.init();
@@ -73,10 +64,19 @@ esp_err_t bootstrap_fsm::init()
     }
 
     ESP_LOGI(TAG, "Setting up storage");
-    ret = setup_storage(last_det_state != 0);
+    ret = setup_storage();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up storage: 0x%x %s", ret, esp_err_to_name(ret));
         composer->display_error("ERROR", "Storage partition error\nPlease try factory reset");
+        return ret;
+    }
+
+    // No stored job is fine: the host pushes one over SIDP.
+    fw_asset_manager::instance()->init();
+    ret = job_controller::instance()->init(evt_group, BIT_RUN_REQUEST);
+    ret = ret ?: setup_usb();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set up USB/SIDP: 0x%x %s", ret, esp_err_to_name(ret));
         return ret;
     }
 
@@ -92,16 +92,14 @@ esp_err_t bootstrap_fsm::init()
         xEventGroupSetBits(evt_group, BIT_TARGET_CONNECTED);
     } else {
         ESP_LOGI(TAG, "No target detected at boot time.");
-        xEventGroupSetBits(evt_group, BIT_TARGET_DISCONNECTED);
     }
 
     ESP_LOGI(TAG, "Bootstrap init OK");
     return ESP_OK;
 }
 
-esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
+esp_err_t bootstrap_fsm::setup_storage()
 {
-    is_usb_exposed = expose_usb;
     uint8_t sn_buf[16] = {0};
     uint64_t flash_uid = 0;
     esp_efuse_mac_get_default(sn_buf);
@@ -123,107 +121,49 @@ esp_err_t bootstrap_fsm::setup_storage(bool expose_usb)
         return ret;
     }
 
-    const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, nullptr);
-    if (part == nullptr) {
-        ESP_LOGE(TAG, "setup_storage: Failed to find storage partition: 0x%x %s", ret, esp_err_to_name(ret));
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    ret = wl_mount(part, &wl_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "setup_storage: failed on wl_mount: 0x%x %s", ret, esp_err_to_name(ret));
-        return ret;
-    }
-
-    const tinyusb_msc_storage_config_t storage_cfg = {
-        .medium = {.wl_handle = wl_handle},
-        .fat_fs =
-            {
-                .base_path = const_cast<char *>(DATA_PARTITION_PATH),
-                .config =
-                    {.format_if_mount_failed = true,
-                     .max_files = 10,
-                     .allocation_unit_size = 0,
-                     .disk_status_check_enable = false,
-                     .use_one_fat = false},
-                .do_not_format = false,
-                .format_flags = FM_ANY,
-            },
-
-        // Expected logic:
-        // 1. when device starts from power-on reset, it exposes data partition to USB;
-        // 2. when a target is connected, it takes back the partition to itself (the app).
-        // 3. Here we expose to app first to let the ESP FAT library to automatically detect the partition and see whether a format is needed or not.
-        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP,
+    const esp_vfs_fat_mount_config_t mount_cfg = {
+        .format_if_mount_failed = true,
+        .max_files = 10,
+        .allocation_unit_size = 0,
+        .disk_status_check_enable = false,
+        .use_one_fat = false,
     };
 
-    ret = tinyusb_msc_new_storage_spiflash(&storage_cfg, &tusb_msc_handle);
+    ret = esp_vfs_fat_spiflash_mount_rw_wl(DATA_PARTITION_PATH, DATA_PARTITION_LABEL, &mount_cfg, &wl_handle);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "setup_storage: failed on TinyUSB mount: 0x%x %s", ret, esp_err_to_name(ret));
+        ESP_LOGE(TAG, "setup_storage: failed to mount %s: 0x%x %s", DATA_PARTITION_PATH, ret, esp_err_to_name(ret));
         return ret;
-    }
-
-    // Verification: Wait for the mount to be ready in the application VFS
-    if (!expose_usb) {
-        ret = wait_for_vfs_ready();
-        if (ret != ESP_OK)
-            return ret;
-    }
-
-    static char lang[2] = {0x09, 0x04};
-    static const char *desc_str[6] = {
-        lang,                                                        // 0: is supported language is English (0x0409)
-        const_cast<char *>(CONFIG_TINYUSB_DESC_MANUFACTURER_STRING), // 1: Manufacturer
-        const_cast<char *>(CONFIG_TINYUSB_DESC_PRODUCT_STRING),      // 2: Product
-        sn_str,                                                      // 3: Serials, should use chip ID
-        const_cast<char *>(CONFIG_TINYUSB_DESC_PRODUCT_STRING),      // 4: CDC Interface
-        const_cast<char *>(CONFIG_TINYUSB_DESC_MSC_STRING),          // 5: MSC Interface
-    };
-
-    ESP_LOGI(TAG, "USB Composite initialization");
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    tusb_cfg.task.size = 8192;
-    tusb_cfg.descriptor.string = static_cast<const char **>(desc_str);
-    tusb_cfg.descriptor.string_count = std::size(desc_str);
-
-    ret = tinyusb_driver_install(&tusb_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "setup_storage: failed at tinyusb_driver_install: 0x%x %s", ret, esp_err_to_name(ret));
-        return ret;
-    }
-
-    // Set back to expose to MSC
-    if (expose_usb) {
-        ret = tinyusb_msc_set_storage_mount_point(tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_USB);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "setup_storage: can't expose to MSC: 0x%x", ret);
-            return ret;
-        }
     }
 
     ESP_LOGI(TAG, "setup_storage: init OK");
     return ret;
 }
 
-esp_err_t bootstrap_fsm::wait_for_vfs_ready()
+esp_err_t bootstrap_fsm::setup_usb()
 {
-    ESP_LOGI(TAG, "Waiting for filesystem to be ready...");
-    int retry = 20; // 2 seconds max
-    bool ready = false;
-    while (retry-- > 0) {
-        struct stat st;
-        if (stat(DATA_PARTITION_PATH, &st) == 0) {
-            ready = true;
-            break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
+    static char lang[2] = {0x09, 0x04};
+    static const char *desc_str[5] = {
+        lang,                                                        // 0: is supported language is English (0x0409)
+        const_cast<char *>(CONFIG_TINYUSB_DESC_MANUFACTURER_STRING), // 1: Manufacturer
+        const_cast<char *>(CONFIG_TINYUSB_DESC_PRODUCT_STRING),      // 2: Product
+        sn_str,                                                      // 3: Serials, should use chip ID
+        const_cast<char *>(CONFIG_TINYUSB_DESC_PRODUCT_STRING),      // 4: CDC Interface (SIDP)
+    };
+
+    ESP_LOGI(TAG, "USB CDC initialization");
+    // SIDP needs device attach/detach events to notice a replugged host.
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(sidp::cdc_slip_transport::device_event_callback);
+    tusb_cfg.task.size = 8192;
+    tusb_cfg.descriptor.string = static_cast<const char **>(desc_str);
+    tusb_cfg.descriptor.string_count = std::size(desc_str);
+
+    esp_err_t ret = tinyusb_driver_install(&tusb_cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "setup_usb: failed at tinyusb_driver_install: 0x%x %s", ret, esp_err_to_name(ret));
+        return ret;
     }
-    if (!ready) {
-        ESP_LOGE(TAG, "Filesystem failed to mount at %s within timeout", DATA_PARTITION_PATH);
-        return ESP_ERR_NOT_FOUND;
-    }
-    ESP_LOGI(TAG, "Filesystem is ready");
-    return ESP_OK;
+
+    return sidp_service::instance()->init(sn_str);
 }
 
 void bootstrap_fsm::fsm_task_handler(void *_ctx)
@@ -236,58 +176,46 @@ void bootstrap_fsm::fsm_task_handler(void *_ctx)
 
     ctx->composer->display_init();
 
-    // Now we wait till the first target is connected
-    xEventGroupWaitBits(ctx->evt_group, BIT_TARGET_CONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
-
-    // After target is connected, mount the data partition to application instead of USB MSC.
-    if (ctx->is_usb_exposed) {
-        ESP_LOGI(TAG, "fsm: Switching storage from USB to APP");
-        tinyusb_msc_set_storage_mount_point(ctx->tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_APP);
-        ctx->is_usb_exposed = false;
-        ctx->wait_for_vfs_ready();
-    }
-
-    offline_flasher::instance()->init();
-
     while (true) {
         ctx->run_fsm_task();
-        vTaskDelay(1);
     }
 }
 
 void bootstrap_fsm::run_fsm_task()
 {
+    // Both bits are edges: a run request from SIDP, or a target plugged in.
+    EventBits_t bits = xEventGroupWaitBits(evt_group, BIT_TARGET_CONNECTED | BIT_RUN_REQUEST, pdTRUE, pdFALSE, portMAX_DELAY);
+
+    // job_controller has already claimed a requested run; a plugged-in
+    // target only runs when the job is armed for automatic runs.
+    if ((bits & BIT_RUN_REQUEST) == 0 && !job_controller::instance()->begin_auto_run()) {
+        ESP_LOGI(TAG, "Target connected, no automatic job armed");
+        return;
+    }
+
+    run_job();
+}
+
+void bootstrap_fsm::run_job()
+{
     auto *flasher = offline_flasher::instance();
-    auto ret = flasher->handle_states();
-    if (ret == ESP_ERR_NOT_FINISHED) {
-        return; // Continue...
+    int64_t start_us = esp_timer_get_time();
+
+    flasher->init();
+    esp_err_t ret = ESP_ERR_NOT_FINISHED;
+    while (ret == ESP_ERR_NOT_FINISHED) {
+        ret = flasher->handle_states();
+        vTaskDelay(1);
     }
 
-    if (ret == ESP_FAIL) {
-        ESP_LOGE(TAG, "Something went wrong");
-    } else {
+    if (ret == ESP_OK) {
         ESP_LOGI(TAG, "Done flashing!");
+    } else {
+        ESP_LOGE(TAG, "Something went wrong");
     }
 
-    ESP_LOGI(TAG, "Waiting for target disconnect...");
-    xEventGroupWaitBits(evt_group, BIT_TARGET_DISCONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
-
-    // Expose back to USB when target is disconnected
-    ESP_LOGI(TAG, "Target disconnected, exposing storage to USB");
-    tinyusb_msc_set_storage_mount_point(tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_USB);
-    is_usb_exposed = true;
-
-    xEventGroupWaitBits(evt_group, BIT_TARGET_CONNECTED, pdTRUE, pdFALSE, portMAX_DELAY);
-
-    // Take back from USB when target is re-connected
-    ESP_LOGI(TAG, "Target re-connected, taking back storage from USB");
-    tinyusb_msc_set_storage_mount_point(tusb_msc_handle, TINYUSB_MSC_STORAGE_MOUNT_APP);
-    is_usb_exposed = false;
-    wait_for_vfs_ready();
-
-    // Assets may have changed while storage was exposed over USB MSC,
-    // so force a full reload (hash check + re-parse) every reconnect.
-    flasher->init(true);
+    uint32_t duration_ms = (esp_timer_get_time() - start_us) / 1000;
+    job_controller::instance()->finish_run(ret, flasher->get_failed_state(), duration_ms);
 }
 
 void bootstrap_fsm::det_io_isr_handler(void *_ctx)
@@ -310,10 +238,9 @@ void bootstrap_fsm::det_pin_debounce_timer(TimerHandle_t timer_handle)
         if (!state) {
             ESP_LOGW(TAG, "Tag connected!");
             xEventGroupSetBits(ctx->evt_group, BIT_TARGET_CONNECTED);
-            xEventGroupClearBits(ctx->evt_group, BIT_TARGET_DISCONNECTED);
         } else {
             ESP_LOGW(TAG, "Tag DISCONNECTED!");
-            xEventGroupSetBits(ctx->evt_group, BIT_TARGET_DISCONNECTED);
+            // A connect edge not yet picked up must not start a run later.
             xEventGroupClearBits(ctx->evt_group, BIT_TARGET_CONNECTED);
         }
     }

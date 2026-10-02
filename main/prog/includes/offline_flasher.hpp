@@ -27,6 +27,7 @@ namespace flasher
         SELF_TEST = 6,
         POST_PROGRAM = 7,
         DONE = 8,
+        CANCELLED = 9,
 #ifdef CONFIG_SI_SG_PROG_RIG
         SG_CURRENT_TEST = 0xf0,
 #endif
@@ -51,7 +52,6 @@ public:
 
 private:
     offline_flasher() = default;
-    bool asset_loaded = false;
     led_ctrl &led = led_ctrl::instance();
     uint32_t written_len = 0;
     target_backend *backend = nullptr;
@@ -60,6 +60,7 @@ private:
     ui_composer *composer = nullptr;
 
     volatile flasher::pg_state state = flasher::DETECT;
+    flasher::pg_state failed_state = flasher::DONE;
 
 #ifdef CONFIG_SI_SG_PROG_RIG
     current_tester pwr_test = {};
@@ -68,11 +69,24 @@ private:
     static const constexpr char *TAG = "local_flasher";
 
 public:
-    void init(bool force_reload_asset = false);
+    /** Start a run of the active job. */
+    void init();
+
+    /**
+     * Advance the run by one state. ESP_ERR_NOT_FINISHED while running,
+     * ESP_OK when done, ESP_FAIL on error or after a cancel request.
+     */
     esp_err_t handle_states();
+
+    /** State that failed or was cancelled; DONE when the run passed. */
+    flasher::pg_state get_failed_state() const
+    {
+        return failed_state;
+    }
 
 private:
     void select_backend();
+    esp_err_t run_state();
     void on_pre_program();
     void on_load_asset();
     void on_detect();
@@ -83,6 +97,8 @@ private:
     void on_self_test();
     void on_post_program();
     void on_done();
+    void on_cancelled();
+    void check_cancel();
 
 #ifdef CONFIG_SI_SG_PROG_RIG
     void on_current_test();

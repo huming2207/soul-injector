@@ -1,39 +1,62 @@
-# Storage and files
+# Jobs and files
 
-The Soul Injector has a USB port. When connected to a computer, it shows up as
-a USB Mass Storage Class (MSC) device.
+The Soul Injector is managed over USB with `sidp-agent`. It shows up on the PC
+as a USB serial (CDC) port; it no longer shows up as a USB drive. Files are
+uploaded with SHA-256 checks, so nothing needs to be ejected before unplugging.
 
-If any of the files mentioned below was altered, **ALWAYS MAKE SURE** that you
-unmount/eject the Soul Injector before you unplug it from your computer.
+## One job per device
 
-## Files on device storage
-
-The Soul Injector uses these files **at the root directory of the USB MSC
-partition**, mounted internally at `/data`:
-
-- `job.pb`: required programming job, compiled on a PC with `sidp-agent`.
-- `firmware.bin`: firmware image for SWD Cortex-M targets. ESP32-family image
-  files are listed in `target.yaml` (for example `bootloader.bin`,
-  `partitions.bin`, `firmware.bin`).
-- `.sha256` sidecars, such as `job.pb.sha256` or `firmware.bin.sha256`:
-  optional `sha256sum` outputs.
-
-If a `.sha256` sidecar exists, the matching file is verified once when assets
-are loaded. If the sidecar is absent, the check is skipped. Having sidecars in
-place is recommended to avoid flash corruption.
-
-## Creating job.pb
-
-The device no longer reads YAML. Write `target.yaml` and the optional
-`pre_prog.yaml`/`post_prog.yaml` as before, then compile them on a PC:
+The device keeps exactly one programming job. A job is compiled on a PC from
+`target.yaml`, the optional `pre_prog.yaml`/`post_prog.yaml` and the image
+files it programs, then pushed to the device:
 
 ```sh
-sidp-agent compile --target target.yaml --pre pre_prog.yaml --post post_prog.yaml -o job.pb
-sha256sum job.pb > job.pb.sha256   # optional
+sidp-agent job push --port /dev/ttyACM0 \
+    --target target.yaml --pre pre_prog.yaml --post post_prog.yaml \
+    --image firmware.bin=build/app.bin
 ```
 
-Copy `job.pb` (and the sidecar, if any) to the root of the USB MSC partition.
-Add `--variant <name>` when `target.yaml` lists more than one variant.
+- `--image NAME=FILE` names each image the job programs: `firmware.bin` for
+  SWD Cortex-M targets, and for ESP32 targets every `images[].path` in
+  `target.yaml` (for example `/data/bootloader.bin` needs
+  `--image bootloader.bin=...`).
+- `--name` sets the name the device reports (default: the variant name);
+  `--variant` selects a variant when `target.yaml` lists several.
+- `--auto` runs the job whenever a target is plugged in. Without it the job
+  only runs on `sidp-agent job run`. The setting survives reboots.
+
+Images the device already holds are not uploaded again, and pushing the job
+that is already active only updates `--auto`. To switch products, push the
+other product's job; the previous one is replaced.
+
+## Running and checking
+
+```sh
+sidp-agent job run --port /dev/ttyACM0 --wait   # one run; non-zero exit unless it passed
+sidp-agent job status --port /dev/ttyACM0       # job, trigger, last result
+sidp-agent job cancel --port /dev/ttyACM0       # stop the run in progress
+sidp-agent device info --port /dev/ttyACM0      # serial, firmware, free storage
+```
+
+A cancelled run stops between programming stages and may leave the target
+partly programmed. While a run is in progress the device refuses to change the
+job or its files.
+
+## What is stored on the device
+
+Under `/data`:
+
+- `job.pb`: the active job and `job.pb.sha256`, its hash.
+- The images the job programs, each with a `<name>.sha256` hash file written
+  by the device after it checked the upload.
+
+The job pins the SHA-256 of every image. The device refuses to activate a job
+whose images are missing or different, and re-checks them at the start of
+every run, so replacing an image with `sidp-agent asset push` makes the next
+run fail until the matching job is pushed.
+
+`sidp-agent compile ... -o job.pb` writes the same job to a file without a
+device, for example to inspect or archive it.
 
 See [target.yaml reference](target-yaml.md) and
 [pre/post programming procedure YAML](procedure-yaml.md) for the input formats.

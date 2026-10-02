@@ -9,22 +9,20 @@
 
 #include "esp32_serial_backend.hpp"
 #include "fw_asset_manager.hpp"
+#include "job_controller.hpp"
 #include "swd_cortexm_backend.hpp"
 
-void offline_flasher::init(bool force_reload_asset)
+void offline_flasher::init()
 {
     display = display_manager::instance();
     composer = display->get_composer();
-    if (force_reload_asset) {
-        // Belt-and-braces: a forced reload starts a new session, so any
-        // transport a previous (aborted) session left open must be released,
-        // otherwise the backend short-circuits its next connect on stale state.
-        if (backend != nullptr) {
-            backend->release_transport();
-        }
-        asset_loaded = false;
+    // Release any transport a previous (aborted) run left open, otherwise the
+    // backend short-circuits its next connect on stale state.
+    if (backend != nullptr) {
+        backend->release_transport();
     }
 
+    failed_state = flasher::DONE;
     state = flasher::LOAD_ASSET;
 }
 
@@ -252,7 +250,39 @@ void offline_flasher::on_current_test()
 }
 #endif
 
+void offline_flasher::on_cancelled()
+{
+    if (backend != nullptr) {
+        backend->release_transport();
+    }
+    led.set_color(0x80, 0x80, 0x00); // Yellow
+    composer->display_error("CANCELLED", "Job cancelled");
+}
+
+void offline_flasher::check_cancel()
+{
+    bool finished = state == flasher::ERROR || state == flasher::DONE || state == flasher::CANCELLED;
+    if (!finished && job_controller::instance()->cancel_requested()) {
+        ESP_LOGW(TAG, "Cancel requested");
+        failed_state = state;
+        state = flasher::CANCELLED;
+    }
+}
+
 esp_err_t offline_flasher::handle_states()
+{
+    check_cancel();
+
+    // Remember which state failed so the run result can name the stage.
+    const flasher::pg_state current = state;
+    esp_err_t ret = run_state();
+    if (state == flasher::ERROR && current != flasher::ERROR) {
+        failed_state = current;
+    }
+    return ret;
+}
+
+esp_err_t offline_flasher::run_state()
 {
     switch (state) {
     case flasher::PRE_PROGRAM: {
@@ -288,6 +318,11 @@ esp_err_t offline_flasher::handle_states()
     case flasher::DONE: {
         on_done();
         return ESP_OK;
+    }
+
+    case flasher::CANCELLED: {
+        on_cancelled();
+        return ESP_FAIL;
     }
 
     case flasher::VERIFY: {
@@ -348,23 +383,23 @@ void offline_flasher::on_pre_program()
 
 void offline_flasher::on_load_asset()
 {
-    if (asset_loaded) {
-        ESP_LOGW(TAG, "load_asset: already loaded, skipping");
-        state = flasher::PRE_PROGRAM;
+    auto *asset = fw_asset_manager::instance();
+    if (!asset->has_job()) {
+        ESP_LOGE(TAG, "load_asset: no job");
+        composer->display_error("ERROR", "No job\nPlease push a job to me!");
+        state = flasher::ERROR;
         return;
     }
 
-    ESP_LOGI(TAG, "load_asset: Loading asset");
-    auto *asset = fw_asset_manager::instance();
-    auto ret = asset->init();
+    // Images may have been replaced since the job was activated.
+    auto ret = asset->verify_images();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to load assets: 0x%x %s", ret, esp_err_to_name(ret));
-        composer->display_error("ERROR", "No firmware asset\nPlease load firmware on me!");
+        ESP_LOGE(TAG, "load_asset: images do not match the job: 0x%x %s", ret, esp_err_to_name(ret));
+        composer->display_error("ERROR", "Firmware mismatch\nPlease push the job again!");
         state = flasher::ERROR;
         return;
     }
 
     select_backend();
-    asset_loaded = true;
     state = flasher::PRE_PROGRAM;
 }

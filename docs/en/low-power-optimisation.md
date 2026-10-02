@@ -210,8 +210,8 @@ drop-in, lossless replacement for HP UART wake.
 
 - Project: [modem manager](../../main/comm/modem_manager.cpp),
   [Quectel DTE](../../main/comm/quectel_dte.cpp),
-  [bootstrap](../../main/bootstrap_fsm.cpp),
-  [ping test](../../main/comm/ping_test.cpp).
+  [bootstrap](../../main/bootstrap_fsm.cpp). The ping test reviewed above has
+  since been removed.
 - Local IDF root used for review: `/home/hu/esp/esp-idf`.
   Relevant files: `components/esp_driver_uart/src/uart_wakeup.c`,
   `components/esp_driver_uart/src/uart.c`,

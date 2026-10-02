@@ -181,8 +181,7 @@ LP UART 与 RI 的实测结果。不能把它视为可直接替换 HP UART 唤�
 
 - 项目：[modem manager](../../main/comm/modem_manager.cpp)、
   [Quectel DTE](../../main/comm/quectel_dte.cpp)、
-  [bootstrap](../../main/bootstrap_fsm.cpp)、
-  [ping test](../../main/comm/ping_test.cpp)。
+  [bootstrap](../../main/bootstrap_fsm.cpp)。上文审查的 ping test 已移除。
 - 审查使用的本地 IDF：`/home/hu/esp/esp-idf`。相关文件：
   `components/esp_driver_uart/src/uart_wakeup.c`、
   `components/esp_driver_uart/src/uart.c`、

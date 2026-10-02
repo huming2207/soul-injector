@@ -12,15 +12,13 @@
 #include "display_manager.hpp"
 #include <tinyusb.h>
 #include <tinyusb_default_config.h>
-#include <tinyusb_msc.h>
 
-#include "modem_manager.hpp"
 
 class bootstrap_fsm
 {
 public:
     enum evt_bits : uint32_t {
-        BIT_TARGET_DISCONNECTED = (1UL << 0UL),
+        BIT_RUN_REQUEST = (1UL << 0UL),
         BIT_TARGET_CONNECTED = (1UL << 1UL),
     };
 
@@ -41,25 +39,23 @@ public:
     esp_err_t init();
 
 private:
-    static esp_err_t wait_for_vfs_ready();
-    esp_err_t setup_storage(bool expose_usb);
+    esp_err_t setup_storage();
+    esp_err_t setup_usb();
     static void fsm_task_handler(void *_ctx);
     static IRAM_ATTR void det_io_isr_handler(void *_ctx);
     static void det_pin_debounce_timer(TimerHandle_t timer_handle);
 
 private:
     void run_fsm_task();
+    void run_job();
 
 private:
     bool last_det_state = false;
-    bool is_usb_exposed = false;
     wl_handle_t wl_handle = WL_INVALID_HANDLE;
-    tinyusb_msc_storage_handle_t tusb_msc_handle = nullptr;
     TaskHandle_t fsm_task = nullptr;
     TimerHandle_t det_debounce_timer = nullptr;
     EventGroupHandle_t evt_group = nullptr;
     display_manager *display = nullptr;
-    modem_manager *modem = nullptr;
     ui_composer *composer = nullptr;
     char sn_str[32] = {0};
     wifi_manager wifi = {};
@@ -68,4 +64,5 @@ private:
     static const constexpr char TAG[] = "bootstrap_fsm";
     static const constexpr gpio_num_t DET_IO_PIN = static_cast<gpio_num_t>(CONFIG_SI_TARGET_DETECT_PIN);
     static const constexpr char DATA_PARTITION_PATH[] = "/data";
+    static const constexpr char DATA_PARTITION_LABEL[] = "data";
 };

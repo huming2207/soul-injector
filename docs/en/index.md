@@ -16,8 +16,8 @@
 
 - [Programming flow](programming-flow.md) — the state machine run for each
   target.
-- [Storage and files](storage-files.md) — USB MSC usage, the files on the
-  `/data` partition, and compiling `job.pb` with `sidp-agent`.
+- [Jobs and files](storage-files.md) — pushing, running and checking the
+  device's job with `sidp-agent`, and the files kept on `/data`.
 
 ## Engineering notes
 

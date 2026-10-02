@@ -1,10 +1,11 @@
 # target.yaml 参考
 
-`target.yaml` 是目标描述文件。固件不直接读取它：需要在电脑上把它和可选的步骤文件
-一起编译成 job 文件，再复制到设备的 `/data/job.pb`：
+`target.yaml` 是目标描述文件。固件不直接读取它：`sidp-agent` 在电脑上把它和可选的
+步骤文件、镜像一起编译成 job，并推送到设备：
 
 ```sh
-sidp-agent compile --target target.yaml --pre pre_prog.yaml --post post_prog.yaml -o job.pb
+sidp-agent job push --port /dev/ttyACM0 --target target.yaml \
+    --pre pre_prog.yaml --post post_prog.yaml --image firmware.bin=build/app.bin
 ```
 
 编译器会执行下文的所有规则和固件的容量限制，因此错误会在电脑上报告，而不是在设备上。
@@ -122,7 +123,7 @@ flash algorithm 的区域。
 
 | 键      | 是否必需 | 说明 |
 | -------- | -------- | ---- |
-| `path`   | 是       | 文件路径，例如 `/data/bootloader.bin`。最长 63 字符。 |
+| `path`   | 是       | 设备文件 `/data/<名称>`，例如 `/data/bootloader.bin`。用 `--image <名称>=<文件>` 提供镜像。 |
 | `offset` | 是       | Flash 偏移地址。必须 4 字节对齐。多个镜像不能落在同一个擦除扇区内。 |
 
 示例（Rev 6 复位极性）：
@@ -175,6 +176,6 @@ self_tests:
 
 ## 资产校验
 
-对于 job 引用的每个文件（`job.pb` 本身、cortex-m 的 `firmware.bin`，或
-每个 ESP32 镜像），固件会寻找名为 `<file>.sha256` 的伴生文件。伴生文件存在
-时，文件内容必须与伴生文件中的 SHA-256 摘要一致；伴生文件不存在时跳过校验。
+编译器根据 `--image` 文件固定 job 烧录的每个镜像（cortex-m 的 `firmware.bin`，或
+每个 ESP32 镜像）的 SHA-256。只有每个镜像都以完全相同的哈希保存在设备上时，设备
+才会启用该 job，并在每次烧录开始时再次比对。见 [Job 与文件](storage-files.md)。

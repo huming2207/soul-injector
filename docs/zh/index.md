@@ -14,8 +14,8 @@
 ## 运维
 
 - [编程流程](programming-flow.md) — 每个目标执行的状态机流程。
-- [存储与文件](storage-files.md) — USB MSC 使用方式、`/data` 分区上的文件，以及用
-  `sidp-agent` 编译 `job.pb`。
+- [Job 与文件](storage-files.md) — 用 `sidp-agent` 推送、烧录和查看设备上的 job，
+  以及 `/data` 上保存的文件。
 
 ## 工程笔记
 

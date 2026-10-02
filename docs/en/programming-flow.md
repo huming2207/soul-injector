@@ -1,8 +1,10 @@
 # Programming flow
 
-The host runs these states for each target:
+A run programs one target with the device's job. It starts when
+`sidp-agent job run` asks for one, or when a target is plugged in and the job
+was pushed with `--auto`. Each run goes through these states:
 
-1. Load assets from `/data/job.pb` and the firmware/image files.
+1. Check that the job exists and its images still match the hashes it pins.
 2. Run the pre-program steps if the job has any.
 3. Detect the target through the selected backend (SWD or ESP32 UART).
 4. Erase the target flash.
@@ -18,7 +20,11 @@ was compiled from:
 - `cortex-m` (default) uses the SWD backend and `/data/firmware.bin`.
 - `esp32` uses the UART backend and the image list in `target.yaml`.
 
-See [storage and files](storage-files.md) for compiling the job,
+`sidp-agent job status` shows the result of the last run: passed, failed (with
+the stage that failed) or cancelled, and how long it took. `sidp-agent job
+cancel` stops a run between stages. Results are not kept across reboots.
+
+See [jobs and files](storage-files.md) for pushing and running the job,
 [target.yaml reference](target-yaml.md) for backend selection and
 [pre/post programming procedure YAML](procedure-yaml.md) for the optional
 step files.

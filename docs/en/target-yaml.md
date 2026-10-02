@@ -1,11 +1,12 @@
 # target.yaml Reference
 
 `target.yaml` is the target description file. The firmware does not read it
-directly: compile it on a PC, together with the optional procedure files, into
-a job file and copy that to the device as `/data/job.pb`:
+directly: `sidp-agent` compiles it on a PC, together with the optional
+procedure files and the images, into a job and pushes that to the device:
 
 ```sh
-sidp-agent compile --target target.yaml --pre pre_prog.yaml --post post_prog.yaml -o job.pb
+sidp-agent job push --port /dev/ttyACM0 --target target.yaml \
+    --pre pre_prog.yaml --post post_prog.yaml --image firmware.bin=build/app.bin
 ```
 
 The compiler applies every rule below and the firmware's size limits, so
@@ -131,7 +132,7 @@ Each `images` entry:
 
 | Key      | Required | Description |
 | -------- | -------- | ----------- |
-| `path`   | yes      | File path, for example `/data/bootloader.bin`. Maximum 63 characters. |
+| `path`   | yes      | Device file, `/data/<name>`, for example `/data/bootloader.bin`. Pass the image with `--image <name>=<file>`. |
 | `offset` | yes      | Flash offset. Must be 4-byte aligned. Images must not overlap in the same erase sector. |
 
 Example (Rev 6 reset polarity):
@@ -187,7 +188,8 @@ post-program procedure.
 
 ## Asset verification
 
-For every file the job references (`job.pb` itself, cortex-m
-`firmware.bin`, or each ESP32 image), the firmware looks for a sidecar file
-named `<file>.sha256`. If the sidecar exists, the file content must match the
-SHA-256 digest in the sidecar. If the sidecar is absent, the check is skipped.
+The compiler pins the SHA-256 of every image the job programs (cortex-m
+`firmware.bin`, or each ESP32 image), taken from the `--image` files. The
+device refuses to activate the job unless each image is stored with exactly
+that hash, and checks again at the start of every run. See
+[jobs and files](storage-files.md).

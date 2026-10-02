@@ -22,7 +22,9 @@ was compiled from:
 
 `sidp-agent job status` shows the result of the last run: passed, failed (with
 the stage that failed) or cancelled, and how long it took. `sidp-agent job
-cancel` stops a run between stages. Results are not kept across reboots.
+cancel` stops a run between stages. Every finished run is also recorded in the
+production log, which `sidp-agent log pull` collects; when the log is full the
+device refuses to start a run until it is collected.
 
 See [jobs and files](storage-files.md) for pushing and running the job,
 [target.yaml reference](target-yaml.md) for backend selection and

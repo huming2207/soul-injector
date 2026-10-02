@@ -3,7 +3,7 @@
 ## Getting started
 
 - [Getting started](getting-started.md) — project overview, hardware revision
-  builds, and terminology.
+  builds, flash layout, and terminology.
 
 ## Configuration
 
@@ -17,7 +17,8 @@
 - [Programming flow](programming-flow.md) — the state machine run for each
   target.
 - [Jobs and files](storage-files.md) — pushing, running and checking the
-  device's job with `sidp-agent`, and the files kept on `/data`.
+  device's job with `sidp-agent`, the files kept on `/data`, and collecting
+  the production log.
 
 ## Engineering notes
 

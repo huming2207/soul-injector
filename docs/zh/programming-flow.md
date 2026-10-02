@@ -19,7 +19,8 @@
 - `esp32` 使用 UART 后端，烧录 `target.yaml` 中列出的镜像列表。
 
 `sidp-agent job status` 显示上次烧录的结果：通过、失败（含失败阶段）或已取消，
-以及耗时。`sidp-agent job cancel` 在两个阶段之间停止烧录。结果不跨重启保存。
+以及耗时。`sidp-agent job cancel` 在两个阶段之间停止烧录。每次完成的烧录还会记入生产日志，
+由 `sidp-agent log pull` 收集；日志写满时设备拒绝开始烧录，直到日志被收集。
 
 job 的推送与烧录见 [Job 与文件](storage-files.md)，后端选择见 [target.yaml 参考](target-yaml.md)，可选步骤文件见
 [pre/post 编程步骤 YAML](procedure-yaml.md)。

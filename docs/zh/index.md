@@ -2,7 +2,7 @@
 
 ## 快速开始
 
-- [快速开始](getting-started.md) — 项目简介、硬件版本构建和术语说明。
+- [快速开始](getting-started.md) — 项目简介、硬件版本构建、flash 布局和术语说明。
 
 ## 配置
 
@@ -15,7 +15,7 @@
 
 - [编程流程](programming-flow.md) — 每个目标执行的状态机流程。
 - [Job 与文件](storage-files.md) — 用 `sidp-agent` 推送、烧录和查看设备上的 job，
-  以及 `/data` 上保存的文件。
+  `/data` 上保存的文件，以及收集生产日志。
 
 ## 工程笔记
 

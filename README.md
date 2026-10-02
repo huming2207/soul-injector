@@ -2,8 +2,10 @@
 
 SoulInjector is an ESP32-S31 based offline programmer. It supports SWD
 programming of ARM Cortex-M targets and UART programming of Espressif targets.
-It loads firmware and target configuration from the device storage partition
-and runs the programming flow without needing a host PC.
+A PC with `sidp-agent` pushes the programming job and its firmware images over
+USB; after that the device programs targets on its own, on request or whenever
+a target is plugged in. Every run is recorded in a production log that the PC
+collects later.
 
 ## Documentation
 

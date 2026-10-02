@@ -1,7 +1,13 @@
 # target.yaml 参考
 
-`target.yaml` 是目标描述文件。固件在每次目标接入时从 `/data/target.yaml` 读取。
-如果存在 `/data/target.yaml.sha256`，解析前会先校验 `target.yaml` 的 SHA-256。
+`target.yaml` 是目标描述文件。固件不直接读取它：需要在电脑上把它和可选的步骤文件
+一起编译成 job 文件，再复制到设备的 `/data/job.pb`：
+
+```sh
+sidp-agent compile --target target.yaml --pre pre_prog.yaml --post post_prog.yaml -o job.pb
+```
+
+编译器会执行下文的所有规则和固件的容量限制，因此错误会在电脑上报告，而不是在设备上。
 
 该文件描述两种编程家族之一：
 
@@ -22,7 +28,7 @@
 `variants` 是一个 map 序列。每个 variant 可以有一个 `name`。
 
 - 只有一个 variant 时，自动选择该 variant。
-- 有多个 variant 时，调用方必须提供 variant 名称，否则解析失败。
+- 有多个 variant 时，需要用 `--variant <名称>` 选择，否则编译失败。
 
 variant 的具体字段取决于所选 `family`。
 
@@ -169,6 +175,6 @@ self_tests:
 
 ## 资产校验
 
-对于解析后配置引用的每个文件（`target.yaml`、cortex-m 的 `firmware.bin`，或
+对于 job 引用的每个文件（`job.pb` 本身、cortex-m 的 `firmware.bin`，或
 每个 ESP32 镜像），固件会寻找名为 `<file>.sha256` 的伴生文件。伴生文件存在
 时，文件内容必须与伴生文件中的 SHA-256 摘要一致；伴生文件不存在时跳过校验。

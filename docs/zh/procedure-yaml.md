@@ -1,18 +1,18 @@
 # pre_prog.yaml / post_prog.yaml 步骤文件参考
 
-本文档描述 Soul Injector 编程前步骤文件 `/data/pre_prog.yaml` 与编程后步骤文件 `/data/post_prog.yaml` 的 YAML 格式与执行语义。
+本文档描述 Soul Injector 编程前步骤文件 `pre_prog.yaml` 与编程后步骤文件 `post_prog.yaml` 的 YAML 格式与执行语义。这两个文件会和 `target.yaml` 一起编译进 job 文件（见 [target.yaml 参考](target-yaml.md)），设备本身不再读取 YAML。
 
 ## 文件位置与加载行为
 
 | 项目 | 说明 |
 | ---- | ---- |
-| 文件路径 | `/data/pre_prog.yaml`、`/data/post_prog.yaml` |
+| 编译选项 | `--pre pre_prog.yaml`、`--post post_prog.yaml` |
 | 是否必需 | 两者均为可选文件 |
-| 文件缺失 | 编程流程继续，直接进入目标检测（`pre_prog.yaml`）或完成收尾（`post_prog.yaml`） |
-| YAML 非法或解析失败 | 编程流程继续，日志会记录跳过原因 |
-| 文件存在且执行失败 | 编程流程停止，进入错误状态 |
+| 未编译进 job 或步骤为空 | 编程流程继续，直接进入目标检测（`pre_prog.yaml`）或完成收尾（`post_prog.yaml`） |
+| YAML 非法、步骤类型未知或缺少字段 | 编译失败，在电脑上报告错误 |
+| 设备上步骤执行失败 | 编程流程停止，进入错误状态 |
 
-> 注意：这里的“解析失败”指 YAML 无法解析或步骤定义非法；而文件解析成功后，若某个步骤执行失败，则按下面的 `ignore_error` 规则处理。
+> 注意：设备上某个步骤执行失败时，按下面的 `ignore_error` 规则处理。
 
 ## 顶层结构
 
@@ -26,10 +26,9 @@ steps:
 
 约束：
 
-- `steps` 键必须存在，否则文件解析失败。
-- `steps` 必须是 YAML 序列。
-- `steps` 不能为空列表。空列表会在执行阶段失败，请不要使用空列表。
-- 当前实现最多支持 **96 个步骤**；超过该数量时文件解析失败。
+- `steps` 键必须存在，否则编译失败。
+- `steps` 必须是 YAML 序列；空列表表示跳过该步骤文件。
+- 最多支持 **96 个步骤**；超过该数量时编译失败。
 
 ## 步骤通用字段
 
@@ -161,15 +160,15 @@ steps:
 
 ## 历史兼容步骤
 
-以下步骤类型为历史遗留类型，仍可解析，但会被转换为无操作步骤并跳过，不会执行任何读写：
+以下步骤类型为历史遗留类型，编译器会识别它们，但会输出警告并丢弃，不会执行任何读写：
 
 | 类型 | 当前行为 |
 | ---- | -------- |
-| `READ_BLOB` | 解析为无操作步骤，跳过 |
-| `WRITE_BLOB` | 解析为无操作步骤，跳过 |
+| `READ_BLOB` | 编译时丢弃并警告 |
+| `WRITE_BLOB` | 编译时丢弃并警告 |
 
 ```yaml
-# 这两个步骤解析成功，但执行时不会进行任何操作
+# 这两个步骤会被编译器丢弃
 - type: READ_BLOB
 - type: WRITE_BLOB
 ```
@@ -220,7 +219,7 @@ SWD 后端支持本文列出的全部步骤类型，包括历史兼容的无操�
 下面是一个完整的 `pre_prog.yaml` 示例：
 
 ```yaml
-# /data/pre_prog.yaml
+# pre_prog.yaml
 steps:
   # 暂停目标 CPU
   - type: SWD_HALT_TARGET

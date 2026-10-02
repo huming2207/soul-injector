@@ -1,20 +1,23 @@
 # Pre/Post Programming Procedure YAML
 
 `pre_prog.yaml` and `post_prog.yaml` describe optional step sequences that the
-Soul Injector executes around the main programming flow.
+Soul Injector executes around the main programming flow. They are compiled
+into the job file together with `target.yaml` (see
+[target.yaml reference](target-yaml.md)); the device does not read YAML.
 
-| File               | Mounted path           | When it runs |
-| ------------------ | ---------------------- | ------------ |
-| `pre_prog.yaml`    | `/data/pre_prog.yaml`  | After assets are loaded, before target detection. |
-| `post_prog.yaml`   | `/data/post_prog.yaml` | After self tests, before the flow finishes. |
+| File             | Compiler option | When it runs |
+| ---------------- | --------------- | ------------ |
+| `pre_prog.yaml`  | `--pre`         | After assets are loaded, before target detection. |
+| `post_prog.yaml` | `--post`        | After self tests, before the flow finishes. |
 
 Both files are optional:
 
-- If the file is missing or cannot be parsed, the procedure is skipped. For
-  `pre_prog.yaml`, programming continues to target detection. For
+- An invalid file, unknown step type or missing field fails compilation.
+- If a procedure is not compiled into the job, or has no steps, it is skipped.
+  For `pre_prog.yaml`, programming continues to target detection. For
   `post_prog.yaml`, the flow continues to completion.
-- If the file is present and a step fails, programming stops unless the step
-  has `ignore_error: true`.
+- If a step fails on the device, programming stops unless the step has
+  `ignore_error: true`.
 
 ## Top-level structure
 
@@ -28,10 +31,8 @@ steps:
 ```
 
 - `steps` is required.
-- `steps` must be a non-empty sequence.
-- The current implementation supports up to 96 steps.
-- Do not use an empty `steps` list: it parses successfully but currently
-  fails when execution starts.
+- `steps` must be a sequence; an empty list means the procedure is skipped.
+- Up to 96 steps are supported.
 
 ## Common step fields
 
@@ -40,7 +41,7 @@ Every step supports these fields:
 | Field          | Required | Description |
 | -------------- | -------- | ----------- |
 | `type`         | yes      | Step type, for example `WRITE_32`. |
-| `ignore_error` | no       | Boolean, default `false`. Accepted values: `true`, `false`, `1`, `0`, `yes`, `no`. |
+| `ignore_error` | no       | Boolean `true` or `false`, default `false`. |
 
 When `ignore_error: true`, a failing step is logged and skipped, and execution
 continues with the next step. When `ignore_error` is false or absent, the
@@ -165,7 +166,7 @@ Waits until the target CPU is halted. No extra fields.
 ## Legacy compatibility
 
 `READ_BLOB` and `WRITE_BLOB` are recognized for compatibility with older
-procedure files. They are parsed as no-op steps and skipped at run time.
+procedure files. The compiler drops them with a warning.
 
 ## Target family compatibility
 

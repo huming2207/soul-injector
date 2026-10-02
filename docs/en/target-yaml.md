@@ -1,9 +1,15 @@
 # target.yaml Reference
 
-`target.yaml` is the target description file. The firmware reads it from
-`/data/target.yaml` every time a target is connected. If
-`/data/target.yaml.sha256` exists, `target.yaml` is verified against it before
-parsing.
+`target.yaml` is the target description file. The firmware does not read it
+directly: compile it on a PC, together with the optional procedure files, into
+a job file and copy that to the device as `/data/job.pb`:
+
+```sh
+sidp-agent compile --target target.yaml --pre pre_prog.yaml --post post_prog.yaml -o job.pb
+```
+
+The compiler applies every rule below and the firmware's size limits, so
+mistakes are reported on the PC instead of on the device.
 
 The file describes one of two programming families:
 
@@ -25,8 +31,8 @@ The file describes one of two programming families:
 `variants` is a sequence of maps. Each variant may have a `name`.
 
 - If exactly one variant exists, it is selected automatically.
-- If more than one variant exists, the caller must provide the variant name;
-  otherwise parsing fails.
+- If more than one variant exists, select one with `--variant <name>`;
+  otherwise compilation fails.
 
 Variant-specific fields depend on the selected `family`.
 
@@ -181,7 +187,7 @@ post-program procedure.
 
 ## Asset verification
 
-For every file referenced by the parsed config (`target.yaml`, cortex-m
+For every file the job references (`job.pb` itself, cortex-m
 `firmware.bin`, or each ESP32 image), the firmware looks for a sidecar file
 named `<file>.sha256`. If the sidecar exists, the file content must match the
 SHA-256 digest in the sidecar. If the sidecar is absent, the check is skipped.

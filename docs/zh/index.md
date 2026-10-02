@@ -7,14 +7,15 @@
 ## 配置
 
 - [target.yaml 参考](target-yaml.md) — 目标选择、flash algorithm、ESP32
-  镜像配置和自检项。
+  镜像配置和自检项。在电脑上编译成 `job.pb`。
 - [pre/post 编程步骤 YAML](procedure-yaml.md) — `pre_prog.yaml` 与
   `post_prog.yaml` 的步骤格式和执行规则。
 
 ## 运维
 
 - [编程流程](programming-flow.md) — 每个目标执行的状态机流程。
-- [存储与文件](storage-files.md) — USB MSC 使用方式及 `/data` 分区上的文件。
+- [存储与文件](storage-files.md) — USB MSC 使用方式、`/data` 分区上的文件，以及用
+  `sidp-agent` 编译 `job.pb`。
 
 ## 工程笔记
 

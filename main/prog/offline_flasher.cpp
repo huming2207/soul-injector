@@ -197,9 +197,9 @@ void offline_flasher::on_post_program()
         return;
     }
 
-    ret = post_program_steps.load_yaml(POST_PROG_STEP_FILE);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "post_prog: Can't load YAML, skipping");
+    const si_job_Procedure *steps = fw_asset_manager::instance()->post_program_steps();
+    if (steps == nullptr) {
+        ESP_LOGI(TAG, "post_prog: no steps, skipping");
         // Leaving the transport connected here would poison the next session.
         backend->release_transport();
 #ifndef CONFIG_SI_SG_PROG_RIG
@@ -210,7 +210,7 @@ void offline_flasher::on_post_program()
         return;
     }
 
-    ret = post_program_steps.execute(*backend);
+    ret = procedure_executor::execute(*steps, *backend);
     if (ret != ESP_OK) {
         ESP_LOGI(TAG, "post_prog: execution error: 0x%x", ret);
         composer->display_error("ERROR", "Post-program fail");
@@ -327,14 +327,14 @@ void offline_flasher::on_pre_program()
         return;
     }
 
-    ret = pre_program_steps.load_yaml(PRE_PROG_STEP_FILE);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "pre_prog: Can't load YAML, skipping");
+    const si_job_Procedure *steps = fw_asset_manager::instance()->pre_program_steps();
+    if (steps == nullptr) {
+        ESP_LOGI(TAG, "pre_prog: no steps, skipping");
         state = flasher::DETECT; // To detect
         return;
     }
 
-    ret = pre_program_steps.execute(*backend);
+    ret = procedure_executor::execute(*steps, *backend);
     if (ret != ESP_OK) {
         ESP_LOGI(TAG, "pre_prog: execution error: 0x%x", ret);
         composer->display_error("ERROR", "Pre-program fail");

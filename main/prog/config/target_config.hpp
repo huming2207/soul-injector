@@ -8,7 +8,7 @@
 namespace si::config
 {
 
-    /** Target programming family. Selected by the `family` key in target.yaml. */
+    /** Target programming family. Selected by the job's target (cortex_m or esp32). */
     enum class target_family : uint8_t {
         /** ARM Cortex-M programmed over SWD with a probe-rs style flash algorithm. */
         swd_cortex_m = 0,
@@ -28,28 +28,6 @@ namespace si::config
     }
 
     /**
- * Parse a family string from YAML. Accepts the spellings below; nullptr
- * (missing key) maps to swd_cortex_m for backward compatibility with
- * every existing target.yaml.
- */
-    inline bool family_from_str(const char *str, target_family &out)
-    {
-        if (str == nullptr || str[0] == '\0') {
-            out = target_family::swd_cortex_m;
-            return true;
-        }
-        if (strcmp(str, "cortex-m") == 0 || strcmp(str, "swd") == 0 || strcmp(str, "arm") == 0) {
-            out = target_family::swd_cortex_m;
-            return true;
-        }
-        if (strcmp(str, "esp32") == 0 || strcmp(str, "esp32-serial") == 0 || strcmp(str, "espressif") == 0) {
-            out = target_family::esp32_serial;
-            return true;
-        }
-        return false;
-    }
-
-    /**
      * Physical level that asserts a target control signal. Used by the esp32
      * family for the programming-header reset/boot pins, because that is a
      * board-level wiring property and differs between board revisions.
@@ -59,7 +37,7 @@ namespace si::config
         high = 1,
     };
 
-    /** Self test entry (top-level `self_tests` in target.yaml). */
+    /** Self test entry (`self_tests` in the job's target). */
     struct test_item {
         enum type : int32_t {
             INTERNAL_SIMPLE_TEST = 0,
@@ -72,7 +50,7 @@ namespace si::config
         char name[32] = {};
     };
 
-    /** One contiguous RAM region from the variant memory_map (`!Ram` tagged). */
+    /** One contiguous RAM region from the job's memory map. */
     struct ram_region {
         uint32_t start = 0;
         uint32_t end = 0;
@@ -115,7 +93,7 @@ namespace si::config
 
         uint32_t load_address = 0;
 
-        // Function entry points (load_address + offset from YAML).
+        // Absolute function entry points.
         std::optional<uint32_t> pc_init;
         std::optional<uint32_t> pc_uninit;
         std::optional<uint32_t> pc_program_page;
@@ -139,12 +117,12 @@ namespace si::config
     };
 
     /**
- * Fully parsed target.yaml.
+ * Target configuration taken from the decoded programming job.
  *
  * Everything is fixed-size inline storage: the struct is trivially copyable
  * and needs no cleanup except the algo_bin buffer, which fw_asset_manager
- * allocates with heap_caps_calloc() at parse time and frees on the next
- * reload. Only the fields relevant for the selected family are populated.
+ * allocates when the job is loaded and frees on the next reload. Only the
+ * fields relevant for the selected family are populated.
  */
     struct target_config {
         static constexpr size_t MAX_RAM_REGIONS = 4;

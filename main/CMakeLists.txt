@@ -6,9 +6,8 @@ set(SI_MAIN_SRCS
     "prog/target_backend.hpp"
     "prog/swd_cortexm_backend.cpp" "prog/swd_cortexm_backend.hpp"
     "prog/esp32_serial_backend.cpp" "prog/esp32_serial_backend.hpp"
-    "prog/config/yaml_doc.cpp" "prog/config/yaml_doc.hpp"
     "prog/config/target_config.hpp"
-    "prog/config/target_config_parser.cpp" "prog/config/target_config_parser.hpp"
+    "prog/config/job_decoder.cpp" "prog/config/job_decoder.hpp"
     "prog/includes/led_ctrl.hpp"
     "prog/includes/current_tester.hpp"
     "prog/procedure_executor.cpp" "prog/includes/procedure_executor.hpp"
@@ -65,6 +64,7 @@ idf_component_register(
 
     PRIV_REQUIRES
         "swd_esp"
+        "sidp_client"
         "mbedtls"
         "usb"
         "spi_flash"
@@ -93,8 +93,3 @@ idf_component_register(
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-deprecated-enum-enum-conversion" "-fpermissive")
-
-# The bundled ryml header recognizes RISC-V CPUs but lacks a RISC-V platform branch.
-if(CONFIG_IDF_TARGET_ESP32S31)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE "_C4_PLATFORM_HPP_")
-endif()

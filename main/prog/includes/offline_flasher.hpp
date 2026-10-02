@@ -35,7 +35,7 @@ namespace flasher
 
 /**
  * Offline programming state machine. Family-agnostic: every target operation
- * is delegated to a target_backend selected from target.yaml (`family` key).
+ * is delegated to a target_backend selected from the job's target family.
  */
 class offline_flasher
 {
@@ -59,9 +59,6 @@ private:
     display_manager *display = nullptr;
     ui_composer *composer = nullptr;
 
-    procedure_executor pre_program_steps = {};
-    procedure_executor post_program_steps = {};
-
     volatile flasher::pg_state state = flasher::DETECT;
 
 #ifdef CONFIG_SI_SG_PROG_RIG
@@ -69,8 +66,6 @@ private:
 #endif
 
     static const constexpr char *TAG = "local_flasher";
-    static const constexpr char PRE_PROG_STEP_FILE[] = "/data/pre_prog.yaml";
-    static const constexpr char POST_PROG_STEP_FILE[] = "/data/post_prog.yaml";
 
 public:
     void init(bool force_reload_asset = false);

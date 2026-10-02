@@ -1,5 +1,6 @@
 #include "fw_asset_manager.hpp"
 
+#include <cctype>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -11,8 +12,7 @@
 #include <freertos/task.h>
 #include <psa/crypto.h>
 
-#include "config/target_config_parser.hpp"
-#include "config/yaml_doc.hpp"
+#include "config/job_decoder.hpp"
 
 // -------------------------------------------------------------------
 // SHA256 helpers
@@ -188,71 +188,85 @@ bool fw_asset_manager::verify_file_hash(const char *path)
 // Init
 // -------------------------------------------------------------------
 
-esp_err_t fw_asset_manager::verify_all_assets(const si::config::target_config &cfg) const
+esp_err_t fw_asset_manager::verify_image_assets(const si_job_Job &new_job)
 {
     // Always re-verify: files may have changed through the USB MSC window.
-    // Hashing a few MB of PSRAM-resident flash is fast compared to programming.
-    if (!verify_file_hash(TARGET_YAML_PATH)) {
-        ESP_LOGE(TAG, "init: target.yaml SHA256 verification failed");
-        return ESP_ERR_INVALID_CRC;
-    }
-
-    switch (cfg.family) {
-    case si::config::target_family::esp32_serial:
-        for (size_t i = 0; i < cfg.image_count; i++) {
-            if (!verify_file_hash(cfg.images[i].path)) {
-                ESP_LOGE(TAG, "init: image SHA256 verification failed: %s", cfg.images[i].path);
-                return ESP_ERR_INVALID_CRC;
-            }
-        }
-        break;
-
-    case si::config::target_family::swd_cortex_m:
+    if (new_job.target.has_cortex_m) {
         if (!verify_file_hash(FIRMWARE_PATH)) {
             ESP_LOGE(TAG, "init: firmware.bin SHA256 verification failed");
             return ESP_ERR_INVALID_CRC;
         }
-        break;
+        return ESP_OK;
     }
 
+    const si_job_Esp32 &esp32 = new_job.target.esp32;
+    for (pb_size_t i = 0; i < esp32.images_count; i++) {
+        if (!verify_file_hash(esp32.images[i].path)) {
+            ESP_LOGE(TAG, "init: image SHA256 verification failed: %s", esp32.images[i].path);
+            return ESP_ERR_INVALID_CRC;
+        }
+    }
     return ESP_OK;
 }
 
-esp_err_t fw_asset_manager::init(const char *variant_name)
+esp_err_t fw_asset_manager::init()
 {
     int64_t ts = esp_timer_get_time();
 
-    // Round 1: parse (family determines which firmware files must be verified).
-    // Seed the temporary with the current generation so the parser's
-    // "preserve and bump" contract counts across reloads instead of
-    // restarting at 1 every time.
-    si::config::target_config tmp = {};
-    tmp.generation = cfg.generation;
+    if (!verify_file_hash(JOB_PATH)) {
+        ESP_LOGE(TAG, "init: job.pb SHA256 verification failed");
+        return ESP_ERR_INVALID_CRC;
+    }
+
+    auto *new_job = static_cast<si_job_Job *>(heap_caps_calloc(1, sizeof(si_job_Job), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (new_job == nullptr) {
+        ESP_LOGE(TAG, "init: cannot allocate %zu bytes for the job", sizeof(si_job_Job));
+        return ESP_ERR_NO_MEM;
+    }
+
     uint8_t *new_algo_bin = nullptr;
-    auto ret = si::config::parse_target_yaml(TARGET_YAML_PATH, variant_name, tmp, &new_algo_bin);
+    size_t new_algo_bin_len = 0;
+    auto ret = si::config::decode_job(JOB_PATH, *new_job, &new_algo_bin, &new_algo_bin_len);
+    ret = ret ?: verify_image_assets(*new_job);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "init: failed to parse %s: 0x%x %s", TARGET_YAML_PATH, ret, esp_err_to_name(ret));
-        return ret;
-    }
-
-    // Round 2: verify every asset referenced by the freshly parsed config.
-    ret = verify_all_assets(tmp);
-    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "init: failed to load %s: 0x%x %s", JOB_PATH, ret, esp_err_to_name(ret));
         heap_caps_free(new_algo_bin);
+        heap_caps_free(new_job);
         return ret;
     }
 
-    // Commit: swap the algorithm blob, then publish the new config.
-    if (algo_bin_storage != nullptr) {
-        heap_caps_free(algo_bin_storage);
-    }
+    // Commit: drop the previous job, then publish the new config.
+    heap_caps_free(algo_bin_storage);
+    heap_caps_free(job);
     algo_bin_storage = new_algo_bin;
-    cfg = tmp;
+    job = new_job;
+    si::config::fill_target_config(*job, algo_bin_storage, new_algo_bin_len, cfg);
 
     ts = esp_timer_get_time() - ts;
-    ESP_LOGI(
-        TAG, "init: OK (%lld ms): family=%s variant=%s gen=%lu algo_bin=%zu bytes", ts / 1000, si::config::family_to_str(cfg.family),
-        cfg.variant_name, (unsigned long)cfg.generation, cfg.algo.algo_bin_len
-    );
+    ESP_LOGI(TAG, "init: OK (%lld ms): algo_bin=%zu bytes", ts / 1000, cfg.algo.algo_bin_len);
     return ESP_OK;
+}
+
+const si_job_Procedure *fw_asset_manager::non_empty(bool present, const si_job_Procedure &procedure)
+{
+    if (!present || procedure.steps_count == 0) {
+        return nullptr;
+    }
+    return &procedure;
+}
+
+const si_job_Procedure *fw_asset_manager::pre_program_steps() const
+{
+    if (job == nullptr) {
+        return nullptr;
+    }
+    return non_empty(job->has_pre_program, job->pre_program);
+}
+
+const si_job_Procedure *fw_asset_manager::post_program_steps() const
+{
+    if (job == nullptr) {
+        return nullptr;
+    }
+    return non_empty(job->has_post_program, job->post_program);
 }

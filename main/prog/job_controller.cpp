@@ -7,6 +7,7 @@
 
 #include "asset_store.hpp"
 #include "fw_asset_manager.hpp"
+#include "prog_log.hpp"
 
 esp_err_t job_controller::init(EventGroupHandle_t _evt_group, EventBits_t run_request_bit)
 {
@@ -81,9 +82,10 @@ esp_err_t job_controller::commit_asset()
     return ret;
 }
 
-void job_controller::start_run_locked()
+void job_controller::start_run_locked(si_manage_Trigger run_trigger)
 {
     running = true;
+    current_trigger = run_trigger;
     last_run_id += 1;
     cancel_flag.store(false);
     ESP_LOGI(TAG, "run %lu started", last_run_id);
@@ -97,8 +99,10 @@ esp_err_t job_controller::request_run(uint32_t *run_id_out)
         ret = ERR_RUNNING;
     } else if (!fw_asset_manager::instance()->has_job()) {
         ret = ESP_ERR_NOT_FOUND;
+    } else if (prog_log::instance()->is_full()) {
+        ret = ERR_LOG_FULL;
     } else {
-        start_run_locked();
+        start_run_locked(si_manage_Trigger_TRIGGER_MANUAL);
         *run_id_out = last_run_id;
     }
     unlock();
@@ -112,9 +116,10 @@ esp_err_t job_controller::request_run(uint32_t *run_id_out)
 bool job_controller::begin_auto_run()
 {
     lock();
-    bool start = !running && trigger == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT && fw_asset_manager::instance()->has_job();
+    bool start = !running && trigger == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT && fw_asset_manager::instance()->has_job() &&
+                 !prog_log::instance()->is_full();
     if (start) {
-        start_run_locked();
+        start_run_locked(si_manage_Trigger_TRIGGER_AUTO_ON_DETECT);
     }
     unlock();
     return start;
@@ -169,11 +174,29 @@ void job_controller::finish_run(esp_err_t ret, flasher::pg_state failed_state, u
         last_result.outcome = cancel_flag.load() ? si_manage_Outcome_OUTCOME_CANCELLED : si_manage_Outcome_OUTCOME_FAIL;
         last_result.failed_stage = to_stage(failed_state);
     }
-    running = false;
-    cancel_flag.store(false);
     unlock();
 
     ESP_LOGI(TAG, "run %lu finished: outcome %d, stage %d, %lu ms", last_result.run_id, last_result.outcome, last_result.failed_stage, duration_ms);
+
+    // Still marked running so the job cannot change while it is recorded.
+    record_run(ret);
+    lock();
+    running = false;
+    cancel_flag.store(false);
+    unlock();
+}
+
+void job_controller::record_run(esp_err_t ret)
+{
+    auto *asset = fw_asset_manager::instance();
+    si_manage_RunRecord record = si_manage_RunRecord_init_zero;
+    record.has_result = true;
+    record.result = last_result;
+    record.trigger = current_trigger;
+    record.error_code = ret;
+    strlcpy(record.job_name, asset->job_name(), sizeof(record.job_name));
+    memcpy(record.job_sha256, asset->job_sha256(), sizeof(record.job_sha256));
+    prog_log::instance()->add_run(record);
 }
 
 void job_controller::get_status(si_manage_JobStatus &status)

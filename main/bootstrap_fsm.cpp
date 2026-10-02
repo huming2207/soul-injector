@@ -12,6 +12,7 @@
 #include "http_downloader.hpp"
 #include "job_controller.hpp"
 #include "offline_flasher.hpp"
+#include "prog_log.hpp"
 #include "sidp_service.hpp"
 #include "sidp_transport_cdc.hpp"
 #include "driver/i2c_master.h"
@@ -68,6 +69,12 @@ esp_err_t bootstrap_fsm::init()
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up storage: 0x%x %s", ret, esp_err_to_name(ret));
         composer->display_error("ERROR", "Storage partition error\nPlease try factory reset");
+        return ret;
+    }
+
+    ret = prog_log::instance()->init();
+    if (ret != ESP_OK) {
+        composer->display_error("ERROR", "Log partition error\nPlease reflash firmware");
         return ret;
     }
 
@@ -189,7 +196,12 @@ void bootstrap_fsm::run_fsm_task()
     // job_controller has already claimed a requested run; a plugged-in
     // target only runs when the job is armed for automatic runs.
     if ((bits & BIT_RUN_REQUEST) == 0 && !job_controller::instance()->begin_auto_run()) {
-        ESP_LOGI(TAG, "Target connected, no automatic job armed");
+        if (prog_log::instance()->is_full()) {
+            ESP_LOGW(TAG, "Target connected, log full");
+            composer->display_error("LOG FULL", "Connect to the host\nto collect the log");
+        } else {
+            ESP_LOGI(TAG, "Target connected, no automatic job armed");
+        }
         return;
     }
 

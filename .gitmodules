@@ -28,3 +28,6 @@
 [submodule "components/sidp_client"]
 	path = components/sidp_client
 	url = https://github.com/huming2207/sidp_client
+[submodule "components/on9ringstore"]
+	path = components/on9ringstore
+	url = https://github.com/huming2207/on9ringstore

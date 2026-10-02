@@ -4,6 +4,7 @@ set(SI_MAIN_SRCS
     "prog/fw_asset_manager.cpp" "prog/includes/fw_asset_manager.hpp"
     "prog/asset_store.cpp" "prog/includes/asset_store.hpp"
     "prog/job_controller.cpp" "prog/includes/job_controller.hpp"
+    "prog/prog_log.cpp" "prog/includes/prog_log.hpp"
     "prog/offline_flasher.cpp" "prog/includes/offline_flasher.hpp"
     "prog/target_backend.hpp"
     "prog/swd_cortexm_backend.cpp" "prog/swd_cortexm_backend.hpp"
@@ -66,6 +67,7 @@ idf_component_register(
     PRIV_REQUIRES
         "swd_esp"
         "sidp_client"
+        "on9ringstore"
         "mbedtls"
         "usb"
         "spi_flash"

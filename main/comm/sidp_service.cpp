@@ -13,6 +13,7 @@
 
 #include "asset_store.hpp"
 #include "job_controller.hpp"
+#include "prog_log.hpp"
 
 esp_err_t sidp_service::init(const char *_serial)
 {
@@ -95,6 +96,8 @@ sidp::status_t sidp_service::dispatch(uint16_t opcode, std::span<const uint8_t> 
     switch (opcode) {
     case sidp::OP_DEVICE_INFO:
         return op_device_info(out);
+    case sidp::OP_SET_TIME:
+        return op_set_time(payload);
     case sidp::OP_ASSET_BEGIN:
         return op_asset_begin(payload, out);
     case sidp::OP_ASSET_WRITE:
@@ -109,6 +112,10 @@ sidp::status_t sidp_service::dispatch(uint16_t opcode, std::span<const uint8_t> 
         return op_job_run_once(out);
     case sidp::OP_JOB_CANCEL:
         return op_job_cancel(payload);
+    case sidp::OP_LOG_READ:
+        return op_log_read(payload, out);
+    case sidp::OP_LOG_ACK:
+        return op_log_ack(payload);
     default:
         // Includes every debug opcode until sidp_session gets an SWD backend.
         return sidp::STATUS_UNSUPPORTED;
@@ -187,7 +194,17 @@ sidp::status_t sidp_service::op_device_info(pb_ostream_t &out)
         info.storage_total_kb = total_bytes / 1024;
         info.storage_free_kb = free_bytes / 1024;
     }
+    prog_log::instance()->get_info(info);
     return encode(out, si_manage_DeviceInfo_fields, &info);
+}
+
+sidp::status_t sidp_service::op_set_time(std::span<const uint8_t> payload)
+{
+    si_manage_SetTimeRequest request = si_manage_SetTimeRequest_init_zero;
+    if (!decode(payload, si_manage_SetTimeRequest_fields, &request)) {
+        return sidp::STATUS_INVALID_ARGUMENT;
+    }
+    return to_status(prog_log::instance()->set_time(request.utc_ms));
 }
 
 sidp::status_t sidp_service::op_asset_begin(std::span<const uint8_t> payload, pb_ostream_t &out)
@@ -242,6 +259,9 @@ sidp::status_t sidp_service::op_job_run_once(pb_ostream_t &out)
 {
     si_manage_JobRunOnceResponse response = si_manage_JobRunOnceResponse_init_zero;
     auto ret = job_controller::instance()->request_run(&response.run_id);
+    if (ret == job_controller::ERR_LOG_FULL) {
+        return sidp::STATUS_LOG_FULL;
+    }
     if (ret != ESP_OK) {
         return to_status(ret);
     }
@@ -256,4 +276,22 @@ sidp::status_t sidp_service::op_job_cancel(std::span<const uint8_t> payload)
     }
     job_controller::instance()->cancel(request.run_id);
     return sidp::STATUS_OK;
+}
+
+sidp::status_t sidp_service::op_log_read(std::span<const uint8_t> payload, pb_ostream_t &out)
+{
+    si_manage_LogReadRequest request = si_manage_LogReadRequest_init_zero;
+    if (!decode(payload, si_manage_LogReadRequest_fields, &request)) {
+        return sidp::STATUS_INVALID_ARGUMENT;
+    }
+    return to_status(prog_log::instance()->read(request.after_id, out));
+}
+
+sidp::status_t sidp_service::op_log_ack(std::span<const uint8_t> payload)
+{
+    si_manage_LogAckRequest request = si_manage_LogAckRequest_init_zero;
+    if (!decode(payload, si_manage_LogAckRequest_fields, &request)) {
+        return sidp::STATUS_INVALID_ARGUMENT;
+    }
+    return to_status(prog_log::instance()->ack(request.up_to_id));
 }

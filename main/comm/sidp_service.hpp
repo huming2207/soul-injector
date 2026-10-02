@@ -13,7 +13,7 @@
 
 /**
  * SIDP over the USB CDC port: accepts connections and serves the management
- * service (device info, asset upload, jobs). See sidp_client's
+ * service (device info, asset upload, jobs, production log). See sidp_client's
  * docs/sidp-management.md for the wire contract.
  *
  * Debug opcodes are answered with STATUS_UNSUPPORTED until a real SWD
@@ -51,6 +51,7 @@ private:
     void send_response(const sidp::msg_header_t &request, sidp::status_t status, size_t payload_len);
 
     sidp::status_t op_device_info(pb_ostream_t &out);
+    sidp::status_t op_set_time(std::span<const uint8_t> payload);
     sidp::status_t op_asset_begin(std::span<const uint8_t> payload, pb_ostream_t &out);
     sidp::status_t op_asset_write(std::span<const uint8_t> payload);
     sidp::status_t op_asset_commit();
@@ -58,6 +59,8 @@ private:
     sidp::status_t op_job_get(pb_ostream_t &out);
     sidp::status_t op_job_run_once(pb_ostream_t &out);
     sidp::status_t op_job_cancel(std::span<const uint8_t> payload);
+    sidp::status_t op_log_read(std::span<const uint8_t> payload, pb_ostream_t &out);
+    sidp::status_t op_log_ack(std::span<const uint8_t> payload);
 
     static bool decode(std::span<const uint8_t> payload, const pb_msgdesc_t *fields, void *msg);
     static sidp::status_t encode(pb_ostream_t &out, const pb_msgdesc_t *fields, const void *msg);
@@ -67,8 +70,8 @@ private:
     uint8_t *tx_buf = nullptr; // Internal RAM; one response at a time
     TaskHandle_t task = nullptr;
 
-    /** Largest management response frame; manage.pb.h sizes are all far below. */
-    static const constexpr size_t TX_BUF_SIZE = 256;
+    /** Largest management response frame; LOG_READ fills it with as many entries as fit. */
+    static const constexpr size_t TX_BUF_SIZE = 1024;
     static const constexpr uint32_t READ_TIMEOUT_MS = 100;
     static const constexpr uint32_t ACCEPT_POLL_MS = 50;
     static const constexpr char *TAG = "sidp_svc";

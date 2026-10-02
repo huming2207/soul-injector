@@ -29,9 +29,10 @@ interface and uses the GPIO assignments from the Rev 7.1 KiCad schematic. Its
 NT279VJ-C10-01-V1 LCD uses the NV3007 panel driver and is enabled by default.
 
 ESP-IDF v6.1 ships FatFs with `f_expand()` disabled, which the production log
-needs. Until Espressif releases upstream commit `74a7a4b`, set
-`#define FF_USE_EXPAND 1` in `components/fatfs/src/ffconf.h` of your ESP-IDF
-tree, or the build fails to link with `undefined reference to 'f_expand'`.
+needs. Until Espressif releases upstream commit `74a7a4b`, run
+`tools/patch-idf-fatfs.sh` once with `IDF_PATH` set (CI does the same). It sets
+`#define FF_USE_EXPAND 1` in `components/fatfs/src/ffconf.h`; without it the
+build fails to link with `undefined reference to 'f_expand'`.
 
 ## Flash layout
 
@@ -44,6 +45,18 @@ tree, or the build fails to link with `undefined reference to 'f_expand'`.
 
 New partitions are added after the existing ones, so flashing a newer firmware
 with `idf.py flash` keeps the job and images on `data`.
+
+## Power
+
+The device runs from USB or its battery. On battery it uses automatic light
+sleep between runs and wakes when a target is plugged in or USB power returns.
+It stays out of light sleep while:
+
+- USB power is present (`CONFIG_SI_USB_PLUG_DET_PIN`, GPIO35 on Rev 7.1: the
+  power mux status reads high on USB power), so the PC link keeps working;
+- a run is in progress, which also keeps the CPU at full speed for SWD and the
+  target UART;
+- the USB Serial/JTAG console port is connected.
 
 ## Other boards
 

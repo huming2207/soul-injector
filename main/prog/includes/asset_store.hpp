@@ -11,12 +11,15 @@
  * Files under /data, uploaded in chunks by the SIDP management service.
  *
  * An upload is written to "<name>.part" and hashed as it arrives. Commit
- * checks the hash, replaces "<name>" and records the hash as hex in
- * "<name>.sha256". fw_asset_manager compares those sidecars against the
- * hashes pinned in the job, so images are never re-hashed at run time.
+ * checks the hash and replaces "<name>". No hash is stored with the file:
+ * whoever needs to trust a file hashes its contents (hash_file()).
+ *
+ * Names are lowercase only, since FAT would treat other spellings as the
+ * same file.
  *
  * One upload at a time. Its state lives in RAM: a device reset restarts the
- * upload from zero. Only the SIDP service task calls the upload methods.
+ * upload from zero, and remove_stale_uploads() drops what was left behind.
+ * Only the SIDP service task calls the upload methods.
  */
 class asset_store
 {
@@ -45,11 +48,14 @@ public:
     /** Check the hash and replace the asset. Must not run during a programming run. */
     esp_err_t commit();
 
-    /** Hash recorded when @p path was committed (reads "<path>.sha256"). */
-    static esp_err_t read_sha256(const char *path, uint8_t *out);
+    /** SHA-256 of the contents of @p path. ESP_ERR_NOT_FOUND when there is no such file. */
+    static esp_err_t hash_file(const char *path, uint8_t *out);
 
-    /** Replace @p to with @p from and record @p sha256 as its hash. */
-    static esp_err_t install_file(const char *from, const char *to, const uint8_t *sha256);
+    /** Replace @p to with @p from. */
+    static esp_err_t install_file(const char *from, const char *to);
+
+    /** Delete partial uploads left by a reset. Call once at boot, before any upload. */
+    static void remove_stale_uploads();
 
     static bool is_valid_name(const char *name);
 
@@ -65,7 +71,6 @@ private:
     void abort_upload();
     bool is_resumable(const char *new_name, uint32_t new_size, const uint8_t *sha256) const;
     static bool is_present(const char *path, uint32_t expect_size, const uint8_t *sha256);
-    static esp_err_t write_sidecar(const char *path, const uint8_t *sha256);
     static bool make_path(char *out, const char *prefix, const char *file_name, const char *suffix);
 
     FILE *fp = nullptr;
@@ -77,6 +82,5 @@ private:
 
     static const constexpr char DIR_PREFIX[] = "/data/";
     static const constexpr char PART_SUFFIX[] = ".part";
-    static const constexpr char SIDECAR_SUFFIX[] = ".sha256";
     static const constexpr char *TAG = "asset_store";
 };

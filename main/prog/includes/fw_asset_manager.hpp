@@ -15,8 +15,8 @@
  *
  * The device keeps exactly one job. A new job is uploaded as asset
  * "job.pb.new" and only replaces /data/job.pb through activate_staged(),
- * after it decodes, validates and every image it pins is present with the
- * pinned SHA-256.
+ * after it decodes, validates and every image it pins hashes to the pinned
+ * SHA-256. The active job is always the one saved in /data/job.pb.
  *
  * Memory: the decoded job and the flash algorithm blob are each one PSRAM
  * heap allocation, replaced only when a job is (re)loaded.
@@ -41,11 +41,12 @@ public:
 
     /**
      * Make the staged job with @p sha256 the active job. Already active:
-     * nothing happens. A failure leaves the previous job in place.
+     * nothing happens. A failure leaves the previous job active, though a
+     * failed save can leave no job on disk after a reboot.
      */
     esp_err_t activate_staged(const uint8_t *sha256);
 
-    /** Check every image the active job pins against its stored hash. */
+    /** Hash every image the active job pins and compare with the pinned SHA-256. */
     esp_err_t verify_images() const;
 
     bool has_job() const
@@ -82,7 +83,15 @@ public:
 private:
     fw_asset_manager() = default;
 
-    esp_err_t load(const char *path, const uint8_t *sha256);
+    struct decoded_job {
+        si_job_Job *job = nullptr;
+        uint8_t *algo_bin = nullptr;
+        size_t algo_bin_len = 0;
+    };
+
+    /** Decode @p path and check its images; nothing is allocated on failure. */
+    static esp_err_t decode(const char *path, decoded_job &out);
+    void publish(const decoded_job &decoded, const uint8_t *sha256);
     static esp_err_t verify_image(const char *path, const uint8_t *pinned_sha256);
     static esp_err_t verify_job_images(const si_job_Job &new_job);
     static const si_job_Procedure *non_empty(bool present, const si_job_Procedure &procedure);

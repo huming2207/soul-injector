@@ -25,8 +25,9 @@ Rev 7.1 KiCad 原理图中的 GPIO 分配。其 NT279VJ-C10-01-V1 LCD 使用 NV3
 面板驱动，默认启用。
 
 ESP-IDF v6.1 的 FatFs 关闭了生产日志需要的 `f_expand()`。在 Espressif 发布上游
-commit `74a7a4b` 之前，请在 ESP-IDF 的 `components/fatfs/src/ffconf.h` 中设置
-`#define FF_USE_EXPAND 1`，否则链接时报 `undefined reference to 'f_expand'`。
+commit `74a7a4b` 之前，请在设置好 `IDF_PATH` 后运行一次 `tools/patch-idf-fatfs.sh`
+（CI 也会运行）。它在 `components/fatfs/src/ffconf.h` 中设置 `#define FF_USE_EXPAND 1`；
+否则链接时报 `undefined reference to 'f_expand'`。
 
 ## Flash 布局
 
@@ -39,6 +40,16 @@ commit `74a7a4b` 之前，请在 ESP-IDF 的 `components/fatfs/src/ffconf.h` 中
 
 新分区加在已有分区之后，因此用 `idf.py flash` 烧录新固件时 `data` 上的 job 和镜像
 会保留。
+
+## 电源
+
+设备由 USB 或电池供电。使用电池时，在两次烧录之间自动进入 light sleep，插入目标
+或重新接上 USB 电源时唤醒。以下情况不进入 light sleep：
+
+- 有 USB 电源时（`CONFIG_SI_USB_PLUG_DET_PIN`，Rev 7.1 为 GPIO35：USB 供电时电源
+  切换芯片的状态输出为高），保证与电脑的连接正常；
+- 烧录进行中，此时 CPU 也保持最高频率，供 SWD 和目标 UART 使用；
+- USB Serial/JTAG 调试串口已连接。
 
 ## 其它板卡
 

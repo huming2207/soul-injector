@@ -206,6 +206,16 @@ menu "Soul Injector Configuration"
         help
             GPIO used to detect target connection and select USB storage mode.
 
+    config SI_USB_PLUG_DET_PIN
+        int "USB plug detect pin"
+        range -1 61
+        default -1
+        help
+            GPIO that reads high while the device runs from USB power (the power
+            mux status output). The device stays out of light sleep while it is
+            high, so USB keeps working, and wakes when it goes high.
+            -1: no such pin; light sleep is then never entered.
+
     config SI_LED_ENABLE
         bool "Enable status LED"
         default y

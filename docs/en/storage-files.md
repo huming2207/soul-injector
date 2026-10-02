@@ -19,7 +19,10 @@ sidp-agent job push --port /dev/ttyACM0 \
 - `--image NAME=FILE` names each image the job programs: `firmware.bin` for
   SWD Cortex-M targets, and for ESP32 targets every `images[].path` in
   `target.yaml` (for example `/data/bootloader.bin` needs
-  `--image bootloader.bin=...`).
+  `--image bootloader.bin=...`). Device file names use only lowercase letters,
+  digits, `.`, `_` and `-`, and cannot start or end with `.`: the device's FAT
+  file system ignores case and trailing dots, so other spellings would name
+  the same file.
 - `--name` sets the name the device reports (default: the variant name);
   `--variant` selects a variant when `target.yaml` lists several.
 - `--auto` runs the job whenever a target is plugged in. Without it the job
@@ -46,16 +49,18 @@ job or its files.
 
 Under `/data`:
 
-- `job.pb`: the active job and `job.pb.sha256`, its hash.
-- The images the job programs, each with a `<name>.sha256` hash file written
-  by the device after it checked the upload.
+- `job.pb`: the active job.
+- The images the job programs.
+- `<name>.part`: an upload in progress. Upload progress is kept in memory, so
+  these are deleted when the device restarts.
 
 The production log is kept separately under `/log`.
 
-The job pins the SHA-256 of every image. The device refuses to activate a job
-whose images are missing or different, and re-checks them at the start of
-every run, so replacing an image with `sidp-agent asset push` makes the next
-run fail until the matching job is pushed.
+The job pins the SHA-256 of every image. Before activating a job, and again at
+the start of every run, the device hashes each image file and refuses to go on
+if one is missing or different. Replacing an image with `sidp-agent asset push`
+therefore makes the next run fail until the matching job is pushed, and a file
+damaged on the device is caught before the target is erased.
 
 ## Production log
 
@@ -71,16 +76,21 @@ New entries are appended to the file, one JSON object per line, tagged with the
 device serial number. Only after the file is written does the device mark them
 collected; `--no-ack` leaves them on the device to be pulled again.
 
-`log pull`, `job push` and `job run` also set the device clock from the PC,
-once per boot. Entries get a `utc_ms` time when the clock was set at any point
+`log pull`, `job push` and `job run` also set the device clock, once per boot.
+The PC takes the time from an NTP server (`--ntp-server`, default
+`pool.ntp.org`) rather than its own clock, so the device needs neither Wi-Fi
+nor 4G for it. All times are UTC; they are converted to local time only for
+display. Entries get a `utc_ms` time when the clock was set at any point
 during the same boot, including entries written before the PC connected;
 otherwise they only carry the time since boot (`uptime_us`).
 
 The device never overwrites entries that have not been collected. The log holds
-several thousand runs; when it is full the device shows **LOG FULL**, refuses to
-program (`sidp-agent job run` reports it as well), and keeps the record of the
-run that did not fit in memory until the log is pulled. `sidp-agent device info`
-shows whether entries are waiting.
+several thousand runs. A run only starts when its record is sure to fit, so
+every run that starts is recorded. When the log is full the device shows
+**LOG FULL** and refuses to program (`sidp-agent job run` reports it as well)
+until the log is pulled; this survives restarts. If writing a record ever
+fails, the device shows **LOG ERROR** and refuses to program until it is
+restarted. `sidp-agent device info` shows whether entries are waiting.
 
 Planned: target crashes during long debug sessions will be logged in the same
 place, as a new entry type.

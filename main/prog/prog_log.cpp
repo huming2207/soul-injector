@@ -11,11 +11,6 @@
 
 esp_err_t prog_log::init()
 {
-    mutex = xSemaphoreCreateMutex();
-    if (mutex == nullptr) {
-        return ESP_ERR_NO_MEM;
-    }
-
     const esp_vfs_fat_mount_config_t mount_cfg = {
         .format_if_mount_failed = true,
         .max_files = 4,
@@ -49,59 +44,25 @@ esp_err_t prog_log::init()
     return ESP_OK;
 }
 
-void prog_log::lock()
+esp_err_t prog_log::check_space()
 {
-    xSemaphoreTake(mutex, portMAX_DELAY);
-}
-
-void prog_log::unlock()
-{
-    xSemaphoreGive(mutex);
-}
-
-esp_err_t prog_log::write_pending_locked()
-{
-    auto ret = store->append_entry(ENTRY_RUN, pending, pending_len, nullptr, portMAX_DELAY, true);
-    if (ret == ESP_OK) {
-        pending_len = 0;
+    if (write_failed.load()) {
+        return ESP_FAIL;
     }
-    return ret;
+    return store->can_append(si_manage_RunRecord_size) ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 void prog_log::add_run(const si_manage_RunRecord &record)
 {
-    lock();
-    if (pending_len > 0) {
-        // Runs are refused while a record is held, so this is not expected.
-        ESP_LOGE(TAG, "add_run: log full, run %lu not recorded", record.result.run_id);
-        unlock();
-        return;
+    uint8_t encoded[si_manage_RunRecord_size] = {};
+    pb_ostream_t stream = pb_ostream_from_buffer(encoded, sizeof(encoded));
+    esp_err_t ret = pb_encode(&stream, si_manage_RunRecord_fields, &record) ? ESP_OK : ESP_FAIL;
+    ret = ret ?: store->append_entry(ENTRY_RUN, encoded, stream.bytes_written, nullptr, portMAX_DELAY, true);
+    if (ret != ESP_OK) {
+        // The store state is uncertain: stop programming until a restart recovers it
+        ESP_LOGE(TAG, "add_run: run %lu not recorded: 0x%x %s", record.result.run_id, ret, esp_err_to_name(ret));
+        write_failed.store(true);
     }
-
-    pb_ostream_t stream = pb_ostream_from_buffer(pending, sizeof(pending));
-    if (!pb_encode(&stream, si_manage_RunRecord_fields, &record)) {
-        ESP_LOGE(TAG, "add_run: encode failed: %s", PB_GET_ERROR(&stream));
-        unlock();
-        return;
-    }
-
-    pending_len = stream.bytes_written;
-    auto ret = write_pending_locked();
-    if (ret == ESP_ERR_NO_MEM) {
-        ESP_LOGW(TAG, "add_run: log full, run %lu held until the host collects the log", record.result.run_id);
-    } else if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "add_run: write failed: 0x%x %s", ret, esp_err_to_name(ret));
-        pending_len = 0;
-    }
-    unlock();
-}
-
-bool prog_log::is_full()
-{
-    lock();
-    bool full = pending_len > 0;
-    unlock();
-    return full;
 }
 
 esp_err_t prog_log::set_time(uint64_t utc_ms)
@@ -110,7 +71,6 @@ esp_err_t prog_log::set_time(uint64_t utc_ms)
         return ESP_ERR_INVALID_ARG;
     }
 
-    lock();
     esp_err_t ret = ESP_OK;
     if (!time_set) {
         on9rstore_def::time_anchor anchor = {};
@@ -119,11 +79,10 @@ esp_err_t prog_log::set_time(uint64_t utc_ms)
         anchor.quality = on9rstore_def::TIME_ANCHOR_QUALITY_PROVISIONAL;
         anchor.monotonic_us = esp_timer_get_time();
         anchor.utc_us = utc_ms * 1000;
-        anchor.uncertainty_us = 1000000; // Host clock plus USB round trip
+        anchor.uncertainty_us = 1000000; // NTP through the host plus the USB round trip
         ret = store->append_time_anchor(anchor);
         time_set = ret == ESP_OK;
     }
-    unlock();
 
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "set_time: failed: 0x%x %s", ret, esp_err_to_name(ret));
@@ -154,7 +113,9 @@ esp_err_t prog_log::read_entry(uint64_t after_id, si_manage_LogEntry &entry)
     cursor.next_entry_id = after_id + 1;
     on9rstore_def::entry_header header = {};
     auto ret = store->read_next_entry(&cursor, entry.record.bytes, sizeof(entry.record.bytes), &header);
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_SIZE) {
+    // Too large for a LogEntry, or corrupt: reported as UNKNOWN so the host can acknowledge past it
+    bool readable_header = (ret == ESP_ERR_INVALID_SIZE || ret == ESP_ERR_INVALID_CRC) && header.entry_id != 0;
+    if (ret != ESP_OK && !readable_header) {
         return ret;
     }
 
@@ -208,21 +169,12 @@ esp_err_t prog_log::read(uint64_t after_id, pb_ostream_t &out)
 
 esp_err_t prog_log::ack(uint64_t up_to_id)
 {
-    lock();
-    auto ret = store->set_acked_entry_id(up_to_id);
-    if (ret == ESP_OK && pending_len > 0) {
-        // Still full when the host acknowledged too little; the record stays held.
-        if (write_pending_locked() == ESP_OK) {
-            ESP_LOGI(TAG, "ack: held run record written");
-        }
-    }
-    unlock();
-    return ret;
+    return store->set_acked_entry_id(up_to_id);
 }
 
 void prog_log::get_info(si_manage_DeviceInfo &info)
 {
     info.log_newest_id = store->get_newest_entry_id();
     info.log_acked_id = store->get_acked_entry_id();
-    info.log_full = is_full();
+    info.log_full = check_space() != ESP_OK;
 }

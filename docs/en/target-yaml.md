@@ -190,6 +190,6 @@ post-program procedure.
 
 The compiler pins the SHA-256 of every image the job programs (cortex-m
 `firmware.bin`, or each ESP32 image), taken from the `--image` files. The
-device refuses to activate the job unless each image is stored with exactly
-that hash, and checks again at the start of every run. See
+device hashes each stored image and refuses to activate the job unless they
+all match, and checks again at the start of every run. See
 [jobs and files](storage-files.md).

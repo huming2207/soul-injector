@@ -99,9 +99,11 @@ esp_err_t job_controller::request_run(uint32_t *run_id_out)
         ret = ERR_RUNNING;
     } else if (!fw_asset_manager::instance()->has_job()) {
         ret = ESP_ERR_NOT_FOUND;
-    } else if (prog_log::instance()->is_full()) {
-        ret = ERR_LOG_FULL;
     } else {
+        // ERR_LOG_FULL, or ESP_FAIL after a log write error
+        ret = prog_log::instance()->check_space();
+    }
+    if (ret == ESP_OK) {
         start_run_locked(si_manage_Trigger_TRIGGER_MANUAL);
         *run_id_out = last_run_id;
     }
@@ -117,7 +119,7 @@ bool job_controller::begin_auto_run()
 {
     lock();
     bool start = !running && trigger == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT && fw_asset_manager::instance()->has_job() &&
-                 !prog_log::instance()->is_full();
+                 prog_log::instance()->check_space() == ESP_OK;
     if (start) {
         start_run_locked(si_manage_Trigger_TRIGGER_AUTO_ON_DETECT);
     }

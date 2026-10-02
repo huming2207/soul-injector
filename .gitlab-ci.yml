@@ -71,6 +71,9 @@ build:
           -b $IDF_CLONE_BRANCH_OR_TAG $IDF_CLONE_URL $IDF_PATH
       fi
 
+    # The production log needs f_expand(), disabled in ESP-IDF v6.1
+    - $CI_PROJECT_DIR/tools/patch-idf-fatfs.sh
+
     # Install ESP-IDF tools
     - |
       update-ca-certificates --fresh

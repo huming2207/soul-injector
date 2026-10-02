@@ -1,35 +1,12 @@
 #include "asset_store.hpp"
 
 #include <cstring>
+#include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #include <esp_log.h>
 #include <esp_vfs_fat.h>
-
-static int hex_char_to_val(char c)
-{
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-    return -1;
-}
-
-static bool parse_sha256_hex(const char *hex_str, uint8_t *out_bytes)
-{
-    for (size_t i = 0; i < asset_store::SHA256_LEN; ++i) {
-        int high = hex_char_to_val(hex_str[2 * i]);
-        int low = hex_char_to_val(hex_str[2 * i + 1]);
-        if (high < 0 || low < 0) {
-            return false;
-        }
-        out_bytes[i] = (high << 4) | low;
-    }
-    return true;
-}
 
 static bool has_suffix(const char *str, const char *suffix)
 {
@@ -46,87 +23,59 @@ bool asset_store::make_path(char *out, const char *prefix, const char *file_name
 
 bool asset_store::is_valid_name(const char *file_name)
 {
+    // FAT matches names without case and drops trailing dots, so only one spelling of each name is accepted
     size_t len = strnlen(file_name, MAX_NAME_LEN + 1);
-    if (len == 0 || len > MAX_NAME_LEN || file_name[0] == '.') {
+    if (len == 0 || len > MAX_NAME_LEN || file_name[0] == '.' || file_name[len - 1] == '.') {
         return false;
     }
 
     for (size_t i = 0; i < len; i++) {
         char c = file_name[i];
-        bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+        bool allowed = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
         if (!allowed) {
             return false;
         }
     }
 
-    // Upload and hash files are managed by the store itself.
-    return !has_suffix(file_name, PART_SUFFIX) && !has_suffix(file_name, SIDECAR_SUFFIX);
+    // Upload files are managed by the store itself.
+    return !has_suffix(file_name, PART_SUFFIX);
 }
 
-esp_err_t asset_store::read_sha256(const char *path, uint8_t *out)
+esp_err_t asset_store::hash_file(const char *path, uint8_t *out)
 {
-    char sidecar[MAX_PATH_LEN] = {};
-    if (!make_path(sidecar, path, SIDECAR_SUFFIX, "")) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    FILE *sidecar_fp = fopen(sidecar, "r");
-    if (sidecar_fp == nullptr) {
+    FILE *file_fp = fopen(path, "rb");
+    if (file_fp == nullptr) {
         return ESP_ERR_NOT_FOUND;
     }
 
-    char hex[SHA256_LEN * 2] = {};
-    size_t read_len = fread(hex, 1, sizeof(hex), sidecar_fp);
-    fclose(sidecar_fp);
-    if (read_len != sizeof(hex) || !parse_sha256_hex(hex, out)) {
-        ESP_LOGE(TAG, "read_sha256: invalid sidecar %s", sidecar);
-        return ESP_ERR_INVALID_SIZE;
+    psa_hash_operation_t file_hash = PSA_HASH_OPERATION_INIT;
+    bool ok = psa_hash_setup(&file_hash, PSA_ALG_SHA_256) == PSA_SUCCESS;
+    uint8_t buf[512];
+    size_t read_len = 0;
+    while (ok && (read_len = fread(buf, 1, sizeof(buf), file_fp)) > 0) {
+        ok = psa_hash_update(&file_hash, buf, read_len) == PSA_SUCCESS;
     }
+    ok = ok && ferror(file_fp) == 0;
+    fclose(file_fp);
 
-    return ESP_OK;
-}
-
-esp_err_t asset_store::write_sidecar(const char *path, const uint8_t *sha256)
-{
-    char sidecar[MAX_PATH_LEN] = {};
-    if (!make_path(sidecar, path, SIDECAR_SUFFIX, "")) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    FILE *sidecar_fp = fopen(sidecar, "w");
-    if (sidecar_fp == nullptr) {
-        ESP_LOGE(TAG, "write_sidecar: cannot create %s", sidecar);
-        return ESP_FAIL;
-    }
-
-    int ret = 0;
-    for (size_t i = 0; i < SHA256_LEN && ret >= 0; i++) {
-        ret = fprintf(sidecar_fp, "%02x", sha256[i]);
-    }
-    ret = ret < 0 ? ret : fprintf(sidecar_fp, "\n");
-    if (fclose(sidecar_fp) != 0 || ret < 0) {
-        ESP_LOGE(TAG, "write_sidecar: cannot write %s", sidecar);
+    size_t hash_len = 0;
+    ok = ok && psa_hash_finish(&file_hash, out, SHA256_LEN, &hash_len) == PSA_SUCCESS;
+    if (!ok) {
+        psa_hash_abort(&file_hash);
+        ESP_LOGE(TAG, "hash_file: cannot read %s", path);
         return ESP_FAIL;
     }
     return ESP_OK;
 }
 
-esp_err_t asset_store::install_file(const char *from, const char *to, const uint8_t *sha256)
+esp_err_t asset_store::install_file(const char *from, const char *to)
 {
-    char to_sidecar[MAX_PATH_LEN] = {};
-    if (!make_path(to_sidecar, to, SIDECAR_SUFFIX, "")) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    // Drop the old hash first: a power cut part-way then leaves a file
-    // without a sidecar, which counts as absent rather than as the old asset.
-    unlink(to_sidecar);
     unlink(to);
     if (rename(from, to) != 0) {
         ESP_LOGE(TAG, "install_file: cannot rename %s to %s", from, to);
         return ESP_FAIL;
     }
-    return write_sidecar(to, sha256);
+    return ESP_OK;
 }
 
 bool asset_store::is_present(const char *path, uint32_t expect_size, const uint8_t *sha256)
@@ -136,8 +85,27 @@ bool asset_store::is_present(const char *path, uint32_t expect_size, const uint8
         return false;
     }
 
-    uint8_t stored[SHA256_LEN] = {};
-    return read_sha256(path, stored) == ESP_OK && memcmp(stored, sha256, SHA256_LEN) == 0;
+    uint8_t actual[SHA256_LEN] = {};
+    return hash_file(path, actual) == ESP_OK && memcmp(actual, sha256, SHA256_LEN) == 0;
+}
+
+void asset_store::remove_stale_uploads()
+{
+    DIR *dir = opendir(BASE_PATH);
+    if (dir == nullptr) {
+        return;
+    }
+
+    // Upload state lives in RAM, so after a reset every partial upload is abandoned
+    struct dirent *entry = nullptr;
+    while ((entry = readdir(dir)) != nullptr) {
+        char part_path[MAX_PATH_LEN] = {};
+        if (has_suffix(entry->d_name, PART_SUFFIX) && make_path(part_path, DIR_PREFIX, entry->d_name, "")) {
+            ESP_LOGW(TAG, "remove_stale_uploads: removing %s", part_path);
+            unlink(part_path);
+        }
+    }
+    closedir(dir);
 }
 
 bool asset_store::is_resumable(const char *new_name, uint32_t new_size, const uint8_t *sha256) const
@@ -270,7 +238,7 @@ esp_err_t asset_store::commit()
         ESP_LOGE(TAG, "commit: SHA256 mismatch for %s", name);
         ret = ESP_ERR_INVALID_CRC;
     } else {
-        ret = install_file(part_path, path, actual);
+        ret = install_file(part_path, path);
     }
 
     if (ret != ESP_OK) {

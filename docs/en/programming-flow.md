@@ -4,7 +4,8 @@ A run programs one target with the device's job. It starts when
 `sidp-agent job run` asks for one, or when a target is plugged in and the job
 was pushed with `--auto`. Each run goes through these states:
 
-1. Check that the job exists and its images still match the hashes it pins.
+1. Check that the job exists, and hash its images to check they still match
+   the hashes it pins.
 2. Run the pre-program steps if the job has any.
 3. Detect the target through the selected backend (SWD or ESP32 UART).
 4. Erase the target flash.
@@ -23,8 +24,9 @@ was compiled from:
 `sidp-agent job status` shows the result of the last run: passed, failed (with
 the stage that failed) or cancelled, and how long it took. `sidp-agent job
 cancel` stops a run between stages. Every finished run is also recorded in the
-production log, which `sidp-agent log pull` collects; when the log is full the
-device refuses to start a run until it is collected.
+production log, which `sidp-agent log pull` collects. A run only starts when
+its record will fit in the log, so the device refuses to start one while the
+log is full, until it is collected.
 
 See [jobs and files](storage-files.md) for pushing and running the job,
 [target.yaml reference](target-yaml.md) for backend selection and

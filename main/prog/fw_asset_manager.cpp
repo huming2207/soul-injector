@@ -1,12 +1,9 @@
 #include "fw_asset_manager.hpp"
 
-#include <cstdio>
 #include <cstring>
-#include <unistd.h>
 
 #include <esp_heap_caps.h>
 #include <esp_log.h>
-#include <esp_timer.h>
 
 #include "asset_store.hpp"
 #include "config/job_decoder.hpp"
@@ -15,12 +12,13 @@ static_assert(fw_asset_manager::SHA256_LEN == asset_store::SHA256_LEN);
 
 esp_err_t fw_asset_manager::verify_image(const char *path, const uint8_t *pinned_sha256)
 {
-    uint8_t stored[asset_store::SHA256_LEN] = {};
-    if (asset_store::read_sha256(path, stored) != ESP_OK) {
-        ESP_LOGE(TAG, "verify_image: %s is missing", path);
-        return ESP_ERR_NOT_FOUND;
+    uint8_t actual[asset_store::SHA256_LEN] = {};
+    auto ret = asset_store::hash_file(path, actual);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "verify_image: cannot read %s", path);
+        return ret;
     }
-    if (memcmp(stored, pinned_sha256, sizeof(stored)) != 0) {
+    if (memcmp(actual, pinned_sha256, sizeof(actual)) != 0) {
         ESP_LOGE(TAG, "verify_image: %s is not the image this job pins", path);
         return ESP_ERR_INVALID_CRC;
     }
@@ -51,77 +49,81 @@ esp_err_t fw_asset_manager::verify_images() const
     return verify_job_images(*job);
 }
 
-esp_err_t fw_asset_manager::load(const char *path, const uint8_t *sha256)
+esp_err_t fw_asset_manager::decode(const char *path, decoded_job &out)
 {
-    int64_t ts = esp_timer_get_time();
-
-    auto *new_job = static_cast<si_job_Job *>(heap_caps_calloc(1, sizeof(si_job_Job), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (new_job == nullptr) {
-        ESP_LOGE(TAG, "load: cannot allocate %zu bytes for the job", sizeof(si_job_Job));
+    out.job = static_cast<si_job_Job *>(heap_caps_calloc(1, sizeof(si_job_Job), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (out.job == nullptr) {
+        ESP_LOGE(TAG, "decode: cannot allocate %zu bytes for the job", sizeof(si_job_Job));
         return ESP_ERR_NO_MEM;
     }
 
-    uint8_t *new_algo_bin = nullptr;
-    size_t new_algo_bin_len = 0;
-    auto ret = si::config::decode_job(path, *new_job, &new_algo_bin, &new_algo_bin_len);
-    ret = ret ?: verify_job_images(*new_job);
+    auto ret = si::config::decode_job(path, *out.job, &out.algo_bin, &out.algo_bin_len);
+    ret = ret ?: verify_job_images(*out.job);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "load: failed to load %s: 0x%x %s", path, ret, esp_err_to_name(ret));
-        heap_caps_free(new_algo_bin);
-        heap_caps_free(new_job);
-        return ret;
+        ESP_LOGE(TAG, "decode: failed to load %s: 0x%x %s", path, ret, esp_err_to_name(ret));
+        heap_caps_free(out.algo_bin);
+        heap_caps_free(out.job);
+        out = {};
     }
+    return ret;
+}
 
-    // Commit: drop the previous job, then publish the new config.
+void fw_asset_manager::publish(const decoded_job &decoded, const uint8_t *sha256)
+{
     heap_caps_free(algo_bin_storage);
     heap_caps_free(job);
-    algo_bin_storage = new_algo_bin;
-    job = new_job;
+    algo_bin_storage = decoded.algo_bin;
+    job = decoded.job;
     memcpy(active_sha256, sha256, sizeof(active_sha256));
-    si::config::fill_target_config(*job, algo_bin_storage, new_algo_bin_len, cfg);
-
-    ts = esp_timer_get_time() - ts;
-    ESP_LOGI(TAG, "load: '%s' OK (%lld ms): algo_bin=%zu bytes", job_name(), ts / 1000, cfg.algo.algo_bin_len);
-    return ESP_OK;
+    si::config::fill_target_config(*job, algo_bin_storage, decoded.algo_bin_len, cfg);
+    ESP_LOGI(TAG, "publish: '%s' active, algo_bin=%zu bytes", job_name(), cfg.algo.algo_bin_len);
 }
 
 esp_err_t fw_asset_manager::init()
 {
     uint8_t sha256[asset_store::SHA256_LEN] = {};
-    if (asset_store::read_sha256(JOB_PATH, sha256) != ESP_OK) {
+    auto ret = asset_store::hash_file(JOB_PATH, sha256);
+    if (ret == ESP_ERR_NOT_FOUND) {
         ESP_LOGW(TAG, "init: no job stored, waiting for one over SIDP");
-        return ESP_ERR_NOT_FOUND;
+        return ret;
     }
-    return load(JOB_PATH, sha256);
+
+    decoded_job decoded = {};
+    ret = ret ?: decode(JOB_PATH, decoded);
+    if (ret == ESP_OK) {
+        publish(decoded, sha256);
+    }
+    return ret;
 }
 
 esp_err_t fw_asset_manager::activate_staged(const uint8_t *sha256)
 {
+    // A published job is always the one saved in JOB_PATH, so this is a true no-op
     if (job != nullptr && memcmp(active_sha256, sha256, sizeof(active_sha256)) == 0) {
         return ESP_OK;
     }
 
     uint8_t staged[asset_store::SHA256_LEN] = {};
-    if (asset_store::read_sha256(STAGED_JOB_PATH, staged) != ESP_OK || memcmp(staged, sha256, sizeof(staged)) != 0) {
+    if (asset_store::hash_file(STAGED_JOB_PATH, staged) != ESP_OK || memcmp(staged, sha256, sizeof(staged)) != 0) {
         ESP_LOGE(TAG, "activate_staged: no staged job with the requested hash");
         return ESP_ERR_NOT_FOUND;
     }
 
-    auto ret = load(STAGED_JOB_PATH, sha256);
+    decoded_job decoded = {};
+    auto ret = decode(STAGED_JOB_PATH, decoded);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    // The new job is already live; a failure here only matters after a reboot.
-    ret = asset_store::install_file(STAGED_JOB_PATH, JOB_PATH, sha256);
+    // Save before publishing: a failure keeps the previous job running until reboot
+    ret = asset_store::install_file(STAGED_JOB_PATH, JOB_PATH);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "activate_staged: job active but not saved: 0x%x", ret);
+        heap_caps_free(decoded.algo_bin);
+        heap_caps_free(decoded.job);
         return ret;
     }
 
-    char staged_sidecar[asset_store::MAX_PATH_LEN] = {};
-    snprintf(staged_sidecar, sizeof(staged_sidecar), "%s.sha256", STAGED_JOB_PATH);
-    unlink(staged_sidecar);
+    publish(decoded, sha256);
     return ESP_OK;
 }
 

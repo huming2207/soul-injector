@@ -177,5 +177,5 @@ self_tests:
 ## 资产校验
 
 编译器根据 `--image` 文件固定 job 烧录的每个镜像（cortex-m 的 `firmware.bin`，或
-每个 ESP32 镜像）的 SHA-256。只有每个镜像都以完全相同的哈希保存在设备上时，设备
-才会启用该 job，并在每次烧录开始时再次比对。见 [Job 与文件](storage-files.md)。
+每个 ESP32 镜像）的 SHA-256。设备计算每个已保存镜像的哈希，全部一致时才会启用该
+job，并在每次烧录开始时再次检查。见 [Job 与文件](storage-files.md)。

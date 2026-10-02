@@ -39,7 +39,7 @@ public:
     /** Returned when a request conflicts with a run in progress. */
     static const constexpr esp_err_t ERR_RUNNING = ESP_ERR_NOT_FINISHED;
 
-    /** Returned by request_run() while the production log needs collecting. */
+    /** Returned by request_run() while the production log needs collecting (as prog_log::check_space()). */
     static const constexpr esp_err_t ERR_LOG_FULL = ESP_ERR_NO_MEM;
 
     /** @p run_request_bit in @p evt_group wakes the programming task for a run. */
@@ -52,7 +52,10 @@ public:
     /** Commit the asset upload. ERR_RUNNING while a run is in progress. */
     esp_err_t commit_asset();
 
-    /** Queue one run of the active job. ERR_RUNNING while a run is in progress, ERR_LOG_FULL while the log is full. */
+    /**
+     * Queue one run of the active job. ERR_RUNNING while a run is in progress,
+     * ERR_LOG_FULL while the log is full, ESP_FAIL after a log write error.
+     */
     esp_err_t request_run(uint32_t *run_id_out);
 
     /** Ask the current run to stop; @p run_id 0 matches any run. */
@@ -61,7 +64,7 @@ public:
     void get_status(si_manage_JobStatus &status);
 
     // ---- Programming task ----
-    /** Claim an automatic run after a target was plugged in; refused while the log is full. */
+    /** Claim an automatic run after a target was plugged in; refused while the log cannot take its record. */
     bool begin_auto_run();
 
     bool cancel_requested() const

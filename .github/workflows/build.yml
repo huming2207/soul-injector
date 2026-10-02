@@ -74,6 +74,9 @@ jobs:
               -b "$IDF_CLONE_BRANCH_OR_TAG" "$IDF_CLONE_URL" "$IDF_PATH"
           fi
 
+      - name: Patch ESP-IDF
+        run: tools/patch-idf-fatfs.sh
+
       - name: Install ESP-IDF tools
         run: |
           sudo update-ca-certificates --fresh

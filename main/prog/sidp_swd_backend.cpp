@@ -2,6 +2,28 @@
 
 #include <cstring>
 
+#include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <swd_host.h>
+
+static const constexpr uint32_t CPUID_ADDR = 0xE000ED00;
+static const constexpr uint32_t DFSR_ADDR = 0xE000ED30;
+static const constexpr uint32_t DHCSR_ADDR = 0xE000EDF0;
+
+static const constexpr uint32_t CPUID_IMPLEMENTER_ARM = 0x41;
+static const constexpr uint32_t CPUID_PART_M0 = 0xC20;
+static const constexpr uint32_t CPUID_PART_M0P = 0xC60;
+static const constexpr uint32_t CPUID_PART_M3 = 0xC23;
+static const constexpr uint32_t CPUID_PART_M4 = 0xC24;
+
+static const constexpr uint32_t DFSR_CLEAR_ALL = 0x1F;
+
+// The session treats only ESP_FAIL as a broken link, so a bad ACK must be one too.
+static esp_err_t link_error(esp_err_t ret)
+{
+    return ret == ESP_ERR_INVALID_RESPONSE ? ESP_FAIL : ret;
+}
+
 esp_err_t sidp_swd_backend::set_target(uint32_t id, const sidp::memory_region_t *regions, size_t count)
 {
     if (regions == nullptr || count == 0 || count > MAX_REGIONS) {
@@ -16,7 +38,84 @@ esp_err_t sidp_swd_backend::set_target(uint32_t id, const sidp::memory_region_t 
 
 esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::attach_info_t &info)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    if (connected || region_count == 0) {
+        ESP_LOGE(TAG, "attach: already connected or no target definition set");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (params.connect_under_reset) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    auto ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "attach: cannot connect: %s", esp_err_to_name(ret));
+        return link_error(ret);
+    }
+
+    ret = read_target_info(info);
+    if (ret != ESP_OK) {
+        swd_off();
+        return ret;
+    }
+
+    connected = true;
+    return ESP_OK;
+}
+
+esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
+{
+    uint32_t cpuid = 0;
+    uint32_t dhcsr = 0;
+    auto ret = swd_read_word(CPUID_ADDR, &cpuid);
+    ret = ret ?: swd_read_word(DHCSR_ADDR, &dhcsr);
+    if (ret != ESP_OK) {
+        return link_error(ret);
+    }
+
+    const uint32_t part = (cpuid >> 4) & 0xFFF;
+    if ((cpuid >> 24) != CPUID_IMPLEMENTER_ARM) {
+        ESP_LOGE(TAG, "read_target_info: unsupported CPUID 0x%08lx", cpuid);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    switch (part) {
+    case CPUID_PART_M0:
+    case CPUID_PART_M0P:
+        profile = sidp::PROFILE_ARMV6M;
+        break;
+    case CPUID_PART_M3:
+        profile = sidp::PROFILE_ARMV7M;
+        break;
+    case CPUID_PART_M4:
+        profile = sidp::PROFILE_ARMV7EM;
+        break;
+    default:
+        ESP_LOGE(TAG, "read_target_info: unsupported CPUID 0x%08lx", cpuid);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    // Enable halting debug without resuming a target that is already halted.
+    mask_bits = dhcsr & C_MASKINTS;
+    ret = swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | mask_bits | (dhcsr & C_HALT));
+    if (ret == ESP_OK && (dhcsr & S_HALT) == 0) {
+        // Old stop causes must not be mistaken for the next stop.
+        ret = swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
+    }
+    if (ret != ESP_OK) {
+        return link_error(ret);
+    }
+
+    uint32_t capabilities = 0;
+
+    info.architecture = sidp::ARCH_ARM_M;
+    info.profile = profile;
+    info.address_width = 32;
+    info.capabilities = static_cast<sidp::capability_t>(capabilities);
+    info.target_id = target_id;
+    info.cpu_id = cpuid;
+    info.memory_regions = {reinterpret_cast<const uint8_t *>(memory_regions), region_count * sizeof(sidp::memory_region_t)};
+    return ESP_OK;
 }
 
 esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)

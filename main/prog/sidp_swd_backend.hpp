@@ -42,10 +42,16 @@ public:
 private:
     sidp_swd_backend() = default;
 
+    esp_err_t read_target_info(sidp::attach_info_t &info);
+
 private:
     static const constexpr char TAG[] = "sidp_swd";
     static const constexpr size_t MAX_REGIONS = 16;
+    static const constexpr uint32_t SWD_LOCK_TIMEOUT_MS = 1000;
 
+    bool connected = false;
+    uint32_t mask_bits = 0;
+    sidp::target_profile_t profile = sidp::PROFILE_ARMV6M;
     uint32_t target_id = 0;
     size_t region_count = 0;
     sidp::memory_region_t memory_regions[MAX_REGIONS] = {};

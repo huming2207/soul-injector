@@ -9,6 +9,10 @@
 #include <swd_host.h>
 
 static const constexpr uint32_t CORE_REG_PC = 15;
+static const constexpr uint32_t CORE_REG_SPECIAL = 20; // CONTROL, FAULTMASK, BASEPRI and PRIMASK, one byte each
+
+static const constexpr size_t REG_ENTRY_SIZE = sizeof(sidp::register_value_t) + sizeof(uint32_t);
+static const constexpr size_t REG_SEEN_WORDS = sidp::ARM_REG_FPSCR / 32 + 1;
 
 static const constexpr uint32_t CPUID_ADDR = 0xE000ED00;
 static const constexpr uint32_t DFSR_ADDR = 0xE000ED30;
@@ -35,6 +39,25 @@ static esp_err_t memory_error(esp_err_t ret)
         return link_error(ret);
     }
     return swd_clear_errors() == ESP_OK ? ESP_ERR_INVALID_ARG : ESP_FAIL;
+}
+
+static bool is_special_reg(uint16_t id)
+{
+    return id >= sidp::ARM_REG_PRIMASK && id <= sidp::ARM_REG_CONTROL;
+}
+
+static uint32_t special_reg_shift(uint16_t id)
+{
+    return (id - sidp::ARM_REG_PRIMASK) * 8;
+}
+
+// Records id in the seen set. Returns true if it was already there.
+static bool mark_seen(uint32_t *seen, uint16_t id)
+{
+    const uint32_t bit = 1u << (id % 32);
+    const bool duplicate = (seen[id / 32] & bit) != 0;
+    seen[id / 32] |= bit;
+    return duplicate;
 }
 
 esp_err_t sidp_swd_backend::set_target(uint32_t id, const sidp::memory_region_t *regions, size_t count)
@@ -119,7 +142,7 @@ esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
         return link_error(ret);
     }
 
-    uint32_t capabilities = 0;
+    uint32_t capabilities = sidp::CAP_STOP_SNAPSHOT;
 
     info.architecture = sidp::ARCH_ARM_M;
     info.profile = profile;
@@ -220,9 +243,78 @@ esp_err_t sidp_swd_backend::resume(sidp::run_action_t action, uint64_t address)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+bool sidp_swd_backend::is_valid_reg(uint16_t id) const
+{
+    if (id == sidp::ARM_REG_BASEPRI || id == sidp::ARM_REG_FAULTMASK) {
+        return profile != sidp::PROFILE_ARMV6M;
+    }
+    return id <= sidp::ARM_REG_CONTROL;
+}
+
+esp_err_t sidp_swd_backend::read_reg(uint16_t id, uint32_t *value)
+{
+    if (!is_special_reg(id)) {
+        return swd_read_core_register(id, value);
+    }
+
+    uint32_t special = 0;
+    auto ret = swd_read_core_register(CORE_REG_SPECIAL, &special);
+    *value = (special >> special_reg_shift(id)) & 0xFF;
+    return ret;
+}
+
+esp_err_t sidp_swd_backend::append_reg(uint16_t id, std::span<uint8_t> out_blob, size_t &out_size)
+{
+    if (out_blob.size() - out_size < REG_ENTRY_SIZE) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    uint32_t value = 0;
+    auto ret = read_reg(id, &value);
+    if (ret != ESP_OK && ret != ESP_ERR_TIMEOUT) {
+        return link_error(ret);
+    }
+
+    // A register that never became ready is reported as unavailable, not as a failure.
+    auto *entry = reinterpret_cast<sidp::register_value_t *>(out_blob.data() + out_size);
+    entry->register_id = static_cast<sidp::register_id_t>(id);
+    entry->value_size = sizeof(value);
+    entry->flags = ret == ESP_OK ? sidp::REGISTER_VALUE_FLAG_NONE : sidp::REGISTER_VALUE_FLAG_UNAVAILABLE;
+    memcpy(entry->value, &value, sizeof(value));
+    out_size += REG_ENTRY_SIZE;
+    return ESP_OK;
+}
+
 esp_err_t sidp_swd_backend::read_regs(std::span<const sidp::register_id_t> ids, std::span<uint8_t> out_blob, size_t &out_size)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    out_size = 0;
+
+    if (ids.empty()) {
+        for (uint16_t id = 0; id <= sidp::ARM_REG_FPSCR; id++) {
+            if (is_valid_reg(id)) {
+                auto ret = append_reg(id, out_blob, out_size);
+                if (ret != ESP_OK) {
+                    return ret;
+                }
+            }
+        }
+        return ESP_OK;
+    }
+
+    uint32_t seen[REG_SEEN_WORDS] = {};
+    for (auto id : ids) {
+        if (!is_valid_reg(id) || mark_seen(seen, id)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    for (auto id : ids) {
+        auto ret = append_reg(id, out_blob, out_size);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+    return ESP_OK;
 }
 
 esp_err_t sidp_swd_backend::write_regs(const uint8_t *data, size_t size)

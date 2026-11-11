@@ -44,6 +44,9 @@ private:
 
     esp_err_t read_target_info(sidp::attach_info_t &info);
     esp_err_t write_control(uint32_t bits);
+    bool is_valid_reg(uint16_t id) const;
+    esp_err_t read_reg(uint16_t id, uint32_t *value);
+    esp_err_t append_reg(uint16_t id, std::span<uint8_t> out_blob, size_t &out_size);
 
 private:
     static const constexpr char TAG[] = "sidp_swd";

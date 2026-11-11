@@ -196,7 +196,7 @@ esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
 
     // Enable halting debug without resuming a target that is already halted.
     mask_bits = dhcsr & C_MASKINTS;
-    ret = swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | mask_bits | (dhcsr & C_HALT));
+    ret = swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | mask_bits | ((dhcsr & S_HALT) != 0 ? C_HALT : 0));
     if (ret == ESP_OK && (dhcsr & S_HALT) == 0) {
         // Old stop causes must not be mistaken for the next stop.
         ret = swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);

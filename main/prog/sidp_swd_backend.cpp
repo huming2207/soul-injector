@@ -150,7 +150,7 @@ esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
         return link_error(ret);
     }
 
-    uint32_t capabilities = sidp::CAP_STOP_SNAPSHOT;
+    uint32_t capabilities = sidp::CAP_STOP_SNAPSHOT | sidp::CAP_SINGLE_STEP;
 
     // Only a Cortex-M4 can have one. A failed probe counts as no FPU.
     uint32_t mvfr0 = 0;
@@ -255,7 +255,19 @@ esp_err_t sidp_swd_backend::halt(uint32_t timeout_ms, sidp::stop_detect_t &stop)
 
 esp_err_t sidp_swd_backend::resume(sidp::run_action_t action, uint64_t address)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    if (action != sidp::RUN_CONTINUE && action != sidp::RUN_SINGLE_STEP) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const bool step = action == sidp::RUN_SINGLE_STEP;
+    auto ret = swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
+
+    // Mask interrupts so a step executes the next instruction instead of an
+    // interrupt handler. The mask may only change while the core is halted.
+    mask_bits = step ? C_MASKINTS : 0;
+    ret = ret ?: write_control(C_HALT);
+    ret = ret ?: write_control(step ? C_STEP : 0);
+    return link_error(ret);
 }
 
 bool sidp_swd_backend::is_valid_reg(uint16_t id) const

@@ -10,6 +10,7 @@
 #include <esp_err.h>
 #include <pb.h>
 #include <sidp_defs.hpp>
+#include <sidp_session.hpp>
 
 /**
  * SIDP over the USB CDC port: accepts connections and serves the management
@@ -45,6 +46,7 @@ private:
     sidp_service() = default;
 
     static void task_handler(void *ctx);
+    void run_session();
     void serve_connection();
     void handle_frame(std::span<const uint8_t> frame);
     sidp::status_t dispatch(uint16_t opcode, std::span<const uint8_t> payload, pb_ostream_t &out);
@@ -74,5 +76,6 @@ private:
     static const constexpr size_t TX_BUF_SIZE = 1024;
     static const constexpr uint32_t READ_TIMEOUT_MS = 100;
     static const constexpr uint32_t ACCEPT_POLL_MS = 50;
+    static const constexpr uint32_t CLEANUP_RETRY_MS = 500;
     static const constexpr char *TAG = "sidp_svc";
 };

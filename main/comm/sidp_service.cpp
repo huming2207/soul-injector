@@ -14,7 +14,13 @@
 #include "asset_store.hpp"
 #include "job_controller.hpp"
 #include "prog_log.hpp"
+#include "sidp_swd_backend.hpp"
 #include "swd_prog.hpp"
+
+static bool send_debug_frame(std::span<const uint8_t> frame)
+{
+    return sidp::cdc_slip_transport::instance().write_message(frame) == ESP_OK;
+}
 
 esp_err_t sidp_service::init(const char *_serial)
 {
@@ -51,9 +57,27 @@ void sidp_service::task_handler(void *ctx)
         }
 
         ESP_LOGI(TAG, "connection accepted");
-        svc->serve_connection();
-        transport.close_session();
+        svc->run_session();
         ESP_LOGI(TAG, "connection closed");
+    }
+}
+
+void sidp_service::run_session()
+{
+    auto &transport = sidp::cdc_slip_transport::instance();
+
+    // One debug session per connection. Its buffers are allocated here and freed on return.
+    sidp::sidp_session session(*sidp_swd_backend::instance(), send_debug_frame);
+    if (session.init() == ESP_OK) {
+        serve_connection();
+    } else {
+        ESP_LOGE(TAG, "run_session: no memory for the debug session");
+    }
+    transport.close_session();
+
+    // The target stays owned until it is cleaned up, so nothing else may use it before then.
+    while (!session.handle_disconnect()) {
+        vTaskDelay(pdMS_TO_TICKS(CLEANUP_RETRY_MS));
     }
 }
 

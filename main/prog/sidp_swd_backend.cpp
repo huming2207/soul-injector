@@ -9,6 +9,9 @@
 #include <freertos/task.h>
 #include <swd_host.h>
 
+#include "job_controller.hpp"
+#include "target_lines.hpp"
+
 static const constexpr uint32_t CORE_REG_PC = 15;
 static const constexpr uint32_t CORE_REG_SPECIAL = 20; // CONTROL, FAULTMASK, BASEPRI and PRIMASK, one byte each
 static const constexpr uint32_t CORE_REG_FPSCR = 33;
@@ -117,22 +120,58 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
         return ESP_ERR_INVALID_STATE;
     }
 
-    auto ret = params.connect_under_reset ? connect_under_reset(params.halt_after_attach)
-                                          : swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    auto ret = claim_target();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = params.connect_under_reset ? connect_under_reset(params.halt_after_attach)
+                                     : swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "attach: cannot connect: %s", esp_err_to_name(ret));
         swd_off(); // Harmless when swd_host has already dropped the session
+        release_target();
         return link_error(ret);
     }
 
     ret = read_target_info(info);
     if (ret != ESP_OK) {
         swd_off();
+        release_target();
         return ret;
     }
 
     connected = true;
     return ESP_OK;
+}
+
+esp_err_t sidp_swd_backend::claim_target()
+{
+    auto ret = job_controller::instance()->begin_debug();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "claim_target: a programming run is in progress");
+        return ret;
+    }
+
+    // SWD needs the full CPU speed, the same as a programming run.
+    if (pm_lock == nullptr) {
+        ret = esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "sidp_dbg", &pm_lock);
+    }
+    ret = ret ?: esp_pm_lock_acquire(pm_lock);
+    if (ret != ESP_OK) {
+        job_controller::instance()->end_debug();
+        return ret;
+    }
+
+    target_lines::connect();
+    return ESP_OK;
+}
+
+void sidp_swd_backend::release_target()
+{
+    target_lines::isolate();
+    esp_pm_lock_release(pm_lock);
+    job_controller::instance()->end_debug();
 }
 
 esp_err_t sidp_swd_backend::connect_under_reset(bool halt_after)
@@ -255,7 +294,9 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
     }
 
     connected = false;
-    return swd_off();
+    ret = swd_off();
+    release_target();
+    return ret;
 }
 
 esp_err_t sidp_swd_backend::set_reset_catch(bool enable)

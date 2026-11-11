@@ -1,5 +1,6 @@
 #pragma once
 
+#include <esp_pm.h>
 #include <sidp_backend.hpp>
 
 /**
@@ -42,6 +43,8 @@ public:
 private:
     sidp_swd_backend() = default;
 
+    esp_err_t claim_target();
+    void release_target();
     esp_err_t read_target_info(sidp::attach_info_t &info);
     esp_err_t write_control(uint32_t bits);
     bool is_valid_reg(uint16_t id) const;
@@ -67,6 +70,7 @@ private:
     static const constexpr uint32_t RESET_TIMEOUT_MS = 1000;
 
     bool connected = false;
+    esp_pm_lock_handle_t pm_lock = nullptr;
     uint32_t mask_bits = 0;
     sidp::target_profile_t profile = sidp::PROFILE_ARMV6M;
     bool has_fpu = false;

@@ -69,7 +69,7 @@ void sidp_service::run_session()
     // One debug session per connection. Its buffers are allocated here and freed on return.
     sidp::sidp_session session(*sidp_swd_backend::instance(), send_debug_frame);
     if (session.init() == ESP_OK) {
-        serve_connection();
+        serve_connection(session);
     } else {
         ESP_LOGE(TAG, "run_session: no memory for the debug session");
     }
@@ -81,10 +81,10 @@ void sidp_service::run_session()
     }
 }
 
-void sidp_service::serve_connection()
+void sidp_service::serve_connection(sidp::sidp_session &session)
 {
     auto &transport = sidp::cdc_slip_transport::instance();
-    while (!transport.needs_disconnect()) {
+    while (!transport.needs_disconnect() && !session.needs_disconnect()) {
         uint8_t *frame = nullptr;
         size_t frame_len = 0;
         auto ret = transport.start_read(&frame, &frame_len, READ_TIMEOUT_MS);
@@ -95,12 +95,12 @@ void sidp_service::serve_connection()
             return;
         }
 
-        handle_frame(std::span<const uint8_t>(frame, frame_len));
+        handle_frame(session, std::span<const uint8_t>(frame, frame_len));
         transport.end_read(frame);
     }
 }
 
-void sidp_service::handle_frame(std::span<const uint8_t> frame)
+void sidp_service::handle_frame(sidp::sidp_session &session, std::span<const uint8_t> frame)
 {
     const auto &header = *reinterpret_cast<const sidp::msg_header_t *>(frame.data());
     if (header.version != sidp::PROTOCOL_VERSION) {
@@ -110,6 +110,11 @@ void sidp_service::handle_frame(std::span<const uint8_t> frame)
     }
     if (header.kind != sidp::KIND_REQUEST || header.request_id == 0) {
         return; // Only requests are valid from the peer.
+    }
+
+    if (header.opcode < sidp::MANAGEMENT_OPCODE_BASE) {
+        session.handle_request(frame);
+        return;
     }
 
     constexpr size_t prefix_len = sizeof(sidp::msg_header_t) + sizeof(sidp::response_prefix_t);
@@ -144,7 +149,6 @@ sidp::status_t sidp_service::dispatch(uint16_t opcode, std::span<const uint8_t> 
     case sidp::OP_LOG_ACK:
         return op_log_ack(payload);
     default:
-        // Includes every debug opcode until sidp_session gets an SWD backend.
         return sidp::STATUS_UNSUPPORTED;
     }
 }

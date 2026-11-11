@@ -19,3 +19,8 @@
 - [Jobs and files](storage-files.md) — pushing, running and checking the
   device's job with `sidp-agent`, the files kept on `/data`, and collecting
   the production log.
+
+## Hardware
+
+- [Rev 8 hardware notes](rev8-hardware.md) — firmware status, programming
+  connector wiring, power profiler, measured results and known limitations.

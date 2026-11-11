@@ -18,6 +18,7 @@
 #include "sidp_service.hpp"
 #include "sidp_transport_cdc.hpp"
 #include "swd_prog.hpp"
+#include "target_lines.hpp"
 #include "driver/i2c_master.h"
 
 esp_err_t bootstrap_fsm::init()
@@ -47,6 +48,7 @@ esp_err_t bootstrap_fsm::init()
     }
 
     ret = setup_pm_locks();
+    ret = ret ?: target_lines::init();
     ret = ret ?: setup_io_pins();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up power management: 0x%x %s", ret, esp_err_to_name(ret));

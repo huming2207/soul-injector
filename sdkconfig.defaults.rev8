@@ -5,8 +5,6 @@
 # through the 40-pin J1/J2 connector.
 #
 # Adaptor signals with no firmware support yet:
-#   GPIO57  DBG_EN: active high, pulled low. Connects SWD, reset, BOOT and UART
-#           to the target connector, so it must be driven high to reach a target.
 #   GPIO17/18/4  I2C SDA/SCL and ALERT for the three INA226 power profiler ADCs.
 #   GPIO19/37    Power profiler range latch D and clock.
 #   GPIO5/38     Power profiler mid and high range override.
@@ -29,6 +27,7 @@ CONFIG_SI_DISP_PANEL_BUFFER_SIZE=60776
 CONFIG_SI_LED_ENABLE=n
 CONFIG_SI_TARGET_DETECT_PIN=3
 CONFIG_SI_USB_PLUG_DET_PIN=35
+CONFIG_SI_TARGET_SWITCH_PIN=57
 # The adaptor's power profiler uses INA226; this option is for the INA228 rig.
 CONFIG_SI_SG_PROG_RIG=n
 

@@ -195,31 +195,12 @@ void sidp_swd_backend::release_target()
 
 esp_err_t sidp_swd_backend::connect_under_reset(bool halt_after)
 {
-    // swd_init() takes the bus and configures the reset pin before it is driven.
-    auto ret = swd_init(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    drive_nrst(true);
-    vTaskDelay(pdMS_TO_TICKS(RESET_PULSE_MS));
-
-    // swd_init_debug() releases nRST when it sets up the pins, so the firmware
-    // may start. Connect, arm the reset catch, then reset once more to apply it.
     mask_bits = 0;
-    ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
-    ret = ret ?: swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN);
-    ret = ret ?: set_reset_catch(halt_after);
-    drive_nrst(false);
-    if (ret != ESP_OK) {
+    auto ret = swd_connect_under_reset(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    if (ret != ESP_OK || halt_after) {
         return ret;
     }
-
-    pulse_nrst();
-    vTaskDelay(pdMS_TO_TICKS(RESET_SETTLE_MS));
-
-    sidp::stop_detect_t stop;
-    return finish_reset(halt_after, stop);
+    return write_control(0);
 }
 
 esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)

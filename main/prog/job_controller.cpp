@@ -95,7 +95,7 @@ esp_err_t job_controller::request_run(uint32_t *run_id_out)
 {
     lock();
     esp_err_t ret = ESP_OK;
-    if (running) {
+    if (running || debugging) {
         ret = ERR_RUNNING;
     } else if (!fw_asset_manager::instance()->has_job()) {
         ret = ESP_ERR_NOT_FOUND;
@@ -118,13 +118,31 @@ esp_err_t job_controller::request_run(uint32_t *run_id_out)
 bool job_controller::begin_auto_run()
 {
     lock();
-    bool start = !running && trigger == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT && fw_asset_manager::instance()->has_job() &&
+    bool start = !running && !debugging && trigger == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT && fw_asset_manager::instance()->has_job() &&
                  prog_log::instance()->check_space() == ESP_OK;
     if (start) {
         start_run_locked(si_manage_Trigger_TRIGGER_AUTO_ON_DETECT);
     }
     unlock();
     return start;
+}
+
+esp_err_t job_controller::begin_debug()
+{
+    lock();
+    const esp_err_t ret = running ? ERR_RUNNING : ESP_OK;
+    if (ret == ESP_OK) {
+        debugging = true;
+    }
+    unlock();
+    return ret;
+}
+
+void job_controller::end_debug()
+{
+    lock();
+    debugging = false;
+    unlock();
 }
 
 void job_controller::cancel(uint32_t run_id)

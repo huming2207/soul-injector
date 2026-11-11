@@ -53,10 +53,17 @@ public:
     esp_err_t commit_asset();
 
     /**
-     * Queue one run of the active job. ERR_RUNNING while a run is in progress,
-     * ERR_LOG_FULL while the log is full, ESP_FAIL after a log write error.
+     * Queue one run of the active job. ERR_RUNNING while a run or debug session
+     * is in progress, ERR_LOG_FULL while the log is full, ESP_FAIL after a log
+     * write error.
      */
     esp_err_t request_run(uint32_t *run_id_out);
+
+    /** Claim the target for a debug session. ERR_RUNNING while a run is in progress. */
+    esp_err_t begin_debug();
+
+    /** Release the target after begin_debug(). */
+    void end_debug();
 
     /** Ask the current run to stop; @p run_id 0 matches any run. */
     void cancel(uint32_t run_id);
@@ -87,6 +94,7 @@ private:
     SemaphoreHandle_t mutex = nullptr;
     EventGroupHandle_t evt_group = nullptr;
     EventBits_t run_bit = 0;
+    bool debugging = false;
     si_manage_Trigger trigger = si_manage_Trigger_TRIGGER_MANUAL;
     bool running = false;
     si_manage_Trigger current_trigger = si_manage_Trigger_TRIGGER_MANUAL; // What started the current run

@@ -5,8 +5,6 @@
 # through the 40-pin J1/J2 connector.
 #
 # Adaptor signals with no firmware support yet:
-#   GPIO57  DBG_EN: active high, pulled low. Connects SWD, reset, BOOT and UART
-#           to the target connector, so it must be driven high to reach a target.
 #   GPIO17/18/4  I2C SDA/SCL and ALERT for the three INA226 power profiler ADCs.
 #   GPIO19/37    Power profiler range latch D and clock.
 #   GPIO5/38     Power profiler mid and high range override.
@@ -29,6 +27,7 @@ CONFIG_SI_DISP_PANEL_BUFFER_SIZE=60776
 CONFIG_SI_LED_ENABLE=n
 CONFIG_SI_TARGET_DETECT_PIN=3
 CONFIG_SI_USB_PLUG_DET_PIN=35
+CONFIG_SI_TARGET_SWITCH_PIN=57
 # The adaptor's power profiler uses INA226; this option is for the INA228 rig.
 CONFIG_SI_SG_PROG_RIG=n
 
@@ -52,9 +51,13 @@ CONFIG_ESP_SWD_DATA_DIR2_PIN=13
 CONFIG_ESP_SWD_CLK_NOE_PIN=8
 CONFIG_ESP_SWD_NRST_PIN=11
 CONFIG_ESP_SWD_BOOT_PIN=9
-CONFIG_ESP_SWD_DEFAULT_CLOCK_HZ=500000
-CONFIG_ESP_SWD_TURNAROUND_DELAY_US=1
+# Direct SPI2 backend, with the settings measured on Rev 8 by the SWD hardware test.
+CONFIG_ESP_SWD_DEFAULT_CLOCK_HZ=13000000
+CONFIG_ESP_SWD_TURNAROUND_DELAY_US=0
+CONFIG_ESP_SWD_TURNAROUND_DELAY_NS=10
 CONFIG_ESP_SWD_USE_DEDICATED_GPIO=y
+CONFIG_ESP_SWD_DEDICATED_TRANSLATOR_CONTROLS=y
+CONFIG_ESP_SWD_USE_SPI=y
 
 # UART link to ESP-family programming targets.
 CONFIG_SI_ESP32_TARGET_UART_TX_PIN=6

@@ -23,7 +23,18 @@ esp_err_t swd_cortexm_backend::begin_session()
     vTaskDelay(1);
     swd_trigger_nrst();
     vTaskDelay(1);
-    return swd_init_debug(pdMS_TO_TICKS(1000));
+
+    connected_under_reset = false;
+    auto ret = swd_init_debug(pdMS_TO_TICKS(1000));
+    if (ret == ESP_OK) {
+        return ESP_OK;
+    }
+
+    // Firmware that turns SWD off or sleeps at boot wins that race every time.
+    ESP_LOGW(TAG, "begin_session: failed with 0x%x, retrying under reset", ret);
+    ret = swd_connect_under_reset(pdMS_TO_TICKS(1000));
+    connected_under_reset = ret == ESP_OK;
+    return ret;
 }
 
 esp_err_t swd_cortexm_backend::detect()
@@ -69,6 +80,11 @@ esp_err_t swd_cortexm_backend::self_test(const si::config::test_item &item, uint
 
 esp_err_t swd_cortexm_backend::release_transport()
 {
+    if (connected_under_reset) {
+        // The session left the target halted at its reset vector.
+        (void)swd_run_target();
+        connected_under_reset = false;
+    }
     swd_prog::reset_gpio(); // tri-state the SWD pins so the target can run
     return ESP_OK;
 }

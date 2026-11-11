@@ -216,6 +216,14 @@ menu "Soul Injector Configuration"
             high, so USB keeps working, and wakes when it goes high.
             -1: no such pin; light sleep is then never entered.
 
+    config SI_TARGET_SWITCH_PIN
+        int "Target line switch pin"
+        range -1 61
+        default -1
+        help
+            GPIO that connects SWD, reset, BOOT and UART to the programming
+            connector while high. -1: the board has no such switch.
+
     config SI_LED_ENABLE
         bool "Enable status LED"
         default y

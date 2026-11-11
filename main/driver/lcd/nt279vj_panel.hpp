@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sdkconfig.h>
+
 #include <driver/spi_master.h>
 #include <esp_lcd_panel_io.h>
 #include <lvgl.h>
@@ -21,7 +23,11 @@ public:
 
 private:
     static const constexpr char TAG[] = "nt279vj_drv";
+#ifdef CONFIG_ESP_SWD_USE_SPI
+    static const constexpr spi_host_device_t LCD_SPI_HOST = SPI3_HOST; // The SWD backend owns SPI2
+#else
     static const constexpr spi_host_device_t LCD_SPI_HOST = SPI2_HOST;
+#endif
     static const constexpr size_t LCD_H_RES = 428;
     static const constexpr size_t LCD_V_RES = 142;
 

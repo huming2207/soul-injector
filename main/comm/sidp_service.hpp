@@ -10,14 +10,13 @@
 #include <esp_err.h>
 #include <pb.h>
 #include <sidp_defs.hpp>
+#include <sidp_session.hpp>
 
 /**
  * SIDP over the USB CDC port: accepts connections and serves the management
  * service (device info, asset upload, jobs, production log). See sidp_client's
- * docs/sidp-management.md for the wire contract.
- *
- * Debug opcodes are answered with STATUS_UNSUPPORTED until a real SWD
- * backend is wired to sidp_session.
+ * docs/sidp-management.md for the wire contract. Debug opcodes go to a
+ * sidp_session driving sidp_swd_backend.
  *
  * One task owns the connection; it serves one request at a time, as SIDP v1
  * allows only one outstanding request. The task stack is in internal RAM
@@ -45,8 +44,9 @@ private:
     sidp_service() = default;
 
     static void task_handler(void *ctx);
-    void serve_connection();
-    void handle_frame(std::span<const uint8_t> frame);
+    void run_session();
+    void serve_connection(sidp::sidp_session &session);
+    void handle_frame(sidp::sidp_session &session, std::span<const uint8_t> frame);
     sidp::status_t dispatch(uint16_t opcode, std::span<const uint8_t> payload, pb_ostream_t &out);
     void send_response(const sidp::msg_header_t &request, sidp::status_t status, size_t payload_len);
 
@@ -73,6 +73,9 @@ private:
     /** Largest management response frame; LOG_READ fills it with as many entries as fit. */
     static const constexpr size_t TX_BUF_SIZE = 1024;
     static const constexpr uint32_t READ_TIMEOUT_MS = 100;
+    static const constexpr uint32_t RUNNING_POLL_MS = 10;
     static const constexpr uint32_t ACCEPT_POLL_MS = 50;
+    static const constexpr uint32_t CLEANUP_RETRY_MS = 500;
+    static const constexpr uint32_t CLEANUP_ATTEMPTS = 6;
     static const constexpr char *TAG = "sidp_svc";
 };

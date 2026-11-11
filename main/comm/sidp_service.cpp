@@ -14,6 +14,13 @@
 #include "asset_store.hpp"
 #include "job_controller.hpp"
 #include "prog_log.hpp"
+#include "sidp_swd_backend.hpp"
+#include "swd_prog.hpp"
+
+static bool send_debug_frame(std::span<const uint8_t> frame)
+{
+    return sidp::cdc_slip_transport::instance().write_message(frame) == ESP_OK;
+}
 
 esp_err_t sidp_service::init(const char *_serial)
 {
@@ -29,7 +36,9 @@ esp_err_t sidp_service::init(const char *_serial)
         return ret;
     }
 
-    if (xTaskCreate(task_handler, "sidp_svc", 6144, this, tskIDLE_PRIORITY + 5, &task) != pdPASS) {
+    // Debug requests use SWD, so this shares the flasher's core. It sits above the
+    // flasher in priority so that requests are still answered during a run.
+    if (xTaskCreatePinnedToCore(task_handler, "sidp_svc", 8192, this, tskIDLE_PRIORITY + 11, &task, swd_def::TASK_CORE) != pdPASS) {
         ESP_LOGE(TAG, "init: cannot create task");
         return ESP_ERR_NO_MEM;
     }
@@ -48,32 +57,59 @@ void sidp_service::task_handler(void *ctx)
         }
 
         ESP_LOGI(TAG, "connection accepted");
-        svc->serve_connection();
-        transport.close_session();
+        svc->run_session();
         ESP_LOGI(TAG, "connection closed");
     }
 }
 
-void sidp_service::serve_connection()
+void sidp_service::run_session()
 {
     auto &transport = sidp::cdc_slip_transport::instance();
-    while (!transport.needs_disconnect()) {
-        uint8_t *frame = nullptr;
-        size_t frame_len = 0;
-        auto ret = transport.start_read(&frame, &frame_len, READ_TIMEOUT_MS);
-        if (ret == ESP_ERR_TIMEOUT) {
-            continue;
-        }
-        if (ret != ESP_OK) {
-            return;
-        }
 
-        handle_frame(std::span<const uint8_t>(frame, frame_len));
-        transport.end_read(frame);
+    // One debug session per connection. Its buffers are allocated here and freed on return.
+    sidp::sidp_session session(*sidp_swd_backend::instance(), send_debug_frame);
+    if (session.init() == ESP_OK) {
+        serve_connection(session);
+    } else {
+        ESP_LOGE(TAG, "run_session: no memory for the debug session");
+    }
+    transport.close_session();
+
+    // The target stays owned until it is cleaned up, so nothing else may use it before then.
+    // Firmware that sleeps or turns SWD off may never answer, so stop waiting after a while.
+    uint32_t attempts = 0;
+    while (!session.handle_disconnect()) {
+        if (++attempts >= CLEANUP_ATTEMPTS) {
+            ESP_LOGW(TAG, "run_session: target is not answering, abandoning it");
+            sidp_swd_backend::instance()->abandon();
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(CLEANUP_RETRY_MS));
     }
 }
 
-void sidp_service::handle_frame(std::span<const uint8_t> frame)
+void sidp_service::serve_connection(sidp::sidp_session &session)
+{
+    auto &transport = sidp::cdc_slip_transport::instance();
+    while (!transport.needs_disconnect() && !session.needs_disconnect()) {
+        // A running target has to be checked often so that a stop is reported promptly.
+        const uint32_t timeout_ms = session.get_state() == sidp::TARGET_RUNNING ? RUNNING_POLL_MS : READ_TIMEOUT_MS;
+
+        uint8_t *frame = nullptr;
+        size_t frame_len = 0;
+        auto ret = transport.start_read(&frame, &frame_len, timeout_ms);
+        if (ret == ESP_OK) {
+            handle_frame(session, std::span<const uint8_t>(frame, frame_len));
+            transport.end_read(frame);
+        } else if (ret != ESP_ERR_TIMEOUT) {
+            return;
+        }
+
+        session.handle_poll();
+    }
+}
+
+void sidp_service::handle_frame(sidp::sidp_session &session, std::span<const uint8_t> frame)
 {
     const auto &header = *reinterpret_cast<const sidp::msg_header_t *>(frame.data());
     if (header.version != sidp::PROTOCOL_VERSION) {
@@ -83,6 +119,11 @@ void sidp_service::handle_frame(std::span<const uint8_t> frame)
     }
     if (header.kind != sidp::KIND_REQUEST || header.request_id == 0) {
         return; // Only requests are valid from the peer.
+    }
+
+    if (header.opcode < sidp::MANAGEMENT_OPCODE_BASE) {
+        session.handle_request(frame);
+        return;
     }
 
     constexpr size_t prefix_len = sizeof(sidp::msg_header_t) + sizeof(sidp::response_prefix_t);
@@ -117,7 +158,6 @@ sidp::status_t sidp_service::dispatch(uint16_t opcode, std::span<const uint8_t> 
     case sidp::OP_LOG_ACK:
         return op_log_ack(payload);
     default:
-        // Includes every debug opcode until sidp_session gets an SWD backend.
         return sidp::STATUS_UNSUPPORTED;
     }
 }

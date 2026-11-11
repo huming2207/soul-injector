@@ -19,6 +19,25 @@ const si::config::flash_algorithm &swd_prog::algo()
     return fw_asset_manager::instance()->config().algo;
 }
 
+esp_err_t swd_prog::connect_and_halt()
+{
+    auto ret = swd_init_debug(pdMS_TO_TICKS(1000));
+    if (ret == ESP_OK) {
+        vTaskDelay(1);
+        ret = swd_halt_target();
+    }
+    if (ret == ESP_OK) {
+        ret = swd_wait_until_halted();
+    }
+    if (ret == ESP_OK) {
+        return ESP_OK;
+    }
+
+    // Firmware that turns SWD off or sleeps at boot wins that race every time.
+    ESP_LOGW(TAG, "connect: failed with 0x%x, retrying under reset", ret);
+    return swd_connect_under_reset(pdMS_TO_TICKS(1000));
+}
+
 esp_err_t swd_prog::load_flash_algorithm()
 {
     swd_off();
@@ -31,27 +50,11 @@ esp_err_t swd_prog::load_flash_algorithm()
     swd_trigger_nrst();
     vTaskDelay(1);
 
-    auto ret = swd_init_debug(pdMS_TO_TICKS(1000));
+    auto ret = connect_and_halt();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "load_algo: SWD init failed");
+        ESP_LOGE(TAG, "load_algo: Cannot connect to and halt the target");
         state = swd_def::UNKNOWN;
         return ret;
-    }
-
-    vTaskDelay(1);
-
-    ret = swd_halt_target();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "load_algo: Failed when halting");
-        state = swd_def::UNKNOWN;
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    ret = swd_wait_until_halted();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "load_algo: Timeout when halting");
-        state = swd_def::UNKNOWN;
-        return ESP_ERR_INVALID_STATE;
     }
 
     const si::config::flash_algorithm &fa = algo();

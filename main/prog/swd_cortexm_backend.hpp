@@ -40,4 +40,6 @@ public:
 
 private:
     swd_cortexm_backend() = default;
+
+    bool connected_under_reset = false;
 };

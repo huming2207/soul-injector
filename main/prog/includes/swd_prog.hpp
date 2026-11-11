@@ -8,6 +8,9 @@
 
 namespace swd_def
 {
+    // Dedicated GPIO belongs to the core that sets it up, so every task using SWD runs here.
+    static const constexpr int TASK_CORE = 1;
+
     enum state : uint8_t {
         UNKNOWN = 0,
         INITIALISED = 1,
@@ -61,6 +64,7 @@ private:
 
 private:
     swd_prog() = default;
+    esp_err_t connect_and_halt();
     esp_err_t load_flash_algorithm();
     esp_err_t run_algo_init(swd_def::init_mode mode);
     esp_err_t run_algo_uninit(swd_def::init_mode mode);

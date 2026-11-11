@@ -17,6 +17,8 @@
 #include "prog_log.hpp"
 #include "sidp_service.hpp"
 #include "sidp_transport_cdc.hpp"
+#include "swd_prog.hpp"
+#include "target_lines.hpp"
 #include "driver/i2c_master.h"
 
 esp_err_t bootstrap_fsm::init()
@@ -46,6 +48,7 @@ esp_err_t bootstrap_fsm::init()
     }
 
     ret = setup_pm_locks();
+    ret = ret ?: target_lines::init();
     ret = ret ?: setup_io_pins();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up power management: 0x%x %s", ret, esp_err_to_name(ret));
@@ -76,7 +79,7 @@ esp_err_t bootstrap_fsm::init()
         return ret;
     }
 
-    BaseType_t task_ret = xTaskCreate(fsm_task_handler, "flasher", 8192, this, tskIDLE_PRIORITY + 10, &fsm_task);
+    BaseType_t task_ret = xTaskCreatePinnedToCore(fsm_task_handler, "flasher", 8192, this, tskIDLE_PRIORITY + 10, &fsm_task, swd_def::TASK_CORE);
     if (task_ret != pdPASS) {
         ESP_LOGE(TAG, "Can't create FSM task");
         return ESP_FAIL;
@@ -255,6 +258,7 @@ void bootstrap_fsm::run_job()
     auto *flasher = offline_flasher::instance();
     int64_t start_us = esp_timer_get_time();
     esp_pm_lock_acquire(run_pm_lock);
+    target_lines::connect();
 
     flasher->init();
     esp_err_t ret = ESP_ERR_NOT_FINISHED;
@@ -269,6 +273,7 @@ void bootstrap_fsm::run_job()
         ESP_LOGE(TAG, "Something went wrong");
     }
 
+    target_lines::isolate();
     esp_pm_lock_release(run_pm_lock);
     uint32_t duration_ms = (esp_timer_get_time() - start_us) / 1000;
     job_controller::instance()->finish_run(ret, flasher->get_failed_state(), duration_ms);

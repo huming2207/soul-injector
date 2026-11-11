@@ -287,7 +287,10 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
         // The interrupt mask may only change while halted. Clearing C_DEBUGEN then resumes.
         mask_bits = 0;
         ret = write_control(C_HALT);
-        ret = ret ?: swd_write_word(DHCSR_ADDR, DBGKEY);
+        if (ret == ESP_OK) {
+            // Firmware may turn SWD off as soon as it runs, before this write is acknowledged.
+            (void)swd_write_word(DHCSR_ADDR, DBGKEY);
+        }
     }
     if (ret != ESP_OK) {
         return link_error(ret);

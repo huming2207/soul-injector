@@ -54,16 +54,20 @@ private:
     esp_err_t install_run_to(uint32_t address);
     esp_err_t set_reset_catch(bool enable);
     esp_err_t finish_reset(bool halt_after, sidp::stop_detect_t &stop);
+    esp_err_t connect_in_reset(bool halt_after);
+    esp_err_t ensure_link();
 
 private:
     static const constexpr char TAG[] = "sidp_swd";
     static const constexpr size_t MAX_REGIONS = 16;
     static const constexpr uint32_t MAX_COMPARATORS = 8;
     static const constexpr uint32_t SWD_LOCK_TIMEOUT_MS = 1000;
+    static const constexpr uint32_t RESET_PULSE_MS = 20;
     static const constexpr uint32_t RESET_SETTLE_MS = 20;
     static const constexpr uint32_t RESET_TIMEOUT_MS = 1000;
 
     bool connected = false;
+    bool link_up = false; // False after an nRST reconnect failed and swd_host dropped the session
     uint32_t mask_bits = 0;
     sidp::target_profile_t profile = sidp::PROFILE_ARMV6M;
     bool has_fpu = false;

@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include <driver/gpio.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -72,6 +73,16 @@ static uint32_t core_reg_selector(uint16_t id)
     return id == sidp::ARM_REG_FPSCR ? CORE_REG_FPSCR : id;
 }
 
+static void drive_nrst(bool asserted)
+{
+#ifdef CONFIG_ESP_SWD_PHY_AXC2T245
+    // A high GPIO turns on the reset MOSFET.
+    gpio_set_level(static_cast<gpio_num_t>(CONFIG_ESP_SWD_NRST_PIN), asserted ? 1 : 0);
+#else
+    gpio_set_level(static_cast<gpio_num_t>(CONFIG_ESP_SWD_NRST_PIN), asserted ? 0 : 1);
+#endif
+}
+
 static uint32_t fpb_comparator(uint32_t address)
 {
     const uint32_t replace = (address & 2) != 0 ? FP_COMP_REPLACE_UPPER : FP_COMP_REPLACE_LOWER;
@@ -123,7 +134,19 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
     }
 
     connected = true;
+    link_up = true;
     return ESP_OK;
+}
+
+esp_err_t sidp_swd_backend::ensure_link()
+{
+    if (link_up) {
+        return ESP_OK;
+    }
+
+    auto ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    link_up = ret == ESP_OK;
+    return link_error(ret);
 }
 
 esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
@@ -175,7 +198,7 @@ esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
     }
 
     uint32_t capabilities = sidp::CAP_STOP_SNAPSHOT | sidp::CAP_SINGLE_STEP | sidp::CAP_RESET_HALT |
-                            sidp::CAP_RESET_RUN | sidp::CAP_RESET_SYSTEM;
+                            sidp::CAP_RESET_RUN | sidp::CAP_RESET_SYSTEM | sidp::CAP_RESET_NRST;
     if (comparator_count != 0) {
         capabilities |= sidp::CAP_HARDWARE_BP;
     }
@@ -204,7 +227,8 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
         return ESP_OK;
     }
 
-    auto ret = disable_comparators();
+    auto ret = ensure_link();
+    ret = ret ?: disable_comparators();
     ret = ret ?: set_reset_catch(false);
     if (ret == ESP_OK && action == sidp::DETACH_RESUME) {
         // The interrupt mask may only change while halted. Clearing C_DEBUGEN then resumes.
@@ -217,6 +241,7 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
     }
 
     connected = false;
+    link_up = false;
     return swd_off();
 }
 
@@ -231,23 +256,43 @@ esp_err_t sidp_swd_backend::set_reset_catch(bool enable)
 
 esp_err_t sidp_swd_backend::reset(sidp::reset_kind_t kind, bool halt_after, sidp::stop_detect_t &stop)
 {
-    if (kind != sidp::RESET_SYSTEM) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
     // The session halts the target first, so the interrupt mask can be cleared here.
     mask_bits = 0;
     auto ret = write_control(C_HALT);
     ret = ret ?: swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
-    ret = ret ?: set_reset_catch(halt_after);
+
+    if (kind == sidp::RESET_NRST) {
+        ret = ret ?: connect_in_reset(halt_after);
+    } else {
+        ret = ret ?: set_reset_catch(halt_after);
+        if (ret == ESP_OK) {
+            // The core may reset before acknowledging this write. finish_reset() confirms it.
+            (void)swd_write_word(AIRCR_ADDR, VECTKEY | SYSRESETREQ);
+        }
+    }
     if (ret != ESP_OK) {
         return link_error(ret);
     }
 
-    // The core may reset before acknowledging this write. finish_reset() confirms it.
-    (void)swd_write_word(AIRCR_ADDR, VECTKEY | SYSRESETREQ);
     vTaskDelay(pdMS_TO_TICKS(RESET_SETTLE_MS));
     return finish_reset(halt_after, stop);
+}
+
+esp_err_t sidp_swd_backend::connect_in_reset(bool halt_after)
+{
+    drive_nrst(true);
+    vTaskDelay(pdMS_TO_TICKS(RESET_PULSE_MS));
+
+    // The catch must be set while nRST is held, or the firmware starts running first.
+    auto ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    link_up = ret == ESP_OK;
+    if (link_up) {
+        ret = swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN);
+        ret = ret ?: set_reset_catch(halt_after);
+    }
+
+    drive_nrst(false);
+    return ret;
 }
 
 esp_err_t sidp_swd_backend::finish_reset(bool halt_after, sidp::stop_detect_t &stop)
@@ -328,7 +373,8 @@ esp_err_t sidp_swd_backend::poll_halted(sidp::stop_detect_t &stop)
 
 esp_err_t sidp_swd_backend::halt(uint32_t timeout_ms, sidp::stop_detect_t &stop)
 {
-    auto ret = poll_halted(stop);
+    auto ret = ensure_link();
+    ret = ret ?: poll_halted(stop);
     if (ret != ESP_OK || stop.halted) {
         return ret;
     }

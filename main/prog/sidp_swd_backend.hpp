@@ -19,13 +19,6 @@ public:
         return &_instance;
     }
 
-    /**
-     * Sets the target definition attach() reports. The regions are copied.
-     * @param id Identifies the selected target definition
-     * @return ESP_ERR_INVALID_ARG if there are no regions or too many
-     */
-    esp_err_t set_target(uint32_t id, const sidp::memory_region_t *regions, size_t count);
-
     esp_err_t attach(const sidp::attach_params_t &params, sidp::attach_info_t &info) override;
     esp_err_t detach(sidp::detach_action_t action) override;
     esp_err_t reset(sidp::reset_kind_t kind, bool halt_after, sidp::stop_detect_t &stop) override;
@@ -43,6 +36,7 @@ public:
 private:
     sidp_swd_backend() = default;
 
+    esp_err_t load_target();
     esp_err_t claim_target();
     void release_target();
     esp_err_t read_target_info(sidp::attach_info_t &info);
@@ -62,7 +56,7 @@ private:
 
 private:
     static const constexpr char TAG[] = "sidp_swd";
-    static const constexpr size_t MAX_REGIONS = 16;
+    static const constexpr size_t MAX_REGIONS = 5; // Flash, plus target_config::MAX_RAM_REGIONS
     static const constexpr uint32_t MAX_COMPARATORS = 8;
     static const constexpr uint32_t SWD_LOCK_TIMEOUT_MS = 1000;
     static const constexpr uint32_t RESET_PULSE_MS = 20;

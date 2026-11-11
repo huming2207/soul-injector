@@ -9,6 +9,7 @@
 #include <freertos/task.h>
 #include <swd_host.h>
 
+#include "fw_asset_manager.hpp"
 #include "job_controller.hpp"
 #include "target_lines.hpp"
 
@@ -101,26 +102,44 @@ static bool mark_seen(uint32_t *seen, uint16_t id)
     return duplicate;
 }
 
-esp_err_t sidp_swd_backend::set_target(uint32_t id, const sidp::memory_region_t *regions, size_t count)
+esp_err_t sidp_swd_backend::load_target()
 {
-    if (regions == nullptr || count == 0 || count > MAX_REGIONS) {
-        return ESP_ERR_INVALID_ARG;
+    static_assert(MAX_REGIONS >= 1 + si::config::target_config::MAX_RAM_REGIONS);
+
+    auto *asset = fw_asset_manager::instance();
+    if (!asset->has_job() || asset->config().family != si::config::target_family::swd_cortex_m || !asset->config().has_algo) {
+        ESP_LOGE(TAG, "load_target: the device needs a Cortex-M job to debug");
+        return ESP_ERR_INVALID_STATE;
     }
 
-    target_id = id;
-    region_count = count;
-    memcpy(memory_regions, regions, count * sizeof(sidp::memory_region_t));
+    const auto &cfg = asset->config();
+    if (!cfg.algo.flash_start.has_value() || !cfg.algo.flash_end.has_value()) {
+        ESP_LOGE(TAG, "load_target: the job has no flash address range");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const auto flash_flags = static_cast<sidp::memory_flag_t>(sidp::MEM_READ | sidp::MEM_EXECUTE);
+    const auto ram_flags = static_cast<sidp::memory_flag_t>(sidp::MEM_READ | sidp::MEM_WRITE | sidp::MEM_EXECUTE | sidp::MEM_CACHEABLE);
+
+    region_count = 0;
+    memory_regions[region_count++] = {*cfg.algo.flash_start, *cfg.algo.flash_end - *cfg.algo.flash_start, sidp::MEMORY_FLASH, flash_flags, {0, 0}};
+    for (size_t i = 0; i < cfg.ram_region_count; i++) {
+        memory_regions[region_count++] = {cfg.ram_regions[i].start, cfg.ram_regions[i].size(), sidp::MEMORY_RAM, ram_flags, {0, 0}};
+    }
+
+    memcpy(&target_id, asset->job_sha256(), sizeof(target_id));
     return ESP_OK;
 }
 
 esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::attach_info_t &info)
 {
-    if (connected || region_count == 0) {
-        ESP_LOGE(TAG, "attach: already connected or no target definition set");
+    if (connected) {
+        ESP_LOGE(TAG, "attach: already connected");
         return ESP_ERR_INVALID_STATE;
     }
 
-    auto ret = claim_target();
+    auto ret = load_target();
+    ret = ret ?: claim_target();
     if (ret != ESP_OK) {
         return ret;
     }

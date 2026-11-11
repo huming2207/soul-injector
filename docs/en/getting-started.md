@@ -30,9 +30,7 @@ NT279VJ-C10-01-V1 LCD uses the NV3007 panel driver and is enabled by default.
 
 Rev 8 keeps the Rev 7.1 GPIO assignments and moves the SWD/UART front end and
 the LCD to the adaptor board. The firmware does not support Rev 8 fully yet: it
-does not drive GPIO57, which connects the target signals to the programming
-connector, or GPIO39, which powers the LCD. Until it does, a Rev 8 build cannot
-reach a target or show anything on the LCD. See the
+does not drive GPIO39, which powers the LCD, so the LCD stays blank. See the
 [Rev 8 hardware notes](rev8-hardware.md), including the changed programming
 connector wiring.
 

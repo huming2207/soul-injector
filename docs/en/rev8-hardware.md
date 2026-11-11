@@ -15,13 +15,21 @@ firmware does not support Rev 8 fully yet:
 
 | Signal | GPIO | Status |
 | --- | --- | --- |
-| `DBG_EN` | 57 | Not driven. SWD, reset, BOOT and UART cannot reach the target. |
+| `DBG_EN` | 57 | Driven high during a programming run or debug session, low otherwise. |
 | LCD power | 39 | Not driven. `SI_DISP_PANEL_PWR` is set but the firmware does not use it. |
 | Power profiler | See below | Not supported. `components/ina226` is present but unused. |
 
 The SWD and UART GPIOs are unchanged from Rev 7.1. The firmware still uses the
 option named `ESP_SWD_PHY_AXC2T245`: Rev 8 fits SN74AVC2T245 translators, whose
 pinout and OE/DIR logic match.
+
+Rev 8 runs SWD at 13 MHz over the direct SPI2 backend, so the LCD uses SPI3.
+Rev 7.1 keeps the LCD on SPI2 and SWD at 500 kHz.
+
+A debug session reads the target's flash range and RAM regions from the active
+job, so a Cortex-M job must be pushed before debugging. A debug session and a
+programming run cannot happen at the same time: whichever starts second is
+refused.
 
 ## Programming connector wiring
 

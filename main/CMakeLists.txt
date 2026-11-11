@@ -8,6 +8,7 @@ set(SI_MAIN_SRCS
     "prog/offline_flasher.cpp" "prog/includes/offline_flasher.hpp"
     "prog/target_backend.hpp"
     "prog/swd_cortexm_backend.cpp" "prog/swd_cortexm_backend.hpp"
+    "prog/sidp_swd_backend.cpp" "prog/sidp_swd_backend.hpp"
     "prog/esp32_serial_backend.cpp" "prog/esp32_serial_backend.hpp"
     "prog/config/target_config.hpp"
     "prog/config/job_decoder.cpp" "prog/config/job_decoder.hpp"

@@ -1,0 +1,40 @@
+#pragma once
+
+#include <sidp_backend.hpp>
+
+/**
+ * Cortex-M debug backend for the SIDP session, on top of swd_host.
+ *
+ * Every call must come from the one pinned task that owns the debug session,
+ * because swd_host ties the SWD bus to the task that started it. No heap is
+ * used. See sidp_backend.hpp for the contract each method follows.
+ */
+class sidp_swd_backend final : public sidp::target_backend_t
+{
+public:
+    static sidp_swd_backend *instance()
+    {
+        static sidp_swd_backend _instance;
+        return &_instance;
+    }
+
+    esp_err_t attach(const sidp::attach_params_t &params, sidp::attach_info_t &info) override;
+    esp_err_t detach(sidp::detach_action_t action) override;
+    esp_err_t reset(sidp::reset_kind_t kind, bool halt_after, sidp::stop_detect_t &stop) override;
+    esp_err_t poll_halted(sidp::stop_detect_t &stop) override;
+    esp_err_t halt(uint32_t timeout_ms, sidp::stop_detect_t &stop) override;
+    esp_err_t resume(sidp::run_action_t action, uint64_t address) override;
+    esp_err_t read_regs(std::span<const sidp::register_id_t> ids, std::span<uint8_t> out_blob, size_t &out_size) override;
+    esp_err_t write_regs(const uint8_t *data, size_t size) override;
+    esp_err_t read_mem(uint64_t address, uint8_t *out, size_t size, sidp::memory_access_width_t width) override;
+    esp_err_t write_mem(uint64_t address, const uint8_t *data, size_t size, sidp::memory_access_width_t width) override;
+    esp_err_t apply_breakpoints(std::span<const sidp::bp_entry_t> entries) override;
+    esp_err_t apply_watchpoints(std::span<const sidp::wp_entry_t> entries) override;
+    esp_err_t set_vector_catch(sidp::vector_catch_t mask) override;
+
+private:
+    sidp_swd_backend() = default;
+
+private:
+    static const constexpr char TAG[] = "sidp_swd";
+};

@@ -124,7 +124,23 @@ esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
 
 esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    if (!connected) {
+        return ESP_OK;
+    }
+
+    auto ret = ESP_OK;
+    if (action == sidp::DETACH_RESUME) {
+        // The interrupt mask may only change while halted. Clearing C_DEBUGEN then resumes.
+        mask_bits = 0;
+        ret = write_control(C_HALT);
+        ret = ret ?: swd_write_word(DHCSR_ADDR, DBGKEY);
+    }
+    if (ret != ESP_OK) {
+        return link_error(ret);
+    }
+
+    connected = false;
+    return swd_off();
 }
 
 esp_err_t sidp_swd_backend::reset(sidp::reset_kind_t kind, bool halt_after, sidp::stop_detect_t &stop)

@@ -8,6 +8,9 @@
 
 namespace swd_def
 {
+    // Dedicated GPIO belongs to the core that sets it up, so every task using SWD runs here.
+    static const constexpr int TASK_CORE = 1;
+
     enum state : uint8_t {
         UNKNOWN = 0,
         INITIALISED = 1,

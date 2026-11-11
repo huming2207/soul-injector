@@ -17,6 +17,7 @@
 #include "prog_log.hpp"
 #include "sidp_service.hpp"
 #include "sidp_transport_cdc.hpp"
+#include "swd_prog.hpp"
 #include "driver/i2c_master.h"
 
 esp_err_t bootstrap_fsm::init()
@@ -76,7 +77,7 @@ esp_err_t bootstrap_fsm::init()
         return ret;
     }
 
-    BaseType_t task_ret = xTaskCreate(fsm_task_handler, "flasher", 8192, this, tskIDLE_PRIORITY + 10, &fsm_task);
+    BaseType_t task_ret = xTaskCreatePinnedToCore(fsm_task_handler, "flasher", 8192, this, tskIDLE_PRIORITY + 10, &fsm_task, swd_def::TASK_CORE);
     if (task_ret != pdPASS) {
         ESP_LOGE(TAG, "Can't create FSM task");
         return ESP_FAIL;

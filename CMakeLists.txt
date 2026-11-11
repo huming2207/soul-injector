@@ -8,9 +8,9 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 23)
 
 set(SI_HW_REV "rev71" CACHE STRING "Soul Injector hardware revision")
-set_property(CACHE SI_HW_REV PROPERTY STRINGS rev71)
-if(NOT SI_HW_REV MATCHES "^(rev71)$")
-    message(FATAL_ERROR "Unsupported SI_HW_REV '${SI_HW_REV}'. Expected 'rev71'.")
+set_property(CACHE SI_HW_REV PROPERTY STRINGS rev71 rev8)
+if(NOT SI_HW_REV MATCHES "^(rev71|rev8)$")
+    message(FATAL_ERROR "Unsupported SI_HW_REV '${SI_HW_REV}'. Expected 'rev71' or 'rev8'.")
 endif()
 
 set(_SI_IDF_TARGET "esp32s31")
@@ -32,7 +32,7 @@ message(STATUS "SoulInjector: ESP-IDF target is ${_SI_IDF_TARGET}")
 message(STATUS "SoulInjector: sdkconfig defaults are ${_SI_DEFAULT_SDKCONFIG_FILES}")
 message(STATUS "SoulInjector: sdkconfig output is ${SDKCONFIG}")
 if(NOT DEFINED SDKCONFIG_DEFAULTS OR
-        SDKCONFIG_DEFAULTS MATCHES "^sdkconfig\\.defaults;(sdkconfig\\.defaults\\.esp32s31;)?sdkconfig\\.defaults\\.rev71$")
+        SDKCONFIG_DEFAULTS MATCHES "^sdkconfig\\.defaults;(sdkconfig\\.defaults\\.esp32s31;)?sdkconfig\\.defaults\\.(rev71|rev8)$")
     set(SDKCONFIG_DEFAULTS "${_SI_DEFAULT_SDKCONFIG_FILES}" CACHE STRING "SDK config defaults files" FORCE)
 endif()
 

@@ -19,8 +19,3 @@
 - [Jobs and files](storage-files.md) — pushing, running and checking the
   device's job with `sidp-agent`, the files kept on `/data`, and collecting
   the production log.
-
-## Engineering notes
-
-- [Future low-power optimisations](low-power-optimisation.md) — S31 and modem
-  sleep, MAIN_RI wake, proposed changes, and measurement plan.

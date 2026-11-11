@@ -125,7 +125,7 @@ the programming-header control signals. It is board-level wiring configuration:
 
 | Key                   | Required | Values        | Default | Description |
 | --------------------- | -------- | ------------- | ------- | ----------- |
-| `reset_assert_level`  | no       | `low`, `high` | `low`   | Host GPIO level that asserts target reset. Use `high` for Rev 6, where a high GPIO drives the reset MOSFET on. |
+| `reset_assert_level`  | no       | `low`, `high` | `low`   | Host GPIO level that asserts target reset. Use `high` for Rev 7.1 and Rev 8, where a high GPIO drives the reset MOSFET on. |
 | `boot_assert_level`   | no       | `low`, `high` | `low`   | Host GPIO level that puts the target into ROM download mode. Espressif chips normally require `low`. |
 
 Each `images` entry:
@@ -135,13 +135,12 @@ Each `images` entry:
 | `path`   | yes      | Device file, `/data/<name>`, for example `/data/bootloader.bin`. Pass the image with `--image <name>=<file>`. |
 | `offset` | yes      | Flash offset. Must be 4-byte aligned. Images must not overlap in the same erase sector. |
 
-Example (Rev 6 reset polarity):
+Example:
 
 ```yaml
 family: esp32
 control_pins:
-  reset_assert_level: high   # Rev 6: high GPIO asserts target reset
-  boot_assert_level: low     # default, can be omitted
+  reset_assert_level: high   # Rev 7.1 and Rev 8: high GPIO asserts target reset
 variants:
   - name: esp32s31
     chip: esp32s31

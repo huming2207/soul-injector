@@ -10,7 +10,6 @@ collects later.
 ## Documentation
 
 - [English documentation](docs/en/index.md)
-- [中文文档](docs/zh/index.md)
 
 ## License
 

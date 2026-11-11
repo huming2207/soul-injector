@@ -1,0 +1,71 @@
+# Soul Injector Rev 8 hardware defaults.
+#
+# ESP32-S31 GPIO assignments match Rev 7.1, except that GPIO2 is now the modem's
+# MAIN_RI. The SWD/UART front end and the LCD moved to the adaptor board, reached
+# through the 40-pin J1/J2 connector.
+#
+# Adaptor signals with no firmware support yet:
+#   GPIO57  DBG_EN: active high, pulled low. Connects SWD, reset, BOOT and UART
+#           to the target connector, so it must be driven high to reach a target.
+#   GPIO17/18/4  I2C SDA/SCL and ALERT for the three INA226 power profiler ADCs.
+#   GPIO19/37    Power profiler range latch D and clock.
+#   GPIO5/38     Power profiler mid and high range override.
+CONFIG_SI_DEVICE_BUILD="8"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# NT279VJ-C10-01-V1 display, on the adaptor board.
+CONFIG_SI_DISP_ENABLE=y
+CONFIG_SI_DISP_PANEL_NT279VJ=y
+CONFIG_SI_DISP_PANEL_IO_SCLK=53
+CONFIG_SI_DISP_PANEL_IO_MOSI=54
+CONFIG_SI_DISP_PANEL_IO_RST=51
+CONFIG_SI_DISP_PANEL_IO_DC=52
+CONFIG_SI_DISP_PANEL_IO_CS=50
+CONFIG_SI_DISP_PANEL_BKL=55
+# Active-low P-FET supply switch, pulled off. The firmware does not drive this
+# option yet, so the LCD stays unpowered until it does.
+CONFIG_SI_DISP_PANEL_PWR=39
+CONFIG_SI_DISP_PANEL_BUFFER_SIZE=60776
+CONFIG_SI_LED_ENABLE=n
+CONFIG_SI_TARGET_DETECT_PIN=3
+CONFIG_SI_USB_PLUG_DET_PIN=35
+# The adaptor's power profiler uses INA226; this option is for the INA228 rig.
+CONFIG_SI_SG_PROG_RIG=n
+
+CONFIG_LV_USE_LOG=y
+CONFIG_LV_LOG_PRINTF=y
+CONFIG_LV_FONT_MONTSERRAT_12=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_32=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+
+# Rev 8 fits SN74AVC2T245 translators. Their OE/DIR logic and pinout match the
+# SN74AXC2T245 this PHY option is named after.
+CONFIG_ESP_SWD_PHY_AXC2T245=y
+CONFIG_ESP_SWD_CLK_PIN=10
+CONFIG_ESP_SWD_DATA_OUT_PIN=16
+CONFIG_ESP_SWD_DATA_IN_PIN=15
+CONFIG_ESP_SWD_DATA_NOE_PIN=12
+CONFIG_ESP_SWD_DATA_DIR1_PIN=14
+CONFIG_ESP_SWD_DATA_DIR2_PIN=13
+CONFIG_ESP_SWD_CLK_NOE_PIN=8
+CONFIG_ESP_SWD_NRST_PIN=11
+CONFIG_ESP_SWD_BOOT_PIN=9
+CONFIG_ESP_SWD_DEFAULT_CLOCK_HZ=500000
+CONFIG_ESP_SWD_TURNAROUND_DELAY_US=1
+CONFIG_ESP_SWD_USE_DEDICATED_GPIO=y
+
+# UART link to ESP-family programming targets.
+CONFIG_SI_ESP32_TARGET_UART_TX_PIN=6
+CONFIG_SI_ESP32_TARGET_UART_RX_PIN=7
+
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+CONFIG_PM_ENABLE=y
+CONFIG_PM_DFS_INIT_AUTO=y
+# Keep the USB Serial/JTAG console alive while it is connected
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
+
+CONFIG_LWIP_ENABLE_LCP_ECHO=y
+CONFIG_LWIP_LCP_ECHOINTERVAL=20
+CONFIG_LWIP_LCP_MAXECHOFAILS=5

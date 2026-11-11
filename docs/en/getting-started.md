@@ -19,7 +19,7 @@ Select the board revision when configuring or building the project:
 idf.py --preview -B build-rev71 -D SI_HW_REV=rev71 build
 ```
 
-The only supported value is `rev71`, which is also the default. It requires
+The supported values are `rev71`, which is the default, and `rev8`. Both require
 ESP-IDF v6.1 or later; ESP32-S31 is still a preview target there. Each revision
 uses its own build-directory `sdkconfig` so a future revision does not reuse
 pin assignments from another board.
@@ -27,6 +27,12 @@ pin assignments from another board.
 The Rev 7.1 configuration enables the split, SN74AXC2T245-translated SWD
 interface and uses the GPIO assignments from the Rev 7.1 KiCad schematic. Its
 NT279VJ-C10-01-V1 LCD uses the NV3007 panel driver and is enabled by default.
+
+Rev 8 keeps the Rev 7.1 GPIO assignments and moves the SWD/UART front end and
+the LCD to the adaptor board. The firmware does not support Rev 8 fully yet: it
+does not drive GPIO57, which connects the target signals to the programming
+connector, or GPIO39, which powers the LCD. Until it does, a Rev 8 build cannot
+reach a target or show anything on the LCD.
 
 ESP-IDF v6.1 ships FatFs with `f_expand()` disabled, which the production log
 needs. Until Espressif releases upstream commit `74a7a4b`, run

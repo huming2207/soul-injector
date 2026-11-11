@@ -48,16 +48,22 @@ private:
     esp_err_t read_reg(uint16_t id, uint32_t *value);
     esp_err_t append_reg(uint16_t id, std::span<uint8_t> out_blob, size_t &out_size);
     esp_err_t write_reg(uint16_t id, uint32_t value);
+    esp_err_t setup_comparators();
+    esp_err_t clear_comparators();
+    esp_err_t disable_comparators();
 
 private:
     static const constexpr char TAG[] = "sidp_swd";
     static const constexpr size_t MAX_REGIONS = 16;
+    static const constexpr uint32_t MAX_COMPARATORS = 8;
     static const constexpr uint32_t SWD_LOCK_TIMEOUT_MS = 1000;
 
     bool connected = false;
     uint32_t mask_bits = 0;
     sidp::target_profile_t profile = sidp::PROFILE_ARMV6M;
     bool has_fpu = false;
+    uint32_t comparator_count = 0;
+    uint32_t comparators[MAX_COMPARATORS] = {};
     uint32_t target_id = 0;
     size_t region_count = 0;
     sidp::memory_region_t memory_regions[MAX_REGIONS] = {};

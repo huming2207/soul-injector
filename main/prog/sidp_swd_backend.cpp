@@ -15,6 +15,8 @@ static const constexpr uint32_t CORE_REG_FPSCR = 33;
 static const constexpr size_t REG_ENTRY_SIZE = sizeof(sidp::register_value_t) + sizeof(uint32_t);
 static const constexpr size_t REG_SEEN_WORDS = sidp::ARM_REG_FPSCR / 32 + 1;
 
+static const constexpr uint32_t FP_CTRL_ADDR = 0xE0002000;
+static const constexpr uint32_t FP_COMP_ADDR = 0xE0002008;
 static const constexpr uint32_t CPUID_ADDR = 0xE000ED00;
 static const constexpr uint32_t DFSR_ADDR = 0xE000ED30;
 static const constexpr uint32_t DHCSR_ADDR = 0xE000EDF0;
@@ -26,7 +28,16 @@ static const constexpr uint32_t CPUID_PART_M0P = 0xC60;
 static const constexpr uint32_t CPUID_PART_M3 = 0xC23;
 static const constexpr uint32_t CPUID_PART_M4 = 0xC24;
 
+static const constexpr uint32_t DFSR_BKPT = 1u << 1;
 static const constexpr uint32_t DFSR_CLEAR_ALL = 0x1F;
+
+static const constexpr uint32_t FP_CTRL_KEY = 1u << 1;
+static const constexpr uint32_t FP_CTRL_ENABLE = 1u << 0;
+static const constexpr uint32_t FP_COMP_ENABLE = 1u << 0;
+static const constexpr uint32_t FP_COMP_REPLACE_LOWER = 1u << 30;
+static const constexpr uint32_t FP_COMP_REPLACE_UPPER = 2u << 30;
+static const constexpr uint32_t FP_COMP_ADDR_MASK = 0x1FFFFFFC;
+static const constexpr uint32_t FPB_CODE_LIMIT = 0x20000000; // Breakpoints only match below this address
 
 // The session treats only ESP_FAIL as a broken link, so a bad ACK must be one too.
 static esp_err_t link_error(esp_err_t ret)
@@ -57,6 +68,12 @@ static uint32_t special_reg_shift(uint16_t id)
 static uint32_t core_reg_selector(uint16_t id)
 {
     return id == sidp::ARM_REG_FPSCR ? CORE_REG_FPSCR : id;
+}
+
+static uint32_t fpb_comparator(uint32_t address)
+{
+    const uint32_t replace = (address & 2) != 0 ? FP_COMP_REPLACE_UPPER : FP_COMP_REPLACE_LOWER;
+    return replace | (address & FP_COMP_ADDR_MASK) | FP_COMP_ENABLE;
 }
 
 // Records id in the seen set. Returns true if it was already there.
@@ -150,7 +167,15 @@ esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
         return link_error(ret);
     }
 
+    ret = setup_comparators();
+    if (ret != ESP_OK) {
+        return link_error(ret);
+    }
+
     uint32_t capabilities = sidp::CAP_STOP_SNAPSHOT | sidp::CAP_SINGLE_STEP;
+    if (comparator_count != 0) {
+        capabilities |= sidp::CAP_HARDWARE_BP;
+    }
 
     // Only a Cortex-M4 can have one. A failed probe counts as no FPU.
     uint32_t mvfr0 = 0;
@@ -165,6 +190,7 @@ esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
     info.capabilities = static_cast<sidp::capability_t>(capabilities);
     info.target_id = target_id;
     info.cpu_id = cpuid;
+    info.hardware_breakpoints = comparator_count;
     info.memory_regions = {reinterpret_cast<const uint8_t *>(memory_regions), region_count * sizeof(sidp::memory_region_t)};
     return ESP_OK;
 }
@@ -175,8 +201,8 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
         return ESP_OK;
     }
 
-    auto ret = ESP_OK;
-    if (action == sidp::DETACH_RESUME) {
+    auto ret = disable_comparators();
+    if (ret == ESP_OK && action == sidp::DETACH_RESUME) {
         // The interrupt mask may only change while halted. Clearing C_DEBUGEN then resumes.
         mask_bits = 0;
         ret = write_control(C_HALT);
@@ -226,7 +252,21 @@ esp_err_t sidp_swd_backend::poll_halted(sidp::stop_detect_t &stop)
     ret = swd_read_word(DFSR_ADDR, &stop.dfsr);
     ret = ret ?: swd_read_core_register(CORE_REG_PC, &pc);
     stop.pc = pc;
-    return link_error(ret);
+    if (ret != ESP_OK) {
+        return link_error(ret);
+    }
+
+    if ((stop.dfsr & DFSR_BKPT) != 0 && pc < FPB_CODE_LIMIT) {
+        const uint32_t hit = fpb_comparator(pc);
+        for (uint32_t i = 0; i < comparator_count; i++) {
+            if (comparators[i] == hit) {
+                stop.comparator_match = true;
+                stop.comparator_index = i;
+                break;
+            }
+        }
+    }
+    return ESP_OK;
 }
 
 esp_err_t sidp_swd_backend::halt(uint32_t timeout_ms, sidp::stop_detect_t &stop)
@@ -435,9 +475,68 @@ esp_err_t sidp_swd_backend::write_mem(uint64_t address, const uint8_t *data, siz
     return memory_error(ret);
 }
 
+esp_err_t sidp_swd_backend::setup_comparators()
+{
+    uint32_t fp_ctrl = 0;
+    auto ret = swd_read_word(FP_CTRL_ADDR, &fp_ctrl);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    const uint32_t count = ((fp_ctrl >> 8) & 0x70) | ((fp_ctrl >> 4) & 0x0F);
+    comparator_count = count < MAX_COMPARATORS ? count : MAX_COMPARATORS;
+
+    // Another debugger may have left breakpoints behind.
+    ret = clear_comparators();
+    if (ret == ESP_OK && comparator_count != 0) {
+        ret = swd_write_word(FP_CTRL_ADDR, FP_CTRL_KEY | FP_CTRL_ENABLE);
+    }
+    return ret;
+}
+
+esp_err_t sidp_swd_backend::clear_comparators()
+{
+    auto ret = ESP_OK;
+    for (uint32_t i = 0; i < comparator_count; i++) {
+        comparators[i] = 0;
+        ret = ret ?: swd_write_word(FP_COMP_ADDR + i * 4, 0);
+    }
+    return ret;
+}
+
+esp_err_t sidp_swd_backend::disable_comparators()
+{
+    if (comparator_count == 0) {
+        return ESP_OK;
+    }
+
+    auto ret = clear_comparators();
+    return ret ?: swd_write_word(FP_CTRL_ADDR, FP_CTRL_KEY);
+}
+
 esp_err_t sidp_swd_backend::apply_breakpoints(std::span<const sidp::bp_entry_t> entries)
 {
-    return entries.empty() ? ESP_OK : ESP_ERR_NOT_SUPPORTED;
+    if (entries.size() > comparator_count) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    for (const auto &entry : entries) {
+        if (entry.kind != sidp::BREAKPOINT_HARDWARE || entry.address >= FPB_CODE_LIMIT || (entry.address & 1) != 0) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    auto ret = ESP_OK;
+    for (uint32_t i = 0; i < comparator_count; i++) {
+        comparators[i] = i < entries.size() ? fpb_comparator(entries[i].address) : 0;
+        ret = ret ?: swd_write_word(FP_COMP_ADDR + i * 4, comparators[i]);
+    }
+
+    if (ret != ESP_OK) {
+        // The contract forbids leaving a partial set installed.
+        clear_comparators();
+    }
+    return link_error(ret);
 }
 
 esp_err_t sidp_swd_backend::apply_watchpoints(std::span<const sidp::wp_entry_t> entries)

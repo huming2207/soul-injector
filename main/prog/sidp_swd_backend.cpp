@@ -317,9 +317,46 @@ esp_err_t sidp_swd_backend::read_regs(std::span<const sidp::register_id_t> ids, 
     return ESP_OK;
 }
 
+esp_err_t sidp_swd_backend::write_reg(uint16_t id, uint32_t value)
+{
+    if (!is_special_reg(id)) {
+        return swd_write_core_register(id, value);
+    }
+
+    // The special registers share one core register, so keep the other three.
+    uint32_t special = 0;
+    auto ret = swd_read_core_register(CORE_REG_SPECIAL, &special);
+    const uint32_t shift = special_reg_shift(id);
+    special = (special & ~(0xFFu << shift)) | ((value & 0xFF) << shift);
+    return ret ?: swd_write_core_register(CORE_REG_SPECIAL, special);
+}
+
 esp_err_t sidp_swd_backend::write_regs(const uint8_t *data, size_t size)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    if (size % REG_ENTRY_SIZE != 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Reject the whole request before writing anything.
+    uint32_t seen[REG_SEEN_WORDS] = {};
+    for (size_t offset = 0; offset < size; offset += REG_ENTRY_SIZE) {
+        const auto *entry = reinterpret_cast<const sidp::register_value_t *>(data + offset);
+        if (entry->value_size != sizeof(uint32_t) || entry->flags != sidp::REGISTER_VALUE_FLAG_NONE ||
+            !is_valid_reg(entry->register_id) || mark_seen(seen, entry->register_id)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    for (size_t offset = 0; offset < size; offset += REG_ENTRY_SIZE) {
+        const auto *entry = reinterpret_cast<const sidp::register_value_t *>(data + offset);
+        uint32_t value = 0;
+        memcpy(&value, entry->value, sizeof(value));
+        auto ret = write_reg(entry->register_id, value);
+        if (ret != ESP_OK) {
+            return link_error(ret);
+        }
+    }
+    return ESP_OK;
 }
 
 esp_err_t sidp_swd_backend::read_mem(uint64_t address, uint8_t *out, size_t size, sidp::memory_access_width_t width)

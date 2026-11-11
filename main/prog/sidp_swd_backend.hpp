@@ -47,6 +47,7 @@ private:
     bool is_valid_reg(uint16_t id) const;
     esp_err_t read_reg(uint16_t id, uint32_t *value);
     esp_err_t append_reg(uint16_t id, std::span<uint8_t> out_blob, size_t &out_size);
+    esp_err_t write_reg(uint16_t id, uint32_t value);
 
 private:
     static const constexpr char TAG[] = "sidp_swd";

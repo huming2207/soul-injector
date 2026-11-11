@@ -76,5 +76,6 @@ private:
     static const constexpr uint32_t RUNNING_POLL_MS = 10;
     static const constexpr uint32_t ACCEPT_POLL_MS = 50;
     static const constexpr uint32_t CLEANUP_RETRY_MS = 500;
+    static const constexpr uint32_t CLEANUP_ATTEMPTS = 6;
     static const constexpr char *TAG = "sidp_svc";
 };

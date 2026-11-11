@@ -33,6 +33,9 @@ public:
     esp_err_t apply_watchpoints(std::span<const sidp::wp_entry_t> entries) override;
     esp_err_t set_vector_catch(sidp::vector_catch_t mask) override;
 
+    /** Gives up on a target that no longer answers: ends the SWD session and frees the target. */
+    void abandon();
+
 private:
     sidp_swd_backend() = default;
 

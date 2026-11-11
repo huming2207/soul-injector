@@ -76,7 +76,14 @@ void sidp_service::run_session()
     transport.close_session();
 
     // The target stays owned until it is cleaned up, so nothing else may use it before then.
+    // Firmware that sleeps or turns SWD off may never answer, so stop waiting after a while.
+    uint32_t attempts = 0;
     while (!session.handle_disconnect()) {
+        if (++attempts >= CLEANUP_ATTEMPTS) {
+            ESP_LOGW(TAG, "run_session: target is not answering, abandoning it");
+            sidp_swd_backend::instance()->abandon();
+            break;
+        }
         vTaskDelay(pdMS_TO_TICKS(CLEANUP_RETRY_MS));
     }
 }

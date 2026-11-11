@@ -302,6 +302,17 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
     return ret;
 }
 
+void sidp_swd_backend::abandon()
+{
+    if (!connected) {
+        return;
+    }
+
+    connected = false;
+    swd_off();
+    release_target();
+}
+
 esp_err_t sidp_swd_backend::set_reset_catch(bool enable)
 {
     // Only touch the catch bit: firmware may be using the trace enable in this register.

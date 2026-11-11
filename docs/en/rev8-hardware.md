@@ -29,7 +29,7 @@ Rev 7.1 keeps the LCD on SPI2 and SWD at 500 kHz.
 A debug session reads the target's flash range and RAM regions from the active
 job, so a Cortex-M job must be pushed before debugging. A debug session and a
 programming run cannot happen at the same time: whichever starts second is
-refused.
+refused. See [Debugging with GDB](debugging.md).
 
 ## Programming connector wiring
 

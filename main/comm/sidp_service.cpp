@@ -14,6 +14,7 @@
 #include "asset_store.hpp"
 #include "job_controller.hpp"
 #include "prog_log.hpp"
+#include "swd_prog.hpp"
 
 esp_err_t sidp_service::init(const char *_serial)
 {
@@ -29,7 +30,9 @@ esp_err_t sidp_service::init(const char *_serial)
         return ret;
     }
 
-    if (xTaskCreate(task_handler, "sidp_svc", 6144, this, tskIDLE_PRIORITY + 5, &task) != pdPASS) {
+    // Debug requests use SWD, so this shares the flasher's core. It sits above the
+    // flasher in priority so that requests are still answered during a run.
+    if (xTaskCreatePinnedToCore(task_handler, "sidp_svc", 8192, this, tskIDLE_PRIORITY + 11, &task, swd_def::TASK_CORE) != pdPASS) {
         ESP_LOGE(TAG, "init: cannot create task");
         return ESP_ERR_NO_MEM;
     }

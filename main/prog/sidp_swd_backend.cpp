@@ -28,6 +28,15 @@ static esp_err_t link_error(esp_err_t ret)
     return ret == ESP_ERR_INVALID_RESPONSE ? ESP_FAIL : ret;
 }
 
+// A FAULT ACK on a memory access means a bad address, not a broken link.
+static esp_err_t memory_error(esp_err_t ret)
+{
+    if (ret != ESP_FAIL) {
+        return link_error(ret);
+    }
+    return swd_clear_errors() == ESP_OK ? ESP_ERR_INVALID_ARG : ESP_FAIL;
+}
+
 esp_err_t sidp_swd_backend::set_target(uint32_t id, const sidp::memory_region_t *regions, size_t count)
 {
     if (regions == nullptr || count == 0 || count > MAX_REGIONS) {
@@ -223,12 +232,48 @@ esp_err_t sidp_swd_backend::write_regs(const uint8_t *data, size_t size)
 
 esp_err_t sidp_swd_backend::read_mem(uint64_t address, uint8_t *out, size_t size, sidp::memory_access_width_t width)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    auto addr = static_cast<uint32_t>(address);
+    auto ret = ESP_OK;
+
+    switch (width) {
+    case sidp::MEM_WIDTH_DEFAULT:
+    case sidp::MEM_WIDTH_32:
+        // The session has checked alignment, so a MEM_WIDTH_32 read is all word accesses.
+        ret = swd_read_memory(addr, out, size);
+        break;
+    case sidp::MEM_WIDTH_8:
+        for (size_t i = 0; i < size && ret == ESP_OK; i++) {
+            ret = swd_read_byte(addr + i, out + i);
+        }
+        break;
+    default:
+        return ESP_ERR_NOT_SUPPORTED; // swd_host has no halfword access
+    }
+
+    return memory_error(ret);
 }
 
 esp_err_t sidp_swd_backend::write_mem(uint64_t address, const uint8_t *data, size_t size, sidp::memory_access_width_t width)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    auto addr = static_cast<uint32_t>(address);
+    auto ret = ESP_OK;
+
+    switch (width) {
+    case sidp::MEM_WIDTH_DEFAULT:
+    case sidp::MEM_WIDTH_32:
+        // The session has checked alignment, so a MEM_WIDTH_32 write is all word accesses.
+        ret = swd_write_memory(addr, const_cast<uint8_t *>(data), size);
+        break;
+    case sidp::MEM_WIDTH_8:
+        for (size_t i = 0; i < size && ret == ESP_OK; i++) {
+            ret = swd_write_byte(addr + i, data[i]);
+        }
+        break;
+    default:
+        return ESP_ERR_NOT_SUPPORTED; // swd_host has no halfword access
+    }
+
+    return memory_error(ret);
 }
 
 esp_err_t sidp_swd_backend::apply_breakpoints(std::span<const sidp::bp_entry_t> entries)

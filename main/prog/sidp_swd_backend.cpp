@@ -117,25 +117,38 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (params.connect_under_reset) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
-    auto ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    auto ret = params.connect_under_reset ? connect_under_reset(params.halt_after_attach)
+                                          : swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    link_up = ret == ESP_OK;
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "attach: cannot connect: %s", esp_err_to_name(ret));
+        swd_off(); // Harmless when swd_host has already dropped the session
         return link_error(ret);
     }
 
     ret = read_target_info(info);
     if (ret != ESP_OK) {
+        link_up = false;
         swd_off();
         return ret;
     }
 
     connected = true;
-    link_up = true;
     return ESP_OK;
+}
+
+esp_err_t sidp_swd_backend::connect_under_reset(bool halt_after)
+{
+    // swd_init() takes the bus and configures the reset pin before it is driven.
+    auto ret = swd_init(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    ret = ret ?: connect_in_reset(halt_after);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    sidp::stop_detect_t stop;
+    vTaskDelay(pdMS_TO_TICKS(RESET_SETTLE_MS));
+    return finish_reset(halt_after, stop);
 }
 
 esp_err_t sidp_swd_backend::ensure_link()

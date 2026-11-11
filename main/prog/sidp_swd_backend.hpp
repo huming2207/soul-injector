@@ -55,6 +55,7 @@ private:
     esp_err_t set_reset_catch(bool enable);
     esp_err_t finish_reset(bool halt_after, sidp::stop_detect_t &stop);
     esp_err_t connect_in_reset(bool halt_after);
+    esp_err_t connect_under_reset(bool halt_after);
     esp_err_t ensure_link();
 
 private:

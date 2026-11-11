@@ -18,6 +18,13 @@ public:
         return &_instance;
     }
 
+    /**
+     * Sets the target definition attach() reports. The regions are copied.
+     * @param id Identifies the selected target definition
+     * @return ESP_ERR_INVALID_ARG if there are no regions or too many
+     */
+    esp_err_t set_target(uint32_t id, const sidp::memory_region_t *regions, size_t count);
+
     esp_err_t attach(const sidp::attach_params_t &params, sidp::attach_info_t &info) override;
     esp_err_t detach(sidp::detach_action_t action) override;
     esp_err_t reset(sidp::reset_kind_t kind, bool halt_after, sidp::stop_detect_t &stop) override;
@@ -37,4 +44,9 @@ private:
 
 private:
     static const constexpr char TAG[] = "sidp_swd";
+    static const constexpr size_t MAX_REGIONS = 16;
+
+    uint32_t target_id = 0;
+    size_t region_count = 0;
+    sidp::memory_region_t memory_regions[MAX_REGIONS] = {};
 };

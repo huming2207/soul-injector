@@ -1,5 +1,19 @@
 #include "sidp_swd_backend.hpp"
 
+#include <cstring>
+
+esp_err_t sidp_swd_backend::set_target(uint32_t id, const sidp::memory_region_t *regions, size_t count)
+{
+    if (regions == nullptr || count == 0 || count > MAX_REGIONS) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    target_id = id;
+    region_count = count;
+    memcpy(memory_regions, regions, count * sizeof(sidp::memory_region_t));
+    return ESP_OK;
+}
+
 esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::attach_info_t &info)
 {
     return ESP_ERR_NOT_SUPPORTED;

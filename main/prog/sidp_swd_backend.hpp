@@ -57,6 +57,7 @@ private:
     bool connected = false;
     uint32_t mask_bits = 0;
     sidp::target_profile_t profile = sidp::PROFILE_ARMV6M;
+    bool has_fpu = false;
     uint32_t target_id = 0;
     size_t region_count = 0;
     sidp::memory_region_t memory_regions[MAX_REGIONS] = {};

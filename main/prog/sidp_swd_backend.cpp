@@ -10,6 +10,7 @@
 
 static const constexpr uint32_t CORE_REG_PC = 15;
 static const constexpr uint32_t CORE_REG_SPECIAL = 20; // CONTROL, FAULTMASK, BASEPRI and PRIMASK, one byte each
+static const constexpr uint32_t CORE_REG_FPSCR = 33;
 
 static const constexpr size_t REG_ENTRY_SIZE = sizeof(sidp::register_value_t) + sizeof(uint32_t);
 static const constexpr size_t REG_SEEN_WORDS = sidp::ARM_REG_FPSCR / 32 + 1;
@@ -17,6 +18,7 @@ static const constexpr size_t REG_SEEN_WORDS = sidp::ARM_REG_FPSCR / 32 + 1;
 static const constexpr uint32_t CPUID_ADDR = 0xE000ED00;
 static const constexpr uint32_t DFSR_ADDR = 0xE000ED30;
 static const constexpr uint32_t DHCSR_ADDR = 0xE000EDF0;
+static const constexpr uint32_t MVFR0_ADDR = 0xE000EF40;
 
 static const constexpr uint32_t CPUID_IMPLEMENTER_ARM = 0x41;
 static const constexpr uint32_t CPUID_PART_M0 = 0xC20;
@@ -49,6 +51,12 @@ static bool is_special_reg(uint16_t id)
 static uint32_t special_reg_shift(uint16_t id)
 {
     return (id - sidp::ARM_REG_PRIMASK) * 8;
+}
+
+// The core register selector matches the SIDP ID for everything except FPSCR.
+static uint32_t core_reg_selector(uint16_t id)
+{
+    return id == sidp::ARM_REG_FPSCR ? CORE_REG_FPSCR : id;
 }
 
 // Records id in the seen set. Returns true if it was already there.
@@ -143,6 +151,13 @@ esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
     }
 
     uint32_t capabilities = sidp::CAP_STOP_SNAPSHOT;
+
+    // Only a Cortex-M4 can have one. A failed probe counts as no FPU.
+    uint32_t mvfr0 = 0;
+    has_fpu = profile == sidp::PROFILE_ARMV7EM && swd_read_word(MVFR0_ADDR, &mvfr0) == ESP_OK && (mvfr0 & 0xF0) != 0;
+    if (has_fpu) {
+        capabilities |= sidp::CAP_FPU;
+    }
 
     info.architecture = sidp::ARCH_ARM_M;
     info.profile = profile;
@@ -248,13 +263,16 @@ bool sidp_swd_backend::is_valid_reg(uint16_t id) const
     if (id == sidp::ARM_REG_BASEPRI || id == sidp::ARM_REG_FAULTMASK) {
         return profile != sidp::PROFILE_ARMV6M;
     }
+    if (id >= sidp::ARM_REG_S0 && id <= sidp::ARM_REG_FPSCR) {
+        return has_fpu;
+    }
     return id <= sidp::ARM_REG_CONTROL;
 }
 
 esp_err_t sidp_swd_backend::read_reg(uint16_t id, uint32_t *value)
 {
     if (!is_special_reg(id)) {
-        return swd_read_core_register(id, value);
+        return swd_read_core_register(core_reg_selector(id), value);
     }
 
     uint32_t special = 0;
@@ -320,7 +338,7 @@ esp_err_t sidp_swd_backend::read_regs(std::span<const sidp::register_id_t> ids, 
 esp_err_t sidp_swd_backend::write_reg(uint16_t id, uint32_t value)
 {
     if (!is_special_reg(id)) {
-        return swd_write_core_register(id, value);
+        return swd_write_core_register(core_reg_selector(id), value);
     }
 
     // The special registers share one core register, so keep the other three.

@@ -51,6 +51,7 @@ private:
     esp_err_t setup_comparators();
     esp_err_t clear_comparators();
     esp_err_t disable_comparators();
+    esp_err_t install_run_to(uint32_t address);
 
 private:
     static const constexpr char TAG[] = "sidp_swd";
@@ -64,6 +65,7 @@ private:
     bool has_fpu = false;
     uint32_t comparator_count = 0;
     uint32_t comparators[MAX_COMPARATORS] = {};
+    int32_t run_to_index = -1;
     uint32_t target_id = 0;
     size_t region_count = 0;
     sidp::memory_region_t memory_regions[MAX_REGIONS] = {};

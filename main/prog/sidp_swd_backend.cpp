@@ -266,7 +266,13 @@ esp_err_t sidp_swd_backend::poll_halted(sidp::stop_detect_t &stop)
             }
         }
     }
-    return ESP_OK;
+
+    if (run_to_index >= 0) {
+        comparators[run_to_index] = 0;
+        ret = swd_write_word(FP_COMP_ADDR + run_to_index * 4, 0);
+        run_to_index = -1;
+    }
+    return link_error(ret);
 }
 
 esp_err_t sidp_swd_backend::halt(uint32_t timeout_ms, sidp::stop_detect_t &stop)
@@ -295,12 +301,9 @@ esp_err_t sidp_swd_backend::halt(uint32_t timeout_ms, sidp::stop_detect_t &stop)
 
 esp_err_t sidp_swd_backend::resume(sidp::run_action_t action, uint64_t address)
 {
-    if (action != sidp::RUN_CONTINUE && action != sidp::RUN_SINGLE_STEP) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
     const bool step = action == sidp::RUN_SINGLE_STEP;
-    auto ret = swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
+    auto ret = action == sidp::RUN_TO_ADDRESS ? install_run_to(address) : ESP_OK;
+    ret = ret ?: swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
 
     // Mask interrupts so a step executes the next instruction instead of an
     // interrupt handler. The mask may only change while the core is halted.
@@ -494,9 +497,35 @@ esp_err_t sidp_swd_backend::setup_comparators()
     return ret;
 }
 
+esp_err_t sidp_swd_backend::install_run_to(uint32_t address)
+{
+    if (address >= FPB_CODE_LIMIT) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const uint32_t value = fpb_comparator(address);
+    int32_t free_index = -1;
+    for (uint32_t i = 0; i < comparator_count; i++) {
+        if (comparators[i] == value) {
+            return ESP_OK; // Reuse the breakpoint already at this address
+        }
+        if (free_index < 0 && comparators[i] == 0) {
+            free_index = i;
+        }
+    }
+    if (free_index < 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    comparators[free_index] = value;
+    run_to_index = free_index;
+    return swd_write_word(FP_COMP_ADDR + free_index * 4, value);
+}
+
 esp_err_t sidp_swd_backend::clear_comparators()
 {
     auto ret = ESP_OK;
+    run_to_index = -1;
     for (uint32_t i = 0; i < comparator_count; i++) {
         comparators[i] = 0;
         ret = ret ?: swd_write_word(FP_COMP_ADDR + i * 4, 0);
@@ -527,6 +556,7 @@ esp_err_t sidp_swd_backend::apply_breakpoints(std::span<const sidp::bp_entry_t> 
     }
 
     auto ret = ESP_OK;
+    run_to_index = -1;
     for (uint32_t i = 0; i < comparator_count; i++) {
         comparators[i] = i < entries.size() ? fpb_comparator(entries[i].address) : 0;
         ret = ret ?: swd_write_word(FP_COMP_ADDR + i * 4, comparators[i]);

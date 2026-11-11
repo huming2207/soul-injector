@@ -52,12 +52,16 @@ private:
     esp_err_t clear_comparators();
     esp_err_t disable_comparators();
     esp_err_t install_run_to(uint32_t address);
+    esp_err_t set_reset_catch(bool enable);
+    esp_err_t finish_reset(bool halt_after, sidp::stop_detect_t &stop);
 
 private:
     static const constexpr char TAG[] = "sidp_swd";
     static const constexpr size_t MAX_REGIONS = 16;
     static const constexpr uint32_t MAX_COMPARATORS = 8;
     static const constexpr uint32_t SWD_LOCK_TIMEOUT_MS = 1000;
+    static const constexpr uint32_t RESET_SETTLE_MS = 20;
+    static const constexpr uint32_t RESET_TIMEOUT_MS = 1000;
 
     bool connected = false;
     uint32_t mask_bits = 0;

@@ -18,8 +18,10 @@ static const constexpr size_t REG_SEEN_WORDS = sidp::ARM_REG_FPSCR / 32 + 1;
 static const constexpr uint32_t FP_CTRL_ADDR = 0xE0002000;
 static const constexpr uint32_t FP_COMP_ADDR = 0xE0002008;
 static const constexpr uint32_t CPUID_ADDR = 0xE000ED00;
+static const constexpr uint32_t AIRCR_ADDR = 0xE000ED0C;
 static const constexpr uint32_t DFSR_ADDR = 0xE000ED30;
 static const constexpr uint32_t DHCSR_ADDR = 0xE000EDF0;
+static const constexpr uint32_t DEMCR_ADDR = 0xE000EDFC;
 static const constexpr uint32_t MVFR0_ADDR = 0xE000EF40;
 
 static const constexpr uint32_t CPUID_IMPLEMENTER_ARM = 0x41;
@@ -172,7 +174,8 @@ esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
         return link_error(ret);
     }
 
-    uint32_t capabilities = sidp::CAP_STOP_SNAPSHOT | sidp::CAP_SINGLE_STEP;
+    uint32_t capabilities = sidp::CAP_STOP_SNAPSHOT | sidp::CAP_SINGLE_STEP | sidp::CAP_RESET_HALT |
+                            sidp::CAP_RESET_RUN | sidp::CAP_RESET_SYSTEM;
     if (comparator_count != 0) {
         capabilities |= sidp::CAP_HARDWARE_BP;
     }
@@ -202,6 +205,7 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
     }
 
     auto ret = disable_comparators();
+    ret = ret ?: set_reset_catch(false);
     if (ret == ESP_OK && action == sidp::DETACH_RESUME) {
         // The interrupt mask may only change while halted. Clearing C_DEBUGEN then resumes.
         mask_bits = 0;
@@ -216,9 +220,56 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
     return swd_off();
 }
 
+esp_err_t sidp_swd_backend::set_reset_catch(bool enable)
+{
+    // Only touch the catch bit: firmware may be using the trace enable in this register.
+    uint32_t demcr = 0;
+    auto ret = swd_read_word(DEMCR_ADDR, &demcr);
+    demcr = enable ? (demcr | VC_CORERESET) : (demcr & ~VC_CORERESET);
+    return ret ?: swd_write_word(DEMCR_ADDR, demcr);
+}
+
 esp_err_t sidp_swd_backend::reset(sidp::reset_kind_t kind, bool halt_after, sidp::stop_detect_t &stop)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    if (kind != sidp::RESET_SYSTEM) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    // The session halts the target first, so the interrupt mask can be cleared here.
+    mask_bits = 0;
+    auto ret = write_control(C_HALT);
+    ret = ret ?: swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
+    ret = ret ?: set_reset_catch(halt_after);
+    if (ret != ESP_OK) {
+        return link_error(ret);
+    }
+
+    // The core may reset before acknowledging this write. finish_reset() confirms it.
+    (void)swd_write_word(AIRCR_ADDR, VECTKEY | SYSRESETREQ);
+    vTaskDelay(pdMS_TO_TICKS(RESET_SETTLE_MS));
+    return finish_reset(halt_after, stop);
+}
+
+esp_err_t sidp_swd_backend::finish_reset(bool halt_after, sidp::stop_detect_t &stop)
+{
+    const int64_t deadline_us = esp_timer_get_time() + RESET_TIMEOUT_MS * 1000LL;
+    while (esp_timer_get_time() < deadline_us) {
+        auto ret = poll_halted(stop);
+        if (ret == ESP_OK && (stop.halted || !halt_after)) {
+            ret = set_reset_catch(false);
+            if (!halt_after) {
+                ret = ret ?: write_control(0);
+            }
+            return link_error(ret);
+        }
+
+        if (ret != ESP_OK) {
+            swd_clear_errors(); // The debug port can report errors during the reset
+        }
+        vTaskDelay(1);
+    }
+
+    return ESP_ERR_TIMEOUT;
 }
 
 esp_err_t sidp_swd_backend::write_control(uint32_t bits)

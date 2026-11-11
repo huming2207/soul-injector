@@ -40,8 +40,10 @@ the target stays halted, unless the agent was started with `--resume-on-detach`.
 
 ## Commands
 
-`break`, `tbreak`, `hbreak`, `continue`, `stepi`, `next`, `finish`, Ctrl-C,
-`backtrace` (including through a fault), and register and RAM access all work.
+The agent supports `break`, `tbreak`, `hbreak`, `continue`, `stepi`, `next`,
+`finish`, Ctrl-C, `backtrace` (including through a fault), and register and RAM
+access. [Hardware test status](#hardware-test-status) lists which have been
+tested on a real board.
 
 Breakpoints in flash use the core's hardware comparators, and GDB picks them
 automatically from the memory map the agent provides. A Cortex-M4 has six. A

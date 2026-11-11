@@ -73,6 +73,7 @@ private:
     /** Largest management response frame; LOG_READ fills it with as many entries as fit. */
     static const constexpr size_t TX_BUF_SIZE = 1024;
     static const constexpr uint32_t READ_TIMEOUT_MS = 100;
+    static const constexpr uint32_t RUNNING_POLL_MS = 10;
     static const constexpr uint32_t ACCEPT_POLL_MS = 50;
     static const constexpr uint32_t CLEANUP_RETRY_MS = 500;
     static const constexpr char *TAG = "sidp_svc";

@@ -85,18 +85,20 @@ void sidp_service::serve_connection(sidp::sidp_session &session)
 {
     auto &transport = sidp::cdc_slip_transport::instance();
     while (!transport.needs_disconnect() && !session.needs_disconnect()) {
+        // A running target has to be checked often so that a stop is reported promptly.
+        const uint32_t timeout_ms = session.get_state() == sidp::TARGET_RUNNING ? RUNNING_POLL_MS : READ_TIMEOUT_MS;
+
         uint8_t *frame = nullptr;
         size_t frame_len = 0;
-        auto ret = transport.start_read(&frame, &frame_len, READ_TIMEOUT_MS);
-        if (ret == ESP_ERR_TIMEOUT) {
-            continue;
-        }
-        if (ret != ESP_OK) {
+        auto ret = transport.start_read(&frame, &frame_len, timeout_ms);
+        if (ret == ESP_OK) {
+            handle_frame(session, std::span<const uint8_t>(frame, frame_len));
+            transport.end_read(frame);
+        } else if (ret != ESP_ERR_TIMEOUT) {
             return;
         }
 
-        handle_frame(session, std::span<const uint8_t>(frame, frame_len));
-        transport.end_read(frame);
+        session.handle_poll();
     }
 }
 

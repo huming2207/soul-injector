@@ -119,7 +119,6 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
 
     auto ret = params.connect_under_reset ? connect_under_reset(params.halt_after_attach)
                                           : swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
-    link_up = ret == ESP_OK;
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "attach: cannot connect: %s", esp_err_to_name(ret));
         swd_off(); // Harmless when swd_host has already dropped the session
@@ -128,7 +127,6 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
 
     ret = read_target_info(info);
     if (ret != ESP_OK) {
-        link_up = false;
         swd_off();
         return ret;
     }
@@ -141,25 +139,29 @@ esp_err_t sidp_swd_backend::connect_under_reset(bool halt_after)
 {
     // swd_init() takes the bus and configures the reset pin before it is driven.
     auto ret = swd_init(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
-    ret = ret ?: connect_in_reset(halt_after);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    sidp::stop_detect_t stop;
-    vTaskDelay(pdMS_TO_TICKS(RESET_SETTLE_MS));
-    return finish_reset(halt_after, stop);
-}
+    drive_nrst(true);
+    vTaskDelay(pdMS_TO_TICKS(RESET_PULSE_MS));
 
-esp_err_t sidp_swd_backend::ensure_link()
-{
-    if (link_up) {
-        return ESP_OK;
+    // swd_init_debug() releases nRST when it sets up the pins, so the firmware
+    // may start. Connect, arm the reset catch, then reset once more to apply it.
+    mask_bits = 0;
+    ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    ret = ret ?: swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN);
+    ret = ret ?: set_reset_catch(halt_after);
+    drive_nrst(false);
+    if (ret != ESP_OK) {
+        return ret;
     }
 
-    auto ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
-    link_up = ret == ESP_OK;
-    return link_error(ret);
+    pulse_nrst();
+    vTaskDelay(pdMS_TO_TICKS(RESET_SETTLE_MS));
+
+    sidp::stop_detect_t stop;
+    return finish_reset(halt_after, stop);
 }
 
 esp_err_t sidp_swd_backend::read_target_info(sidp::attach_info_t &info)
@@ -240,8 +242,7 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
         return ESP_OK;
     }
 
-    auto ret = ensure_link();
-    ret = ret ?: disable_comparators();
+    auto ret = disable_comparators();
     ret = ret ?: set_reset_catch(false);
     if (ret == ESP_OK && action == sidp::DETACH_RESUME) {
         // The interrupt mask may only change while halted. Clearing C_DEBUGEN then resumes.
@@ -254,7 +255,6 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
     }
 
     connected = false;
-    link_up = false;
     return swd_off();
 }
 
@@ -273,39 +273,27 @@ esp_err_t sidp_swd_backend::reset(sidp::reset_kind_t kind, bool halt_after, sidp
     mask_bits = 0;
     auto ret = write_control(C_HALT);
     ret = ret ?: swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
-
-    if (kind == sidp::RESET_NRST) {
-        ret = ret ?: connect_in_reset(halt_after);
-    } else {
-        ret = ret ?: set_reset_catch(halt_after);
-        if (ret == ESP_OK) {
-            // The core may reset before acknowledging this write. finish_reset() confirms it.
-            (void)swd_write_word(AIRCR_ADDR, VECTKEY | SYSRESETREQ);
-        }
-    }
+    ret = ret ?: set_reset_catch(halt_after);
     if (ret != ESP_OK) {
         return link_error(ret);
+    }
+
+    if (kind == sidp::RESET_NRST) {
+        pulse_nrst();
+    } else {
+        // The core may reset before acknowledging this write. finish_reset() confirms it.
+        (void)swd_write_word(AIRCR_ADDR, VECTKEY | SYSRESETREQ);
     }
 
     vTaskDelay(pdMS_TO_TICKS(RESET_SETTLE_MS));
     return finish_reset(halt_after, stop);
 }
 
-esp_err_t sidp_swd_backend::connect_in_reset(bool halt_after)
+void sidp_swd_backend::pulse_nrst()
 {
     drive_nrst(true);
     vTaskDelay(pdMS_TO_TICKS(RESET_PULSE_MS));
-
-    // The catch must be set while nRST is held, or the firmware starts running first.
-    auto ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
-    link_up = ret == ESP_OK;
-    if (link_up) {
-        ret = swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN);
-        ret = ret ?: set_reset_catch(halt_after);
-    }
-
     drive_nrst(false);
-    return ret;
 }
 
 esp_err_t sidp_swd_backend::finish_reset(bool halt_after, sidp::stop_detect_t &stop)
@@ -386,8 +374,7 @@ esp_err_t sidp_swd_backend::poll_halted(sidp::stop_detect_t &stop)
 
 esp_err_t sidp_swd_backend::halt(uint32_t timeout_ms, sidp::stop_detect_t &stop)
 {
-    auto ret = ensure_link();
-    ret = ret ?: poll_halted(stop);
+    auto ret = poll_halted(stop);
     if (ret != ESP_OK || stop.halted) {
         return ret;
     }

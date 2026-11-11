@@ -43,6 +43,7 @@ private:
     sidp_swd_backend() = default;
 
     esp_err_t read_target_info(sidp::attach_info_t &info);
+    esp_err_t write_control(uint32_t bits);
 
 private:
     static const constexpr char TAG[] = "sidp_swd";

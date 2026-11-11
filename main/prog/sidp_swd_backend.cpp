@@ -3,8 +3,12 @@
 #include <cstring>
 
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <swd_host.h>
+
+static const constexpr uint32_t CORE_REG_PC = 15;
 
 static const constexpr uint32_t CPUID_ADDR = 0xE000ED00;
 static const constexpr uint32_t DFSR_ADDR = 0xE000ED30;
@@ -128,14 +132,62 @@ esp_err_t sidp_swd_backend::reset(sidp::reset_kind_t kind, bool halt_after, sidp
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t sidp_swd_backend::write_control(uint32_t bits)
+{
+    return swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | mask_bits | bits);
+}
+
 esp_err_t sidp_swd_backend::poll_halted(sidp::stop_detect_t &stop)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    stop = sidp::stop_detect_t{};
+
+    uint32_t dhcsr = 0;
+    auto ret = swd_read_word(DHCSR_ADDR, &dhcsr);
+    if (ret == ESP_OK && (dhcsr & (S_HALT | S_LOCKUP)) == S_LOCKUP) {
+        // A locked-up core does not halt by itself, so halt it to report the stop.
+        ret = write_control(C_HALT);
+        ret = ret ?: swd_read_word(DHCSR_ADDR, &dhcsr);
+    }
+    if (ret != ESP_OK) {
+        return link_error(ret);
+    }
+    if ((dhcsr & S_HALT) == 0) {
+        return ESP_OK;
+    }
+
+    stop.halted = true;
+    stop.dhcsr = dhcsr;
+    stop.lockup = (dhcsr & S_LOCKUP) != 0;
+
+    uint32_t pc = 0;
+    ret = swd_read_word(DFSR_ADDR, &stop.dfsr);
+    ret = ret ?: swd_read_core_register(CORE_REG_PC, &pc);
+    stop.pc = pc;
+    return link_error(ret);
 }
 
 esp_err_t sidp_swd_backend::halt(uint32_t timeout_ms, sidp::stop_detect_t &stop)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    auto ret = poll_halted(stop);
+    if (ret != ESP_OK || stop.halted) {
+        return ret;
+    }
+
+    ret = write_control(C_HALT);
+    if (ret != ESP_OK) {
+        return link_error(ret);
+    }
+
+    const int64_t deadline_us = esp_timer_get_time() + timeout_ms * 1000LL;
+    while (esp_timer_get_time() < deadline_us) {
+        ret = poll_halted(stop);
+        if (ret != ESP_OK || stop.halted) {
+            return ret;
+        }
+        vTaskDelay(1);
+    }
+
+    return ESP_ERR_TIMEOUT;
 }
 
 esp_err_t sidp_swd_backend::resume(sidp::run_action_t action, uint64_t address)

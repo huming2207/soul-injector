@@ -64,6 +64,7 @@ private:
 
 private:
     swd_prog() = default;
+    esp_err_t connect_and_halt();
     esp_err_t load_flash_algorithm();
     esp_err_t run_algo_init(swd_def::init_mode mode);
     esp_err_t run_algo_uninit(swd_def::init_mode mode);

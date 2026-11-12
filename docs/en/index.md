@@ -21,6 +21,8 @@
   the production log.
 - [Debugging with GDB](debugging.md) — programming and debugging a Cortex-M
   target with `sidp-agent`, firmware that turns off SWD, and test status.
+- [Debugging over the network: plan](network-debugging-plan.md) — proposal
+  for WiFi and later cellular debugging through a relay, with open decisions.
 
 ## Hardware
 

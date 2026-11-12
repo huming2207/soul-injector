@@ -106,7 +106,14 @@ private:
     static constexpr uint16_t CONVERSION_US[8] = {140, 204, 332, 588, 1100, 2116, 4156, 8244};
     static constexpr uint16_t AVERAGES[8] = {1, 4, 16, 64, 128, 256, 512, 1024};
 
-    /* Three register reads per sample on a 400 kHz bus. Not measured yet. */
+    /*
+     * Above the INA226's 400 kHz fast mode and the ESP32-S31's rated 800 kHz,
+     * without the HS master code. It works on the Rev 8 board tested, and it
+     * is what lets 588 us run without missed conversions.
+     */
+    static constexpr uint32_t I2C_SPEED_HZ = 1000000;
+
+    /* Three register reads per sample. At 332 us the sampler falls behind even at 1 MHz. */
     static constexpr uint32_t MIN_SAMPLE_PERIOD_US = 588;
 
     static constexpr float SHUNT_LSB_V = 2.5e-6f;

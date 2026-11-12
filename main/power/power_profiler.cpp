@@ -205,7 +205,7 @@ esp_err_t power_profiler::init_sensors()
 
     // Idle sensors are powered down; a measurement configures them.
     for (uint8_t r = 0; r < sidp::POWER_RANGE_COUNT; ++r) {
-        ret = sensors[r].init(i2c_bus, GPIO_NUM_NC, RANGES[r].i2c_addr);
+        ret = sensors[r].init(i2c_bus, GPIO_NUM_NC, RANGES[r].i2c_addr, I2C_SPEED_HZ);
         ret = ret ?: sensors[r].set_config(ina226::AVG_SAMPLE_1, ina226::ADC_SPEED_1100US, ina226::ADC_SPEED_1100US,
                                            ina226::OP_MODE_POWER_DOWN);
         if (ret != ESP_OK) {

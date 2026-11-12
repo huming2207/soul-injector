@@ -96,13 +96,20 @@ All three bus inputs are on `VPP_INPUT`, so `VPP_OUTPUT` is computed on the
 host from the range's series resistance. Between measurements both bypasses
 stay on.
 
-Measured on 2026-11-12 with the STM32WLE5 attached, over USB with
-`sidp-agent power record`:
+The sensors convert continuously, not triggered, so every conversion follows
+the previous one and the current is integrated without dead time.
 
-| Setting | Samples per second | Missed conversions |
-| --- | --- | --- |
-| 1.1 ms conversion | 892 (909 nominal) | None in 3 s |
-| 588 µs conversion, the shortest allowed | 1666 (1700 nominal) | 6 in 3 s, each marked as a gap |
+The I2C bus runs at 1 MHz with the ESP-IDF driver and no HS master code. That
+is above the INA226's 400 kHz fast mode and the ESP32-S31's rated 800 kHz. The
+sensors' ID and measurement readings matched those at 400 kHz on the board
+tested. Measured on 2026-11-12 with the STM32WLE5 attached, over USB with
+`sidp-agent power record`, 3 s each:
+
+| Conversion | Samples per second | Missed at 400 kHz | Missed at 1 MHz |
+| --- | --- | --- | --- |
+| 1.1 ms | 892 (909 nominal) | None | None |
+| 588 µs, the shortest allowed | 1668 (1700 nominal) | 6, each marked as a gap | None |
+| 332 µs, not allowed | | | 1485: the sampler falls behind |
 
 The halted target (about 2.5 mA) stepped from HIGH to MID after three samples
 and stayed there. `--lowest-range high` held HIGH.
@@ -145,6 +152,13 @@ the STM32's real Standby current has not been measured. `sidp-agent power zero`
 measures a zero per range with the output open and `power record --zero`
 subtracts it, scaled with `VPP_INPUT`. Expect a few hundred nA at best with
 these parts, because repeat readings varied from 6.49 to 6.93 µA.
+
+**USB frames damaged at high rates.** Raw captures of the power stream showed
+1 bad POWER_DATA frame in 1431 over 30 s at 588 µs, none at 1.1 ms, and a few
+per second at 140 µs. Some lose about 512 bytes at the front (the TinyUSB CDC
+TX buffer size); one kept its header but failed its CRC. sidp-agent closes the
+connection on a bad frame, so a long recording at 588 µs can end early. The
+cause is not found.
 
 **Not yet verified:**
 

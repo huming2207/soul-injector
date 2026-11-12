@@ -66,7 +66,7 @@ damaged on the device is caught before the target is erased.
 
 Every run (pass, fail or cancelled) is recorded in the production log, together
 with each boot of the device and its reset reason. The log lives on its own
-2 MB `log` partition and survives reboots and job changes. Collect it with:
+`log` partition (2 MB, or 1 MB on Rev 8) and survives reboots and job changes. Collect it with:
 
 ```sh
 sidp-agent log pull --port /dev/ttyACM0 --output production.jsonl

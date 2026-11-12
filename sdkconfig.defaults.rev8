@@ -5,6 +5,17 @@
 # through the 40-pin J1/J2 connector.
 CONFIG_SI_DEVICE_BUILD="8"
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# WiFi does not fit the 2 MB app partition of partitions.csv.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_rev8.csv"
+CONFIG_SI_NETWORK_ENABLE=y
+# Nothing is placed in PSRAM .bss. Allowed, it breaks the link once WiFi is in:
+# ESP-IDF's .ext_ram.dummy section (PSRAM shares the bus with flash rodata) cannot
+# move backwards past WiFi's NOLOAD log strings at the end of rodata.
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=n
+# TCP buffers larger than one 8 KiB SIDP frame, so a frame does not wait an extra
+# round trip over WiFi (sdkconfig.defaults has 5744 for USB-only revisions).
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
+CONFIG_LWIP_TCP_WND_DEFAULT=16384
 
 # NT279VJ-C10-01-V1 display, on the adaptor board.
 CONFIG_SI_DISP_ENABLE=y

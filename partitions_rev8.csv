@@ -1,0 +1,10 @@
+# Rev 8 (16 MB flash): two 4 MB app slots for A/B updates. The data partition
+# takes what is left. Flashing this over an older layout loses the job, images,
+# log and settings; data and log are formatted again on the next boot.
+phy_init,data,phy,0x9000,4K,
+otadata,data,ota,0xA000,8K,
+nvs,data,nvs,0x10000,256K,
+ota_0,app,ota_0,0x50000,4M,
+ota_1,app,ota_1,0x450000,4M,
+log,data,fat,0x850000,1M,
+data,data,fat,0x950000,0x6B0000,

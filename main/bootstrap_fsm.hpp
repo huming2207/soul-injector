@@ -8,7 +8,6 @@
 #include <esp_pm.h>
 #include <soc/gpio_num.h>
 #include "wear_levelling.h"
-#include "wifi_manager.hpp"
 #include "mqtt_client.hpp"
 #include "display_manager.hpp"
 #include <tinyusb.h>
@@ -68,7 +67,6 @@ private:
     display_manager *display = nullptr;
     ui_composer *composer = nullptr;
     char sn_str[32] = {0};
-    wifi_manager wifi = {};
 
 private:
     static const constexpr char TAG[] = "bootstrap_fsm";

@@ -224,6 +224,14 @@ menu "Soul Injector Configuration"
             GPIO that connects SWD, reset, BOOT and UART to the programming
             connector while high. -1: the board has no such switch.
 
+    config SI_NETWORK_ENABLE
+        bool "Serve SIDP over WiFi"
+        default n
+        help
+            Join the WiFi network stored in NVS and connect out to the agent
+            (sidp-agent network set). With WiFi the app no longer fits the
+            2 MB app partition of partitions.csv; Rev 8 uses partitions_rev8.csv.
+
     config SI_POWER_PROFILER_ENABLE
         bool "Enable the INA226 power profiler"
         default n

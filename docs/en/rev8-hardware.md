@@ -165,6 +165,20 @@ frames, as SIDP requires, so the recording goes on with a gap, and `power
 record` counts them: a 60 s recording at 588 µs had 2. The cause on the device
 is not found.
 
+**Open items for the power profiler** (as of 2026-11-12):
+
+- Find why POWER_DATA frames are occasionally damaged on the USB send path
+  (above). First experiment: move the transport's log ring buffer from PSRAM to
+  internal RAM, then repeat a 30 s raw capture at 588 µs.
+- Verify the step to LOW and `sidp-agent power zero` with `VPP_OUTPUT` open.
+- Sample periods below 588 µs: the sampler task falls behind (three register
+  reads per sample through the ESP-IDF I2C driver). Fewer or cheaper reads
+  would be needed.
+- HIGH range `vout` uses 50 mΩ and ignores the bypass FET's resistance, about
+  1 mV of error at 20 mA.
+- The desktop app measures power during debugging only while a USB connection
+  is open: with *keep serving*, not between GDB sessions.
+
 **Not yet verified:**
 
 - The firmware's step to LOW, and `power zero`, which needs `VPP_OUTPUT` open.

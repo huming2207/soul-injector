@@ -65,7 +65,7 @@ public:
      * Initialise INA228 (and I2C if needed)
      * @param port I2C Port number
      * @param addr INA228 address
-     * @param alert INA228 interrupt pin
+     * @param alert INA228 interrupt pin; GPIO_NUM_NC leaves the pin to the caller
      * @param i2c_cfg Leave null if this I2C port has been set up elsewhere
      * @return ESP_OK if success
      */
@@ -162,6 +162,27 @@ public:
      * @return ESP_OK if success
      */
     esp_err_t set_sample_mode(avg_mode sample_per_avg);
+
+    /**
+     * Write averaging, both conversion times and the operating mode in one
+     * register write, which also restarts conversion
+     * @return ESP_OK if success
+     */
+    esp_err_t set_config(avg_mode sample_per_avg, adc_speed vbus_speed, adc_speed vshunt_speed, operate_mode mode);
+
+    /**
+     * Read the shunt voltage register as is (2.5 uV per count)
+     * @param out Register value
+     * @return ESP_OK if success
+     */
+    esp_err_t read_shunt_raw(int16_t *out);
+
+    /**
+     * Read the bus voltage register as is (1.25 mV per count)
+     * @param out Register value
+     * @return ESP_OK if success
+     */
+    esp_err_t read_bus_raw(uint16_t *out);
 
 private:
     esp_err_t init_failed(esp_err_t error);

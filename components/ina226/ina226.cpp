@@ -68,13 +68,17 @@ esp_err_t ina226::init(i2c_master_bus_handle_t i2c_master, gpio_num_t alert, uin
         ESP_LOGI(TAG, "Device OK: ID 0x%04x; 0x%04x", manufacturer_id, dev_id);
     }
 
-    gpio_config_t alert_cfg = {
-            .pin_bit_mask = (1ULL << (uint32_t)alert),
-            .mode = GPIO_MODE_INPUT,
-            .pull_up_en = GPIO_PULLUP_ENABLE,
-            .pull_down_en = GPIO_PULLDOWN_DISABLE,
-            .intr_type = GPIO_INTR_DISABLE,
-    };
+    // Several sensors can share one alert pin; the caller then handles it.
+    if (alert == GPIO_NUM_NC) {
+        return ESP_OK;
+    }
+
+    gpio_config_t alert_cfg = {};
+    alert_cfg.pin_bit_mask = (1ULL << (uint32_t)alert);
+    alert_cfg.mode = GPIO_MODE_INPUT;
+    alert_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    alert_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    alert_cfg.intr_type = GPIO_INTR_DISABLE;
 
     ret = gpio_config(&alert_cfg);
     if (ret != ESP_OK) {
@@ -371,6 +375,49 @@ esp_err_t ina226::set_vshunt_convert_time(adc_speed speed)
     config |= (static_cast<uint16_t>(speed) & 0x07) << 3;
 
     return write_u16(REG_CONFIG, config);
+}
+
+esp_err_t ina226::set_config(avg_mode sample_per_avg, adc_speed vbus_speed, adc_speed vshunt_speed, operate_mode mode)
+{
+    if (sample_per_avg > AVG_SAMPLE_1024 || vbus_speed > ADC_SPEED_8244US || vshunt_speed > ADC_SPEED_8244US ||
+        mode > OP_MODE_SHUNT_BUS_CONT) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /*
+     * CONFIG:
+     *
+     * D14 = reserved, reads 1
+     * D11..D9 = AVG
+     * D8..D6 = VBUSCT
+     * D5..D3 = VSHCT
+     * D2..D0 = MODE
+     */
+    const uint16_t config = BIT(14) | (static_cast<uint16_t>(sample_per_avg) << 9) |
+                            (static_cast<uint16_t>(vbus_speed) << 6) | (static_cast<uint16_t>(vshunt_speed) << 3) |
+                            static_cast<uint16_t>(mode);
+    return write_u16(REG_CONFIG, config);
+}
+
+esp_err_t ina226::read_shunt_raw(int16_t *out)
+{
+    if (out == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint16_t value = 0;
+    esp_err_t ret = read_u16(REG_SHUNT_VOLT, &value);
+    *out = static_cast<int16_t>(value);
+    return ret;
+}
+
+esp_err_t ina226::read_bus_raw(uint16_t *out)
+{
+    if (out == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return read_u16(REG_BUS_VOLT, out);
 }
 
 esp_err_t ina226::set_sample_mode(avg_mode sample_per_avg)

@@ -275,7 +275,7 @@ si_power_StopReason power_profiler::measure()
     }
 
     active = sidp::POWER_RANGE_HIGH;
-    below_limit = 0;
+    reset_step_average();
     no_supply = 0;
     holdoff_until_us = 0;
     settle_until_us = esp_timer_get_time() + RANGES[active].settle_us;
@@ -383,7 +383,7 @@ bool power_profiler::sample(int64_t t_us, si_power_StopReason *reason)
             ESP_LOGW(TAG, "sample: range latch dropped on its own, %d -> %d", active, hw);
         }
         active = hw;
-        below_limit = 0;
+        reset_step_average();
         settle_until_us = t_us + RANGES[active].settle_us;
         close_run();
         if (configure_sensors() != ESP_OK) {
@@ -422,16 +422,21 @@ bool power_profiler::sample(int64_t t_us, si_power_StopReason *reason)
 bool power_profiler::should_step_down(int64_t t_us, float amps, float vin)
 {
     if (active <= lowest || t_us < holdoff_until_us) {
-        below_limit = 0;
+        reset_step_average();
         return false;
     }
 
-    const float limit = trip_min_amps(vin, static_cast<sidp::power_range_t>(active - 1)) * STEP_DOWN_MARGIN;
-    if (limit <= 0.0f || amps >= limit) {
-        below_limit = 0;
+    // Judge the average, not single readings: HIGH's 50 uA steps make a load
+    // near the limit read on both sides of it.
+    step_sum_amps += amps;
+    if (++step_samples < STEP_DOWN_SAMPLES) {
         return false;
     }
-    return ++below_limit >= STEP_DOWN_SAMPLES;
+    const float average = step_sum_amps / static_cast<float>(step_samples);
+    reset_step_average();
+
+    const float limit = trip_min_amps(vin, static_cast<sidp::power_range_t>(active - 1)) * STEP_DOWN_MARGIN;
+    return limit > 0.0f && average < limit;
 }
 
 bool power_profiler::step_down(int64_t t_us)
@@ -451,7 +456,7 @@ bool power_profiler::step_down(int64_t t_us)
     }
 
     active = hw;
-    below_limit = 0;
+    reset_step_average();
     settle_until_us = esp_timer_get_time() + RANGES[active].settle_us;
     close_run();
     return configure_sensors() == ESP_OK;

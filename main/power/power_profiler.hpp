@@ -92,6 +92,11 @@ private:
 
     void append(int64_t t_us, int16_t shunt, uint16_t bus, bool settling);
     void close_run() { run_open = false; }
+    void reset_step_average()
+    {
+        step_sum_amps = 0.0f;
+        step_samples = 0;
+    }
     void flush();
     void send_stopped(si_power_StopReason reason);
 
@@ -125,8 +130,13 @@ private:
     /* Comparator trip drop is VPP_INPUT / 92 nominally, at least 9 mV below that. */
     static constexpr float VTH_DIVIDER = 92.0f;
     static constexpr float TRIP_BELOW_NOMINAL_V = 0.009f;
-    static constexpr float STEP_DOWN_MARGIN = 0.7f;
-    static constexpr uint32_t STEP_DOWN_SAMPLES = 3;
+    /*
+     * Step down when the average of STEP_DOWN_SAMPLES samples is below this
+     * share of the next range's lowest possible trip current, so the
+     * comparator is unlikely to send it straight back up.
+     */
+    static constexpr float STEP_DOWN_MARGIN = 0.85f;
+    static constexpr uint32_t STEP_DOWN_SAMPLES = 8;
     static constexpr int64_t STEP_DOWN_HOLDOFF_US = 200000;
 
     static constexpr int64_t FLUSH_INTERVAL_US = 20000;
@@ -167,7 +177,8 @@ private:
     sidp::power_range_t active = sidp::POWER_RANGE_HIGH;
     int64_t settle_until_us = 0;
     int64_t holdoff_until_us = 0;
-    uint32_t below_limit = 0;
+    float step_sum_amps = 0.0f;
+    uint32_t step_samples = 0;
     uint32_t no_supply = 0;
     int64_t last_sample_us = 0;
 

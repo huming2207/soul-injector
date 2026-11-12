@@ -111,8 +111,12 @@ tested. Measured on 2026-11-12 with the STM32WLE5 attached, over USB with
 | 588 µs, the shortest allowed | 1668 (1700 nominal) | 6, each marked as a gap | None |
 | 332 µs, not allowed | | | 1485: the sampler falls behind |
 
-The halted target (about 2.5 mA) stepped from HIGH to MID after three samples
-and stayed there. `--lowest-range high` held HIGH.
+The firmware steps down when the average of 8 samples is below 85% of the next
+range's lowest possible trip current. The running target (about 5.1 mA at
+3.31 V, which HIGH reads anywhere from 4.15 to 6.0 mA) reached MID after its
+first 8 samples in each of three runs and stayed there. With the earlier rule,
+3 samples in a row below 70%, it stayed in HIGH for about 9 s.
+`--lowest-range high` held HIGH.
 
 ## Measured results
 

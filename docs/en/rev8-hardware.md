@@ -156,9 +156,10 @@ these parts, because repeat readings varied from 6.49 to 6.93 µA.
 **USB frames damaged at high rates.** Raw captures of the power stream showed
 1 bad POWER_DATA frame in 1431 over 30 s at 588 µs, none at 1.1 ms, and a few
 per second at 140 µs. Some lose about 512 bytes at the front (the TinyUSB CDC
-TX buffer size); one kept its header but failed its CRC. sidp-agent closes the
-connection on a bad frame, so a long recording at 588 µs can end early. The
-cause is not found.
+TX buffer size); one kept its header but failed its CRC. sidp-agent drops such
+frames, as SIDP requires, so the recording goes on with a gap, and `power
+record` counts them: a 60 s recording at 588 µs had 2. The cause on the device
+is not found.
 
 **Not yet verified:**
 

@@ -17,7 +17,7 @@ firmware does not support Rev 8 fully yet:
 | --- | --- | --- |
 | `DBG_EN` | 57 | Driven high during a programming run or debug session, low otherwise. |
 | LCD power | 39 | Not driven. `SI_DISP_PANEL_PWR` is set but the firmware does not use it. |
-| Power profiler | See below | Not supported. `components/ina226` is present but unused. |
+| Power profiler | See below | Measured over SIDP's power service; see below for what is verified. |
 
 The SWD and UART GPIOs are unchanged from Rev 7.1. The firmware still uses the
 option named `ESP_SWD_PHY_AXC2T245`: Rev 8 fits SN74AVC2T245 translators, whose
@@ -88,6 +88,25 @@ Two latches hold the range bypasses as a 2-bit shift register:
 - After a range change, wait for settling and discard the conversion that spans
   the switch.
 
+The firmware (`main/power/power_profiler.cpp`) streams raw readings over SIDP
+(`components/sidp_client/docs/sidp-power.md`); `sidp-agent power record`
+writes them to CSV. While measuring, the active range's sensor converts shunt
+voltage only, so no time is skipped, and an idle sensor converts `VPP_INPUT`.
+All three bus inputs are on `VPP_INPUT`, so `VPP_OUTPUT` is computed on the
+host from the range's series resistance. Between measurements both bypasses
+stay on.
+
+Measured on 2026-11-12 with the STM32WLE5 attached, over USB with
+`sidp-agent power record`:
+
+| Setting | Samples per second | Missed conversions |
+| --- | --- | --- |
+| 1.1 ms conversion | 892 (909 nominal) | None in 3 s |
+| 588 µs conversion, the shortest allowed | 1666 (1700 nominal) | 6 in 3 s, each marked as a gap |
+
+The halted target (about 2.5 mA) stepped from HIGH to MID after three samples
+and stayed there. `--lowest-range high` held HIGH.
+
 ## Measured results
 
 SWD over the direct SPI2 backend, 100 of 100 iterations verified:
@@ -122,11 +141,14 @@ shunt carries three and reads about 19.6 µA. Powering down the LOW sensor
 dropped the MID reading by 13.2 µA, against 13.3 µA predicted.
 
 LOW range readings therefore include about 6.6 µA that is not target current, so
-the STM32's real Standby current has not been measured. Zero calibration is not
-implemented. Subtracting a stored zero should reach a few hundred nA at best
-with these parts, because repeat readings varied from 6.49 to 6.93 µA.
+the STM32's real Standby current has not been measured. `sidp-agent power zero`
+measures a zero per range with the output open and `power record --zero`
+subtracts it, scaled with `VPP_INPUT`. Expect a few hundred nA at best with
+these parts, because repeat readings varied from 6.49 to 6.93 µA.
 
 **Not yet verified:**
+
+- The firmware's step to LOW, and `power zero`, which needs `VPP_OUTPUT` open.
 
 - The HIGH comparator has not been tested with a real load above about 13 mA.
 - With a target attached, a step to LOW sometimes sets both latches when only

@@ -8,11 +8,13 @@
 #include <esp_vfs_fat.h>
 #include <manage.pb.h>
 #include <pb_decode.h>
+#include <power.pb.h>
 #include <pb_encode.h>
 #include <sidp_transport_cdc.hpp>
 
 #include "asset_store.hpp"
 #include "job_controller.hpp"
+#include "power_profiler.hpp"
 #include "prog_log.hpp"
 #include "sidp_swd_backend.hpp"
 #include "swd_prog.hpp"
@@ -20,6 +22,17 @@
 static bool send_debug_frame(std::span<const uint8_t> frame)
 {
     return sidp::cdc_slip_transport::instance().write_message(frame) == ESP_OK;
+}
+
+// Power samples share the log queue: they are dropped, never queued ahead of debug traffic.
+static esp_err_t send_power_data(std::span<const uint8_t> frame)
+{
+    return sidp::cdc_slip_transport::instance().write_message_log(frame);
+}
+
+static esp_err_t send_power_event(std::span<const uint8_t> frame)
+{
+    return sidp::cdc_slip_transport::instance().write_message(frame);
 }
 
 esp_err_t sidp_service::init(const char *_serial)
@@ -34,6 +47,12 @@ esp_err_t sidp_service::init(const char *_serial)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "init: CDC transport failed: 0x%x %s", ret, esp_err_to_name(ret));
         return ret;
+    }
+
+    // Boards without a profiler answer the power opcodes with STATUS_UNSUPPORTED.
+    ret = power_profiler::instance()->init(send_power_data, send_power_event);
+    if (ret != ESP_OK && ret != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "init: power profiler unavailable: %s", esp_err_to_name(ret));
     }
 
     // Debug requests use SWD, so this shares the flasher's core. It sits above the
@@ -73,6 +92,10 @@ void sidp_service::run_session()
     } else {
         ESP_LOGE(TAG, "run_session: no memory for the debug session");
     }
+
+    // A measurement belongs to its connection.
+    si_power_StopResponse stopped = si_power_StopResponse_init_zero;
+    power_profiler::instance()->stop(stopped);
     transport.close_session();
 
     // The target stays owned until it is cleaned up, so nothing else may use it before then.
@@ -157,6 +180,12 @@ sidp::status_t sidp_service::dispatch(uint16_t opcode, std::span<const uint8_t> 
         return op_log_read(payload, out);
     case sidp::OP_LOG_ACK:
         return op_log_ack(payload);
+    case sidp::OP_POWER_INFO:
+        return op_power_info(out);
+    case sidp::OP_POWER_START:
+        return op_power_start(payload, out);
+    case sidp::OP_POWER_STOP:
+        return op_power_stop(out);
     default:
         return sidp::STATUS_UNSUPPORTED;
     }
@@ -334,4 +363,41 @@ sidp::status_t sidp_service::op_log_ack(std::span<const uint8_t> payload)
         return sidp::STATUS_INVALID_ARGUMENT;
     }
     return to_status(prog_log::instance()->ack(request.up_to_id));
+}
+
+sidp::status_t sidp_service::op_power_info(pb_ostream_t &out)
+{
+    auto *profiler = power_profiler::instance();
+    if (!profiler->available()) {
+        return sidp::STATUS_UNSUPPORTED;
+    }
+
+    si_power_PowerInfo info = si_power_PowerInfo_init_zero;
+    profiler->get_info(info);
+    return encode(out, si_power_PowerInfo_fields, &info);
+}
+
+sidp::status_t sidp_service::op_power_start(std::span<const uint8_t> payload, pb_ostream_t &out)
+{
+    si_power_StartRequest request = si_power_StartRequest_init_zero;
+    if (!decode(payload, si_power_StartRequest_fields, &request)) {
+        return sidp::STATUS_INVALID_ARGUMENT;
+    }
+
+    si_power_StartResponse response = si_power_StartResponse_init_zero;
+    auto ret = power_profiler::instance()->start(request, response);
+    if (ret == ESP_ERR_INVALID_STATE) {
+        return sidp::STATUS_BUSY;
+    }
+    if (ret != ESP_OK) {
+        return to_status(ret);
+    }
+    return encode(out, si_power_StartResponse_fields, &response);
+}
+
+sidp::status_t sidp_service::op_power_stop(pb_ostream_t &out)
+{
+    si_power_StopResponse response = si_power_StopResponse_init_zero;
+    power_profiler::instance()->stop(response);
+    return encode(out, si_power_StopResponse_fields, &response);
 }

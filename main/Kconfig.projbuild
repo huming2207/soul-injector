@@ -224,6 +224,56 @@ menu "Soul Injector Configuration"
             GPIO that connects SWD, reset, BOOT and UART to the programming
             connector while high. -1: the board has no such switch.
 
+    config SI_POWER_PROFILER_ENABLE
+        bool "Enable the INA226 power profiler"
+        default n
+        help
+            Three INA226s in series between VPP_INPUT and VPP_OUTPUT with
+            comparator range latches, as on the Rev 8 adaptor. Measured over
+            SIDP's power service.
+
+    config SI_POWER_PROF_SDA_PIN
+        int "Power profiler I2C SDA pin"
+        depends on SI_POWER_PROFILER_ENABLE
+        range 0 61
+        default 17
+
+    config SI_POWER_PROF_SCL_PIN
+        int "Power profiler I2C SCL pin"
+        depends on SI_POWER_PROFILER_ENABLE
+        range 0 61
+        default 18
+
+    config SI_POWER_PROF_ALERT_PIN
+        int "Power profiler shared /ALERT pin"
+        depends on SI_POWER_PROFILER_ENABLE
+        range 0 61
+        default 4
+
+    config SI_POWER_PROF_RANGE_D_PIN
+        int "Power profiler range latch data pin"
+        depends on SI_POWER_PROFILER_ENABLE
+        range 0 61
+        default 19
+
+    config SI_POWER_PROF_RANGE_CLK_PIN
+        int "Power profiler range latch clock pin"
+        depends on SI_POWER_PROFILER_ENABLE
+        range 0 61
+        default 37
+
+    config SI_POWER_PROF_HIGH_RB_PIN
+        int "Power profiler HIGH latch readback pin"
+        depends on SI_POWER_PROFILER_ENABLE
+        range 0 61
+        default 38
+
+    config SI_POWER_PROF_MID_RB_PIN
+        int "Power profiler MID latch readback pin"
+        depends on SI_POWER_PROFILER_ENABLE
+        range 0 61
+        default 5
+
     config SI_LED_ENABLE
         bool "Enable status LED"
         default y

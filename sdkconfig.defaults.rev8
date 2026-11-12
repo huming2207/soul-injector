@@ -3,11 +3,6 @@
 # ESP32-S31 GPIO assignments match Rev 7.1, except that GPIO2 is now the modem's
 # MAIN_RI. The SWD/UART front end and the LCD moved to the adaptor board, reached
 # through the 40-pin J1/J2 connector.
-#
-# Adaptor signals with no firmware support yet:
-#   GPIO17/18/4  I2C SDA/SCL and ALERT for the three INA226 power profiler ADCs.
-#   GPIO19/37    Power profiler range latch D and clock.
-#   GPIO5/38     Power profiler mid and high range override.
 CONFIG_SI_DEVICE_BUILD="8"
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 
@@ -72,3 +67,14 @@ CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
 CONFIG_LWIP_ENABLE_LCP_ECHO=y
 CONFIG_LWIP_LCP_ECHOINTERVAL=20
 CONFIG_LWIP_LCP_MAXECHOFAILS=5
+
+# Power profiler on the adaptor: I2C SDA/SCL and the shared INA226 /ALERT,
+# range latch data and clock, and the HIGH and MID latch readbacks.
+CONFIG_SI_POWER_PROFILER_ENABLE=y
+CONFIG_SI_POWER_PROF_SDA_PIN=17
+CONFIG_SI_POWER_PROF_SCL_PIN=18
+CONFIG_SI_POWER_PROF_ALERT_PIN=4
+CONFIG_SI_POWER_PROF_RANGE_D_PIN=19
+CONFIG_SI_POWER_PROF_RANGE_CLK_PIN=37
+CONFIG_SI_POWER_PROF_HIGH_RB_PIN=38
+CONFIG_SI_POWER_PROF_MID_RB_PIN=5

@@ -14,9 +14,9 @@
 
 /**
  * SIDP over the USB CDC port: accepts connections and serves the management
- * service (device info, asset upload, jobs, production log). See sidp_client's
- * docs/sidp-management.md for the wire contract. Debug opcodes go to a
- * sidp_session driving sidp_swd_backend.
+ * service (device info, asset upload, jobs, production log; sidp_client's
+ * proto/manage.proto) and the power service (sidp_client's docs/sidp-power.md).
+ * Debug opcodes go to a sidp_session driving sidp_swd_backend.
  *
  * One task owns the connection; it serves one request at a time, as SIDP v1
  * allows only one outstanding request. The task stack is in internal RAM
@@ -61,6 +61,9 @@ private:
     sidp::status_t op_job_cancel(std::span<const uint8_t> payload);
     sidp::status_t op_log_read(std::span<const uint8_t> payload, pb_ostream_t &out);
     sidp::status_t op_log_ack(std::span<const uint8_t> payload);
+    sidp::status_t op_power_info(pb_ostream_t &out);
+    sidp::status_t op_power_start(std::span<const uint8_t> payload, pb_ostream_t &out);
+    sidp::status_t op_power_stop(pb_ostream_t &out);
 
     static bool decode(std::span<const uint8_t> payload, const pb_msgdesc_t *fields, void *msg);
     static sidp::status_t encode(pb_ostream_t &out, const pb_msgdesc_t *fields, const void *msg);

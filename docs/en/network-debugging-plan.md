@@ -1,7 +1,7 @@
 # Debugging over the network: plan
 
-Status: agreed plan. Phase 0 and most of phase 1 are implemented and wait for
-tests on Rev 8 (see "Phase 0: what was built" and "Phase 1: what was built").
+Status: agreed plan. Phases 0, 1 and most of 2 are implemented and wait for
+tests on Rev 8 (see the "what was built" section of each).
 WiFi comes first, cellular later.
 The decisions made so far, and the ones still open, are listed at the end.
 
@@ -75,10 +75,27 @@ Something on the computer has to be listening when the device connects.
 - **Command line:** `sidp-agent serve` is the same listener without a window.
   It stays running and holds the device connections; the other commands
   (`gdb`, `debug`, `job`, `power record`, `log`) reach a device through it
-  with `--port ws://127.0.0.1:7420/SERIAL`. Without it, every command would
+  with `--port ws://127.0.0.1/DEVICE_ID` (see "Device ID and port" below). Without it, every command would
   have to wait for the device's next connection attempt.
 - Only one listener can own the port, so the desktop app and `serve` do not
   run together; the app's listener serves the command line too.
+
+### Device ID and port
+
+- **Device ID:** the device's WiFi station MAC address (`esp_read_mac`,
+  `ESP_MAC_WIFI_STA`), as 12 uppercase hex digits, e.g. `7CDFA1B2C3D4`. It is short enough to type
+  and already unique; the longer serial number in `GET_INFO` stays as it is.
+  The device sends the ID in its WebSocket upgrade request (an
+  `X-SIDP-Device` header, so the server URL's path stays the user's), and
+  `NET_STATUS` reports it, so `network show` over USB tells the user what to
+  type. The ID only names the device; the password login decides who may use
+  it, and the identity key (Security C) proves which device it is.
+- **Port:** part of the server URL stored on the device over USB
+  (`ws://HOST[:PORT]/`), so it is configurable. The default is 80 for plain
+  `ws`, and 443 once TLS (`wss`) arrives. The agent listens on the same port
+  (`--port ws://0.0.0.0[:PORT]`). On Linux, ports below 1024 need
+  `net.ipv4.ip_unprivileged_port_start` lowered (or a port above 1023); the
+  agent says so when it cannot listen.
 
 `serve` forwarding loopback commands to a device is the same job the relay
 does in relay mode, so the relay is this code on a public server with user
@@ -187,9 +204,9 @@ client side.
   cipher state for a strict request-then-response exchange. SIDP
   sends events and power data at any time, so the two ends would fall out of
   step. Local mode traffic therefore stays in the clear, as decided.
-- **The device finds agents by mDNS** and may see several in one office. It
-  connects to each; only an agent whose user has typed this device's password
-  can open a session.
+- **The device connects to one named agent,** found by mDNS (see phase 1,
+  item 5), not to every agent in the office. The password login still decides
+  whether a user may open a session.
 - **In relay mode the same login runs end to end** between the user's agent
   and the device, with the relay only forwarding it. A relay account alone is
   not enough to use a device, and neither is breaking into the relay.
@@ -242,9 +259,9 @@ scarce. So this is done in two stages, with the same protocol in both.
 
 - The device creates a key pair on first boot and keeps it in NVS.
 - **Enrollment, over USB, before the device is shipped:** the agent reads the
-  device's public key and stores it with the serial number.
+  device's public key and stores it with the device ID.
 - **At every session,** the user's agent sends a nonce and the device signs it
-  together with its serial number and firmware version. The agent checks the
+  together with its device ID and firmware version. The agent checks the
   signature against the enrolled key. The relay can run the same check when a
   device connects.
 - The messages carry the key type, so stage 2 changes no protocol.
@@ -329,7 +346,7 @@ Firmware:
   20 ms (phase 1 item 8, first half).
 - `CONFIG_SI_NETWORK_ENABLE`, on for Rev 8 only. With WiFi the app is about
   2.2 MB, so Rev 8 uses `partitions_rev8.csv`: two 4 MB app slots for A/B
-  updates, 256 KB `nvs`, 1 MB `log` and the remaining 6.7 MB for `data`.
+  updates, 256 KB `nvs`, 2 MB `log` and the remaining 5.7 MB for `data`.
 - Rev 8 turns off `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`. With it on,
   linking WiFi fails in ESP-IDF 6.1 (and master): on the ESP32-S31, PSRAM
   shares the bus with flash rodata, and the `.ext_ram.dummy` section cannot
@@ -341,7 +358,7 @@ Agent:
 - `transport::WebSocket`: listens, accepts one device, one frame per binary
   message, Nagle off. Every command accepts `--port ws://ADDRESS:PORT`.
 - `sidp-agent network set | show | off`.
-- Desktop: a *Network…* sheet that stores the settings over USB.
+- Desktop: a *WiFi setup…* sheet (button under SOUL INJECTOR) that stores the settings over USB.
 
 Checked without hardware: the agent served GDB over WebSocket to the real C++
 `sidp_session` (attach, memory reads, detach, close seen by the device).
@@ -363,10 +380,13 @@ Still to measure on Rev 8: phase 0 items 1 to 3 above.
    WebSocket, serve sessions, reconnect with backoff. Replaces the credentials
    TODO in `wifi_manager`.
 5. **Finding the agent on a LAN.** A laptop's address changes, so a stored
-   `wss://192.168.1.20:7420` stops working the next day. The agent announces
-   itself by mDNS (`_sidp._tcp`) and the device looks it up; the password
-   login decides whether it may use the device. A fixed URL is for relay
-   mode.
+   `ws://192.168.1.20/` stops working the next day. The device connects to a
+   named agent instead: the server URL set over USB holds the computer's mDNS
+   name, `ws://HOSTNAME.local/` (the default from `network set` and the
+   desktop sheet), and the device resolves it by mDNS each time it connects.
+   It never connects to a colleague's agent. A fixed address or a relay URL
+   still works. Linux (Avahi) and macOS already answer for `HOSTNAME.local`;
+   the agent announces the name itself where the system does not.
 6. **Add the session messages** (`open`, `ready`, `busy`, `close`, `closed`)
    to `websocket_transport`, and the Security 2 login. Reconnect as
    described under "When the wireless link drops".
@@ -443,10 +463,9 @@ Checked without hardware:
 
 Not done yet:
 
-- Item 5, finding the agent by mDNS. It needs the agent to announce itself,
-  which is phase 2, so both halves go together; until then the device uses
-  the stored server URL.
 - Item 11, WiFi and connection status on the LCD.
+
+Item 5, finding the agent by mDNS, was done with phase 2.
 
 ## Phase 2: agent (sidp_agent), local mode
 
@@ -454,22 +473,28 @@ Not done yet:
    the production log then work over it unchanged.
    - Blocking, like the rest of the library (`tungstenite`), with Nagle off.
      TLS (`rustls`) is added in phase 4.
-   - Behind a Cargo feature, so the library can still be built with only its
-     present dependencies.
+   - Always built in, no Cargo feature: the new dependencies are small and
+     the CLI and the desktop both need them.
 2. **The Security 2 client** (SRP6a), tested against a device and against
    `esp_prov`'s implementation before the rest is built on it.
 3. **The listener** (library code, used by the desktop app and by
    `sidp-agent serve`):
-   - plain `ws`; runs the password login for each session, with the password
-     the user typed for that device;
-   - holds the connected devices, by serial number, and lists them;
+   - plain `ws`; does not log in itself. It forwards each session's frames,
+     login included, so every command or window logs in end to end with its
+     own password, as in relay mode. Another user of the same computer
+     cannot use a device without its password;
+   - holds the connected devices, by device ID, and lists them;
    - opens and closes sessions with the messages above; one user per device,
      and a second is told the device is in use;
    - pings devices and drops one that stops answering;
-   - announces itself by mDNS;
+   - announces the computer's name by mDNS where the system does not;
+   - listens on port 80 by default. If it cannot (ports below 1024 on
+     Linux), it explains the one-time fix (`sysctl
+     net.ipv4.ip_unprivileged_port_start=80`, or `setcap
+     cap_net_bind_service` on the binary) and never asks for root itself;
    - accepts loopback clients, so command-line tools can use a device it
      holds.
-4. **`--port ws://127.0.0.1:7420/SERIAL`** in every command: `gdb`, `debug`,
+4. **`--port ws://127.0.0.1/DEVICE_ID`** in every command: `gdb`, `debug`,
    `power record`, `job`, `log`.
 5. **Setup commands.** `sidp-agent network setup --port /dev/ttyACM0 --ssid ...`
    stores the WiFi settings and the device password data over USB; both
@@ -483,6 +508,122 @@ Not done yet:
      password was changed.
    - A network setup page, which also explains the firewall. The app
      remembers device passwords in the operating system's keychain.
+
+### Phase 2: what was built
+
+Firmware:
+
+- The device ID (WiFi station MAC, 12 uppercase hex digits) goes in an
+  `X-SIDP-Device` header of the WebSocket upgrade, and `NET_STATUS` reports
+  it (`device_id`, field 6). With its own transport, ESP-IDF's WebSocket
+  client ignores the URL's path and the configured headers, so both are set
+  on the transport; the URL's path is now used (it was always `/`).
+- Item 5 of phase 1: `.local` names in the server URL are resolved by lwIP's
+  built-in mDNS queries (`CONFIG_LWIP_DNS_SUPPORT_MDNS_QUERIES`, on by
+  default), on every connection attempt. No mDNS component is needed.
+
+Agent:
+
+- `listener` module (items 3 and 6): devices are held by ID. A user on this
+  computer connects to `ws://127.0.0.1[:PORT]/DEVICE_ID`; the listener checks
+  the ID during the handshake (404 for no such device, 409 when another user
+  has it, 403 for a user not on this computer) and then forwards every
+  WebSocket message both ways unchanged, so the login runs end to end. If the
+  user vanishes with a session open, the listener sends `close` to the device;
+  if the device goes, the user's WebSocket is closed. A device silent for
+  30 s is dropped (it pings every 10 s); the same ID connecting again replaces
+  the old connection. One reader thread per connection; each write is one
+  whole frame under the target socket's lock, so forwarding adds no polling
+  delay. (The library forbids `unsafe`, which rules out readiness-polling
+  crates.)
+- `sidp-agent serve [--listen 0.0.0.0:80]` (item 3), and
+  `--port ws://HOST[:PORT]/DEVICE_ID` in every command (item 4); a MAC with
+  colons or in lower case is accepted. `--port ws://0.0.0.0` still waits for
+  a device directly. `network set` defaults the server to
+  `ws://HOSTNAME.local/` and prints the device ID; `network show` shows it.
+- Port 80 by default; when it cannot listen, the error names the fix
+  (`sysctl net.ipv4.ip_unprivileged_port_start`, or `setcap`).
+- Desktop (item 6): the session type is `Session<Box<dyn Transport + Send>>`.
+  The app runs the listener while it is open (port under Settings, default
+  80) and lists WiFi devices after USB ones. A WiFi device asks for its
+  password in the sidebar, and the app keeps it in the system keychain
+  (GPUI's credential store: Keychain, Credential Manager, or the Secret
+  Service on Linux) under `sidp://DEVICE_ID`. A refused login explains
+  itself, removes the stored password and asks again. Settings can be saved only
+  over USB.
+
+Checked without hardware:
+
+- Listener tests: forwarding both ways, one user per device, an unknown
+  device, a user vanishing mid-session, the device leaving.
+- `sidp-agent serve` with a fake WiFi device (the real C++ `sidp_session` and
+  ESP-IDF's Security 2 handler behind it) and `sidp-agent gdb --port
+  ws://127.0.0.1:PORT/7c:df:...`: login, attach, reads, detach and close at
+  2.1 ms per memory read, the same as a direct connection. A wrong password is
+  refused and the device's session closed.
+- The desktop worker the same way: a debug session over WiFi, and a wrong
+  password reported as such.
+- The CLI's GDB end-to-end suite and the desktop's tests over USB.
+
+Not done yet:
+
+- The agent announcing the computer's name by mDNS where the system does not
+  (Windows). Linux (Avahi) and macOS already answer for `HOSTNAME.local`.
+
+### First hardware run (2026-11-13)
+
+Rev 8 (ESP32-S31, 16 MB) on WiFi (WPA3), `sidp-agent serve` on port 8080,
+target an STM32WLE5CC (RAK3172) running a firmware that divides by zero.
+
+Worked: settings stored over USB; the device joined WiFi, resolved
+`hu-pc.local` by mDNS and connected to `serve` with its device ID; `debug`
+programmed the target and served GDB over WiFi, through the password login
+(breakpoint in the HardFault handler, backtrace through the exception frame,
+the stacked fault registers); a USB request during a WiFi session took the
+device over and the WiFi user was told; a wrong password was refused.
+
+Fixed on the way:
+
+- The `log` partition is 2 MB again: the production log store needs
+  5 × 256 KB, and with 1 MB the boot stopped.
+- The device ID came from `esp_efuse_mac_get_default`, which writes an 8-byte
+  EUI-64 on chips with 802.15.4 (the S31) and overflowed a 6-byte buffer. It
+  is the WiFi station MAC now (`esp_read_mac`).
+- With WiFi on, internal RAM ran out before the flasher task's stack was
+  allocated. `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` is 4 KB on Rev 8 (from
+  16 KB), and the LCD's SPI IO reads its PSRAM frame buffer by DMA directly
+  (`psram_dma_direct`) instead of a 121 KB internal bounce buffer, which also
+  failed. After WiFi and the WebSocket start, 102 KB of internal RAM is free.
+- WPA3: the station sets `sae_pwe_h2e = WPA3_SAE_PWE_BOTH`; zero means
+  "unspecified", which APs that need hash-to-element refuse.
+
+Speed: a GDB `stepi` took about 360 ms and a 256-byte read after a register
+cache flush about 650 ms, over WiFi and over USB alike. Every response came on
+a 10 ms grid: `packet_queue_transport::start_read` slept in 10 ms slices
+(`POLL_MS`, a time, so a 1000 Hz tick did not help) and only then looked for a
+new request. A received request now wakes the reader with a task notification:
+
+| | USB before | USB after | WiFi before | WiFi after |
+|---|---|---|---|---|
+| `stepi` | 363 ms | 59 ms | 390 ms | 169 ms |
+| `x/64wx` after a cache flush | 640 ms | 85 ms | 684 ms | 272 ms |
+
+Two agent changes followed. The GDB server waited up to 1 ms for the device
+before reading each GDB packet, and sent every reply byte as its own TCP
+segment; while the target is halted it now waits on GDB's socket, and replies
+go out a packet at a time. And after each stop GDB reads the same few flash
+bytes around the PC about 35 times; the agent can cache flash until the target
+runs again (on by default over WiFi, off over USB, `--flash-cache`,
+`monitor flash-cache`):
+
+| | USB | USB, flash cache | WiFi, no cache | WiFi, flash cache |
+|---|---|---|---|---|
+| `stepi` | 17 ms | 7.5 ms | 111 ms | 12.5 ms |
+| `x/64wx` after a cache flush | 14.6 ms | 13.8 ms | 186 ms | 181 ms |
+
+`x/64wx` is 64 separate 4-byte RAM reads from GDB, about 2.8 ms each over WiFi;
+IDE memory views read a block in one request. Between sessions the device's WiFi power
+saving puts ping at about 120 ms; it is off during a session.
 
 ## Phase 3: tests on Rev 8 with the STM32WLE5 board
 
@@ -515,7 +656,7 @@ Not done yet:
 
 - **The relay server:** the phase 2 listener on a public server, with `wss`,
   user login, and forwarding to remote agents instead of loopback ones. The
-  remote user runs `--port wss://relay.example/SERIAL`.
+  remote user runs `--port wss://relay.example/DEVICE_ID`.
 - **Security B, and C stage 1:** the pinned CA, relay login, and the software
   identity key with enrollment. Measure the TLS handshake on the device here.
 - Use `modem_manager` as a second network link, WiFi first with cellular as a
@@ -566,6 +707,14 @@ Made:
 - **Pairing code:** none pre-loaded; setup is over USB.
 - **eFuses:** none burned for now; phase 5.
 - **The relay:** standalone.
+- **Device ID:** the WiFi MAC address, 12 hex digits, for now.
+- **Port:** in the server URL set over USB; 80 for `ws` by default, 443 for
+  `wss` later. A listener that cannot open it explains the fix.
+- **Finding the agent:** a named agent, `ws://HOSTNAME.local/`, resolved by
+  mDNS.
+- **Login through `serve` or the desktop listener:** end to end; the listener
+  only forwards.
+- **WebSocket transport:** always built in, no Cargo feature.
 
 Nothing is open. Hosting and user accounts beyond the relay's token file
 are for later.

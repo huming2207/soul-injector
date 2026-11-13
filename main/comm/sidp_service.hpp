@@ -105,6 +105,8 @@ private:
     si_manage_NetConfig net_cfg = si_manage_NetConfig_init_zero; // Settings in use until the next boot
     esp_pm_lock_handle_t net_pm_lock = nullptr; // Held during a session over WiFi
     bool net_started = false;
+    char device_id[13] = {};    // Factory WiFi MAC in hex; names this device to the agent
+    char ws_headers[32] = {};   // "X-SIDP-Device: <device_id>\r\n"
     bool usb_accepted = false;  // USB connected during a network connection; served next
     protocomm_security_handle_t login = nullptr; // Security 2 state of a network connection
     uint32_t login_steps = 0;   // Handshake messages accepted: 2 means logged in

@@ -30,6 +30,7 @@ esp_err_t wifi_manager::init(const char *ssid, const char *password)
     memcpy(wifi_cfg.sta.ssid, ssid, strnlen(ssid, sizeof(wifi_cfg.sta.ssid)));
     memcpy(wifi_cfg.sta.password, password, strnlen(password, sizeof(wifi_cfg.sta.password)));
     wifi_cfg.sta.threshold.authmode = password[0] == '\0' ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA_PSK;
+    wifi_cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH; // Zero is "unspecified": WPA3 APs that need H2E refuse it
 
     ret = esp_wifi_set_mode(WIFI_MODE_STA);
     ret = ret ?: esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);

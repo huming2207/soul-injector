@@ -6,6 +6,7 @@
 #include "esp_flash.h"
 #include "esp_mac.h"
 #include "esp_partition.h"
+#include <esp_heap_caps.h>
 #include "esp_sleep.h"
 #include "esp_vfs_fat.h"
 #include "esp_timer.h"
@@ -81,7 +82,8 @@ esp_err_t bootstrap_fsm::init()
 
     BaseType_t task_ret = xTaskCreatePinnedToCore(fsm_task_handler, "flasher", 8192, this, tskIDLE_PRIORITY + 10, &fsm_task, swd_def::TASK_CORE);
     if (task_ret != pdPASS) {
-        ESP_LOGE(TAG, "Can't create FSM task");
+        ESP_LOGE(TAG, "Can't create FSM task: %u bytes of internal RAM free, largest block %u",
+                 heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         return ESP_FAIL;
     }
 

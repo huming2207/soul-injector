@@ -57,8 +57,8 @@ Rev 8 uses `partitions_rev8.csv` instead:
 - `otadata` and two 4 MB application slots, `ota_0` and `ota_1`, for A/B
   updates. The app starts in `ota_0`.
 - `nvs`: 256 KB settings (the job's trigger, network settings).
-- `log`: 1 MB FAT, mounted at `/log`.
-- `data`: the remaining 6.7 MB, FAT, mounted at `/data`.
+- `log`: 2 MB FAT, mounted at `/log`.
+- `data`: the remaining 5.7 MB, FAT, mounted at `/data`.
 
 Every partition moved, so the first flash of this layout loses the job, images,
 log and settings; `data` and `log` are formatted on the next boot.

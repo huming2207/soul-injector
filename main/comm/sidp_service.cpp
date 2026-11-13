@@ -11,6 +11,7 @@
 #include <power.pb.h>
 #include <pb_encode.h>
 #include <esp_timer.h>
+#include <esp_mac.h>
 #include <sidp_transport_cdc.hpp>
 #include <sidp_transport_websocket.hpp>
 #include <esp_transport_tcp.h>
@@ -93,6 +94,11 @@ esp_err_t sidp_service::init(const char *_serial)
 
 esp_err_t sidp_service::start_network()
 {
+    // The WiFi station MAC: always 6 bytes (the default MAC is 8 on chips with 802.15.4).
+    uint8_t mac[6] = {};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(device_id, sizeof(device_id), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
     auto ret = net_config::read(net_cfg);
     if (ret != ESP_OK) {
         return ret;
@@ -122,8 +128,14 @@ esp_err_t sidp_service::start_network()
         .keep_alive_count = KEEP_ALIVE_COUNT,
     };
     esp_transport_tcp_set_keep_alive(tcp, &keep_alive);
+    // With its own transport the client ignores the URL's path and the headers in
+    // its config, so they go to the transport. The agent knows the device by its ID.
+    const char *host = strstr(net_cfg.server_url, "://");
+    const char *path = host != nullptr ? strchr(host + 3, '/') : nullptr;
+    snprintf(ws_headers, sizeof(ws_headers), "X-SIDP-Device: %s\r\n", device_id);
     esp_transport_ws_config_t ws_layer_cfg = {};
-    ws_layer_cfg.ws_path = "/";
+    ws_layer_cfg.ws_path = path != nullptr ? path : "/";
+    ws_layer_cfg.headers = ws_headers;
     ws_layer_cfg.propagate_control_frames = true; // As the client sets for its own transport
     ret = esp_transport_ws_set_config(ws_layer, &ws_layer_cfg);
     if (ret != ESP_OK) {
@@ -142,7 +154,7 @@ esp_err_t sidp_service::start_network()
     }
 
     net_started = true;
-    ESP_LOGI(TAG, "start_network: server %s", net_cfg.server_url);
+    ESP_LOGI(TAG, "start_network: server %s, device ID %s", net_cfg.server_url, device_id);
     return ESP_OK;
 }
 
@@ -290,6 +302,7 @@ sidp::status_t sidp_service::op_login(std::span<const uint8_t> payload, pb_ostre
 
 void sidp_service::get_net_status(si_manage_NetStatus &status)
 {
+    strlcpy(status.device_id, device_id, sizeof(status.device_id));
     if (!net_started) {
         return;
     }

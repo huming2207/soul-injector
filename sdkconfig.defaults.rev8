@@ -89,3 +89,8 @@ CONFIG_SI_POWER_PROF_RANGE_D_PIN=19
 CONFIG_SI_POWER_PROF_RANGE_CLK_PIN=37
 CONFIG_SI_POWER_PROF_HIGH_RB_PIN=38
 CONFIG_SI_POWER_PROF_MID_RB_PIN=5
+
+# Internal RAM: with WiFi on, the default leaves too little for the flasher
+# task's stack. Small allocations may go to PSRAM (the flash driver copies
+# PSRAM buffers through an internal one).
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096

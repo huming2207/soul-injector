@@ -57,6 +57,9 @@ esp_err_t nfp114h_panel::init()
     io_cfg.spi_mode = 0;
     io_cfg.trans_queue_depth = 10;
     io_cfg.user_ctx = this;
+    // The draw buffer is in PSRAM: DMA reads it directly instead of copying each
+    // frame into an internal bounce buffer, which WiFi leaves no room for.
+    io_cfg.flags.psram_dma_direct = true;
     ret = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_SPI_HOST, &io_cfg, &io_handle);
 
     if (ret != ESP_OK) {

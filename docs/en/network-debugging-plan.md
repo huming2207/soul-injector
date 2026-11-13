@@ -652,6 +652,45 @@ saving puts ping at about 120 ms; it is off during a session.
 - **Settings over the network** are refused.
 - **Speed:** push a firmware image over WiFi.
 
+### Phase 3 results (2026-11-13)
+
+Rev 8, `serve` on port 8080, RAK3172 (STM32WLE5) with the crash firmware.
+
+| Test | Result |
+|---|---|
+| GDB over WiFi: attach, breakpoint, backtrace, step, continue | Works; `stepi` 12.5 ms (USB 7.5 ms), see the speed table above |
+| Several sessions in a row on one connection | 5 in a row, 0.44 s each including the login; `ready`/`closed` each time, no reconnect |
+| Agent killed (SIGKILL) with the target running | GDB reports the closed connection; the device ends the session about 1 s later; the next session attaches and finds the target halted |
+| USB request during a WiFi session | Taken over; the WiFi user is told USB took over |
+| WiFi `open` during a USB session | Refused: "in use over USB" |
+| USB port opened without a request during a WiFi session | No effect; the waiting USB connection is served after the WiFi session ends |
+| Password changed over USB, after a restart | Old password: "wrong password, or the Soul Injector's password was changed"; new one works |
+| Wrong password | Refused; each attempt costs about 1.4 s (1 s penalty); the right password still works in the same session |
+| Recorded login replayed on a new connection | Second message refused (status 31); requests after it unauthorized |
+| Settings over WiFi (`NET_CONFIG_SET`) | Refused by the device; it answers status 3, which reads as "not supported by this firmware" |
+| `serve` down for 10 s, then up | Device back in 2.4 to 2.7 s |
+| Cold boot to connected | 6.6 s |
+| Power data over WiFi, 588/1100/4156 us | Same samples as USB, no frames dropped or damaged; gaps (0 to 2) the same on both links |
+| Power sampler with WiFi off, on, streaming over WiFi | No measurable difference: noise 137 uA (588 us) and 70 uA (1100 us) SD either way, about 1 to 5 % more while streaming over WiFi |
+| Image upload, 256 KB and 1 MB | 13 to 15 KiB/s on WiFi and USB alike: bound by the device's storage writes, not the link |
+
+Found, not fixed:
+
+- Uploads: FATFS on wear levelling uses 512-byte sectors
+  (`CONFIG_WL_SECTOR_SIZE=512`), so every 512 bytes written costs a 4 KB
+  erase. 4096-byte sectors should be much faster but change the format of
+  `data` and `log`.
+- Settings refused over WiFi come back as status 3, whose text is
+  misleading; only a direct library user sees it.
+- A fixed 1 s penalty allows about 2,500 password guesses an hour on one
+  device; a growing penalty would slow guessing of weak passwords further.
+- Opening the debug UART (CH340) resets the ESP32: Linux raises DTR and RTS on
+  open. Keep a serial monitor open, or expect a reset.
+
+Not tested yet: the access point switched off mid-session and the time to
+recover once it is back, and two agents on the LAN (needs a second
+computer).
+
 ## Phase 4: cellular, relay mode (later)
 
 - **The relay server:** the phase 2 listener on a public server, with `wss`,

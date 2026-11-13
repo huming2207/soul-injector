@@ -94,3 +94,8 @@ CONFIG_SI_POWER_PROF_MID_RB_PIN=5
 # task's stack. Small allocations may go to PSRAM (the flash driver copies
 # PSRAM buffers through an internal one).
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+
+# FATFS on wear levelling in 4 KB sectors: with 512-byte sectors every 512
+# bytes written cost a 4 KB erase (uploads ran at about 15 KiB/s). Changes the
+# format of data and log: they are formatted again on the first boot.
+CONFIG_WL_SECTOR_SIZE_4096=y

@@ -745,12 +745,8 @@ sidp::status_t sidp_service::op_net_config_get(pb_ostream_t &out)
 
 sidp::status_t sidp_service::op_net_config_set(std::span<const uint8_t> payload)
 {
-    // Whoever reaches the device over the network must not be able to point it elsewhere.
-    if (active_transport.load() != &sidp::cdc_slip_transport::instance()) {
-        ESP_LOGW(TAG, "op_net_config_set: refused over the network");
-        return sidp::STATUS_UNSUPPORTED;
-    }
-
+    // Accepted over the network too, after the login; a lockdown mode that
+    // refuses it there may come later.
     si_manage_NetConfig cfg = si_manage_NetConfig_init_zero;
     if (!decode(payload, si_manage_NetConfig_fields, &cfg)) {
         return sidp::STATUS_INVALID_ARGUMENT;

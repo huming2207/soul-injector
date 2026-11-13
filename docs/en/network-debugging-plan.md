@@ -168,10 +168,11 @@ have to hold:
 | B | Nobody between device, relay and user can read or alter traffic. | Relay mode |
 | C | The device cannot be replaced or modified without the owner noticing. | Relay mode |
 
-Common to both modes: networking is off until it is set up over USB, and
-**network settings and the password can be changed over USB only.** Otherwise
-anyone who reaches the device over the network could point it at another
-server.
+Common to both modes: networking is off until it is set up over USB. After
+that, **network settings and the password can also be changed over the
+network, after the login** (decided 2026-11-13, for convenience). Anyone who
+knows the password can then point the device at another server. A lockdown
+mode that limits this to USB is future work.
 
 ### A. The device password (both modes)
 
@@ -335,7 +336,8 @@ Firmware:
 
 - Network settings in NVS, namespace `si.cfg`: enabled, SSID, WiFi password,
   server URL. New management opcodes `NET_CONFIG_GET` (0x0140),
-  `NET_CONFIG_SET` (0x0141, refused unless the request came over USB) and
+  `NET_CONFIG_SET` (0x0141, refused unless the request came over USB; now
+  allowed over the network too, see Security) and
   `NET_STATUS` (0x0142). Settings are used from the next boot.
 - `sidp_service` serves USB or the WebSocket, whichever connects first, with
   one WebSocket connection per SIDP connection. After each connection, and
@@ -372,7 +374,7 @@ Still to measure on Rev 8: phase 0 items 1 to 3 above.
 2. **One link in use at a time, USB first,** as described under "USB has
    priority". The service has to read both links to do this.
 3. **Network settings in NVS, with new management opcodes (0x0140 and up):**
-   - set/get, refused unless the request came over USB: WiFi SSID, WiFi
+   - set/get (set was USB only at first, now also over the network): WiFi SSID, WiFi
      password (write-only), device password data (write-only), server URL
      or "find on the LAN", enabled;
    - status: WiFi state, IP address, RSSI, server connection and last error.
@@ -649,7 +651,8 @@ saving puts ping at about 120 ms; it is off during a session.
   has its password.
 - **Reconnect:** after the access point comes back, time until the device is
   usable again.
-- **Settings over the network** are refused.
+- **Settings over the network** are accepted after the login (USB only
+  until 2026-11-13).
 - **Speed:** push a firmware image over WiFi.
 
 ### Phase 3 results (2026-11-13)
@@ -667,25 +670,25 @@ Rev 8, `serve` on port 8080, RAK3172 (STM32WLE5) with the crash firmware.
 | Password changed over USB, after a restart | Old password: "wrong password, or the Soul Injector's password was changed"; new one works |
 | Wrong password | Refused; each attempt costs about 1.4 s (1 s penalty); the right password still works in the same session |
 | Recorded login replayed on a new connection | Second message refused (status 31); requests after it unauthorized |
-| Settings over WiFi (`NET_CONFIG_SET`) | Refused by the device; it answers status 3, which reads as "not supported by this firmware" |
+| Settings over WiFi (`NET_CONFIG_SET`) | Refused at first (status 3, misleading text); now accepted after the login: `network show` and `network set` work through `serve` |
 | `serve` down for 10 s, then up | Device back in 2.4 to 2.7 s |
 | Cold boot to connected | 6.6 s |
 | Power data over WiFi, 588/1100/4156 us | Same samples as USB, no frames dropped or damaged; gaps (0 to 2) the same on both links |
 | Power sampler with WiFi off, on, streaming over WiFi | No measurable difference: noise 137 uA (588 us) and 70 uA (1100 us) SD either way, about 1 to 5 % more while streaming over WiFi |
-| Image upload, 256 KB and 1 MB | 13 to 15 KiB/s on WiFi and USB alike: bound by the device's storage writes, not the link |
+| Image upload, 256 KB and 1 MB | 13 to 15 KiB/s on WiFi and USB alike, bound by storage writes; with 4 KB wear-levelling sectors 80 to 87 KiB/s on USB, 68 to 81 KiB/s on WiFi |
 
-Found, not fixed:
+Found, and what was decided:
 
-- Uploads: FATFS on wear levelling uses 512-byte sectors
-  (`CONFIG_WL_SECTOR_SIZE=512`), so every 512 bytes written costs a 4 KB
-  erase. 4096-byte sectors should be much faster but change the format of
-  `data` and `log`.
-- Settings refused over WiFi come back as status 3, whose text is
-  misleading; only a direct library user sees it.
+- Uploads: FATFS on wear levelling used 512-byte sectors, so every 512 bytes
+  written cost a 4 KB erase. Rev 8 now uses 4096-byte sectors
+  (`CONFIG_WL_SECTOR_SIZE_4096`); `data` and `log` are formatted again on
+  the first boot with it.
+- Settings over WiFi were refused with status 3, whose text was misleading.
+  They are now accepted after the login; a lockdown mode is future work.
 - A fixed 1 s penalty allows about 2,500 password guesses an hour on one
-  device; a growing penalty would slow guessing of weak passwords further.
+  device. Enough for now.
 - Opening the debug UART (CH340) resets the ESP32: Linux raises DTR and RTS on
-  open. Keep a serial monitor open, or expect a reset.
+  open. Expected; not worked around.
 
 Not tested yet: the access point switched off mid-session and the time to
 recover once it is back, and two agents on the LAN (needs a second
@@ -744,6 +747,12 @@ Made:
 - **Relay mode security:** `wss`, end-to-end password login, and a device
   identity key, in software for now.
 - **Pairing code:** none pre-loaded; setup is over USB.
+- **Settings over the network:** allowed after the login; a lockdown mode
+  that limits them to USB is future work.
+- **Password guessing:** the fixed 1 s penalty per wrong password is enough
+  for now.
+- **Debug UART:** opening it resets the ESP32 (Linux raises DTR and RTS);
+  expected, not worked around.
 - **eFuses:** none burned for now; phase 5.
 - **The relay:** standalone.
 - **Device ID:** the WiFi MAC address, 12 hex digits, for now.

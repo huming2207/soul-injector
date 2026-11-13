@@ -171,7 +171,16 @@ esp_err_t asset_store::begin(const char *new_name, uint32_t new_size, const uint
     if (psa_hash_setup(&hash, PSA_ALG_SHA_256) != PSA_SUCCESS) {
         return ESP_FAIL;
     }
-    fp = fopen(part_path, "wb");
+    // The size is known: allocate the file in one contiguous run up front, so the
+    // FAT and the directory entry are not rewritten each time it grows. A
+    // fragmented volume may have no run that long; the file then grows as written.
+    unlink(part_path);
+    if (esp_vfs_fat_create_contiguous_file(BASE_PATH, part_path, new_size, true) == ESP_OK) {
+        fp = fopen(part_path, "r+b"); // "wb" would truncate it again
+    } else {
+        ESP_LOGW(TAG, "begin: no contiguous space for %s, growing it instead", new_name);
+        fp = fopen(part_path, "wb");
+    }
     if (fp == nullptr) {
         ESP_LOGE(TAG, "begin: cannot create %s", part_path);
         psa_hash_abort(&hash);

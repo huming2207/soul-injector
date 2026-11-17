@@ -694,6 +694,46 @@ Not tested yet: the access point switched off mid-session and the time to
 recover once it is back, and two agents on the LAN (needs a second
 computer).
 
+### Code review (2026-11-17)
+
+Fixed, built and unit-tested; **not yet run on Rev 8** (the board was not
+connected):
+
+- **Login without the password.** The device counted any two accepted
+  `LOGIN` messages as a login. ESP-IDF's Security 2 handler accepts command 0
+  a second time by restarting the handshake (shown with its own `security2.c`
+  built for the host), so sending command 0 twice logged in without the
+  password. Now only an accepted command 1, which checks the client's proof,
+  logs in, and any other `LOGIN` message logs out. sidp_agent's
+  `tests/network.rs` runs this attack against a device through `serve`.
+- **USB could not take over** after software opened and closed the USB port
+  during a network session (ModemManager probing it, say): the device kept
+  waiting on that closed USB connection and never accepted the next one. A
+  closed one is now dropped, and the next is accepted.
+- **The next user got the previous user's `closed`.** When a user vanished
+  mid-session, the listener sent `close` and let the next user in at once. Its
+  `open` reached the device during cleanup and was lost, and the device's
+  `closed` reached the new user as the answer ("unexpected answer to open").
+  The listener now refuses a new user (HTTP 503) until the device answers
+  `closed`, and `WebSocket::connect` waits up to 10 s for it, as the
+  "`closed` proves cleanup" rule above intended.
+
+Known and left as they are:
+
+- **Any computer on the LAN can claim a device's ID** at the listener: the
+  `X-SIDP-Device` header proves nothing, and the claim replaces, and so
+  disconnects, the real device. The login still fails against the impostor
+  (it cannot answer with the device's proof, and the agent says the device
+  "may not be yours"), so this stops work but does not take a device over.
+  The identity key (Security C) would close it. The listener also puts no
+  limit on connections, one thread each.
+- Password prompts show what is typed, and `--password` is visible to other
+  users of the computer in the process list; `SIDP_PASSWORD` or the prompt
+  avoid the latter.
+- `wifi_manager` retries joining at once, without a pause, while the access
+  point is gone. Its effect on power measurements during that time is not
+  measured.
+
 ## Phase 4: cellular, relay mode (later)
 
 - **The relay server:** the phase 2 listener on a public server, with `wss`,

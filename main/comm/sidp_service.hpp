@@ -109,8 +109,7 @@ private:
     char ws_headers[32] = {};   // "X-SIDP-Device: <device_id>\r\n"
     bool usb_accepted = false;  // USB connected during a network connection; served next
     protocomm_security_handle_t login = nullptr; // Security 2 state of a network connection
-    uint32_t login_steps = 0;   // Handshake messages accepted: 2 means logged in
-    bool logged_in = false;
+    bool logged_in = false;     // Command 1 of the handshake accepted: the proof was right
     int64_t next_connect_us = 0;
     uint32_t retry_ms = 0;
 

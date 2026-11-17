@@ -79,6 +79,7 @@ idf_component_register(
         "efuse"
         "nvs_flash"
         "protocomm"
+        "protobuf-c"
         "driver"
         "esp_timer"
         "lvgl"

@@ -17,6 +17,7 @@
 #include <esp_transport_tcp.h>
 #include <esp_transport_ws.h>
 #include <protocomm_security2.h>
+#include <session.pb-c.h>
 
 #include <atomic>
 
@@ -221,6 +222,10 @@ bool sidp_service::other_link_wins(sidp::transport_intf &serving)
 
     // USB takes over on its first request, not on DTR alone: software that only
     // opens the port, such as ModemManager probing it, must not end the session.
+    // A port opened and closed again leaves a dead link; accept the next one.
+    if (usb_accepted && usb.needs_disconnect()) {
+        usb_accepted = false;
+    }
     if (!usb_accepted && usb.begin_session() == ESP_OK) {
         usb_accepted = true;
     }
@@ -243,9 +248,20 @@ void sidp_service::set_network_busy(bool busy)
     }
 }
 
+// The Security 2 message type of a LOGIN payload, or -1 when it is not one.
+static int login_message_type(std::span<const uint8_t> payload)
+{
+    SessionData *request = session_data__unpack(nullptr, payload.size(), payload.data());
+    if (request == nullptr) {
+        return -1;
+    }
+    const int type = request->proto_case == SESSION_DATA__PROTO_SEC2 && request->sec2 != nullptr ? request->sec2->msg : -1;
+    session_data__free_unpacked(request, nullptr);
+    return type;
+}
+
 void sidp_service::start_login(bool network)
 {
-    login_steps = 0;
     logged_in = !network; // USB is trusted
     if (network && protocomm_security2.init(&login) == ESP_OK) {
         protocomm_security2.new_transport_session(login, LOGIN_SESSION_ID);
@@ -274,6 +290,10 @@ sidp::status_t sidp_service::op_login(std::span<const uint8_t> payload, pb_ostre
         .verifier = reinterpret_cast<const char *>(net_cfg.password_verifier.bytes),
         .verifier_len = static_cast<uint16_t>(net_cfg.password_verifier.size),
     };
+    // Any login message starts a new login, as it does in the handler, which
+    // restarts the handshake when command 0 comes again.
+    logged_in = false;
+    const int type = login_message_type(payload);
     uint8_t *reply = nullptr;
     ssize_t reply_len = 0;
     auto ret = protocomm_security2.security_req_handler(login, &params, LOGIN_SESSION_ID, payload.data(), (ssize_t)payload.size(), &reply, &reply_len, nullptr);
@@ -282,7 +302,6 @@ sidp::status_t sidp_service::op_login(std::span<const uint8_t> payload, pb_ostre
         ESP_LOGW(TAG, "op_login: login failed");
         protocomm_security2.close_transport_session(login, LOGIN_SESSION_ID);
         protocomm_security2.new_transport_session(login, LOGIN_SESSION_ID);
-        login_steps = 0;
         vTaskDelay(pdMS_TO_TICKS(LOGIN_FAIL_DELAY_MS));
         return sidp::STATUS_UNAUTHORIZED;
     }
@@ -292,8 +311,10 @@ sidp::status_t sidp_service::op_login(std::span<const uint8_t> payload, pb_ostre
     if (!written) {
         return sidp::STATUS_ERROR;
     }
-    // The handler takes command 0, then command 1, which checks the proof.
-    logged_in = ++login_steps == 2;
+    // Only command 1 checks the client's proof, and the handler accepts it only
+    // after command 0 of the same handshake. Counting accepted messages instead
+    // would let command 0 sent twice log in without the password.
+    logged_in = type == SEC2_MSG_TYPE__S2Session_Command1;
     if (logged_in) {
         ESP_LOGI(TAG, "op_login: logged in");
     }
@@ -373,6 +394,9 @@ void sidp_service::task_handler(void *ctx)
     while (true) {
         // Accepts only a new connection: DTR asserted again, or "open" from the server.
         // USB may already be accepted, when it took over from the network.
+        if (svc->usb_accepted && usb.needs_disconnect()) {
+            svc->usb_accepted = false; // Closed again before it was served
+        }
         if (svc->usb_accepted || usb.begin_session() == ESP_OK) {
             svc->usb_accepted = false;
             ESP_LOGI(TAG, "USB connection accepted");

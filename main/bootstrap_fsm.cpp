@@ -300,7 +300,13 @@ void bootstrap_fsm::io_isr_handler(void *_ctx)
     }
 
     BaseType_t higher_priority_waken = pdFALSE;
-    xTimerStartFromISR(ctx->io_debounce_timer, &higher_priority_waken);
+    if (xTimerStartFromISR(ctx->io_debounce_timer, &higher_priority_waken) != pdPASS) {
+        // Timer queue full: re-enable interrupts so detection cannot stay permanently masked.
+        gpio_intr_enable(DET_IO_PIN);
+        if (PLUG_DET_PIN != GPIO_NUM_NC) {
+            gpio_intr_enable(PLUG_DET_PIN);
+        }
+    }
     if (higher_priority_waken == pdTRUE) {
         portYIELD_FROM_ISR();
     }

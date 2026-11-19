@@ -245,20 +245,45 @@ esp_err_t swd_prog::init(uint32_t _stack_size)
      * stack (double-buffered programming uses up to two pages). With a
      * 4-byte header word below code_start, aligned up to 8.
      */
+    if (!fa_cfg.data_section_offset.has_value()) {
+        ESP_LOGE(TAG, "data_section_offset not configured");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (!fa_cfg.page_size.has_value()) {
+        ESP_LOGE(TAG, "page_size not configured");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    /*
+     * Target RAM layout from load_address:
+     *   [code_start - 4 .. code_start)         : 4-byte halt header
+     *   [code_start     .. code_end)           : algorithm binary (8-byte aligned)
+     *   [code_end       .. stack_bottom)       : 2x page_size slack for .data/.bss
+     *   [stack_bottom   .. stack_top)          : algorithm stack (grows downward)
+     *   [stack_top      .. stack_top + N*page) : 1 page (simple) or 2 pages (double-buffered)
+     */
     stack_size = _stack_size;
-    const uint32_t page = fa_cfg.page_size.value_or(0);
-    const uint32_t needed_past_code = (page > 0 ? page * 2 : 0) + stack_size + 8 /*alignment slack*/;
+    const uint32_t page = fa_cfg.page_size.value();
     const uint32_t code_start_in_region = fa_cfg.load_address;
-    if (needed_past_code > 0 && !ram->contains_range(code_start_in_region, fa_cfg.algo_bin_len + needed_past_code)) {
+    const uint32_t planned_code_end = next_multiple_of(code_start_in_region + fa_cfg.algo_bin_len, 8);
+    // TODO: stack_bottom still may not be correct, it probably should consider the SelfTestInfo section, not just simply add two flash pages.
+    const uint32_t planned_stack_bottom = next_multiple_of(planned_code_end + page * 2, 8);
+    const uint32_t planned_stack_top = planned_stack_bottom + stack_size;
+    const uint32_t min_end = planned_stack_top + page;
+    if (min_end < code_start_in_region || !ram->contains_range(code_start_in_region, min_end - code_start_in_region)) {
         ESP_LOGE(
-            TAG, "Algorithm RAM region 0x%08lx-0x%08lx too small: algo %zu bytes + stack %lu + 2x page %lu do not fit", ram->start, ram->end,
-            fa_cfg.algo_bin_len, stack_size, page
+            TAG, "Algorithm RAM region 0x%08lx-0x%08lx too small: need 0x%08lx-0x%08lx (algo %zu + stack %lu + pages %lu)", ram->start, ram->end,
+            code_start_in_region, min_end, fa_cfg.algo_bin_len, stack_size, page
         );
         return ESP_ERR_NO_MEM;
     }
 
     ram_start_addr = ram->start;
     ram_size = ram->size();
+    stack_bottom = planned_stack_bottom;
+    stack_top = planned_stack_top;
+    stack_canary = esp_random();
 
     ESP_LOGI(TAG, "Algorithm RAM region 0x%08lx-0x%08lx (selected by containment, %zu regions in map)", ram->start, ram->end, cfg.ram_region_count);
     ESP_LOGI(TAG, "Init target");
@@ -290,24 +315,6 @@ esp_err_t swd_prog::init(uint32_t _stack_size)
     }
 
     const si::config::flash_algorithm &fa = algo();
-
-    if (!fa.data_section_offset.has_value()) {
-        ESP_LOGE(TAG, "data_section_offset not configured");
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    if (!fa.page_size.has_value()) {
-        ESP_LOGE(TAG, "page_size not configured");
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    // TODO: stack_bottom still may not be correct, it probably should consider the SelfTestInfo section, not just simply add two flash pages.
-    stack_bottom = next_multiple_of(
-        (code_end + fa.page_size.value() * 2),
-        8
-    ); // We only consider the RAM is enough to fit contiguous stuff of .text, .bss and .data for now.
-    stack_top = stack_bottom + stack_size;
-    stack_canary = esp_random();
 
     ESP_LOGI(TAG, "Stack: size=%lu top=0x%08lx, bottom=0x%08lx, canary=0x%08lx", stack_size, stack_top, stack_bottom, stack_canary);
 
@@ -547,18 +554,18 @@ esp_err_t swd_prog::program_page(const uint8_t *buf, size_t len, uint32_t start_
     for (uint32_t page_idx = 0; page_idx < (len / fa.page_size.value()); page_idx += 1) {
         uint32_t write_size = std::min(fa.page_size.value(), remain_len);
         ESP_LOGD(TAG, "program_page: write size: %lu", write_size);
-        swd_ret = swd_write_memory(stack_top + stack_size, (uint8_t *)(buf + (page_idx * fa.page_size.value())), write_size);
+        swd_ret = swd_write_memory(stack_top, (uint8_t *)(buf + (page_idx * fa.page_size.value())), write_size);
         if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when writing RAM cache");
             state = swd_def::UNKNOWN;
             return ESP_ERR_INVALID_STATE;
         }
 
-        ESP_LOGD(TAG, "Writing page 0x%lx, size %lu", 0x08000000 + (page_idx * fa.page_size.value()), write_size);
+        ESP_LOGD(TAG, "Writing page 0x%lx, size %lu", addr_offset + (page_idx * fa.page_size.value()), write_size);
         swd_ret = swd_flash_syscall_exec(
             &syscall, fa.pc_program_page.value(),            // ErasePage PC = 305
             addr_offset + (page_idx * fa.page_size.value()), // r0 = flash base addr
-            write_size, stack_top + stack_size, 0,           // r1 = len, r2 = buf addr
+            write_size, stack_top, 0,                        // r1 = len, r2 = buf addr
             FLASHALGO_RETURN_BOOL, nullptr
         );
 
@@ -643,7 +650,7 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
     );
 
     esp_err_t ret = ESP_OK;
-    uint32_t max_possible_buffer_addr = (stack_top + stack_size + fa.page_size.value() * 2);
+    uint32_t max_possible_buffer_addr = stack_top + fa.page_size.value() * 2;
     int64_t ts = esp_timer_get_time();
     if (ram_start_addr + ram_size >= max_possible_buffer_addr) {
         ret = perform_double_buffered_program(file, len, fa.page_size.value(), fa.pc_program_page.value(), addr_offset);
@@ -748,8 +755,12 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
     uint32_t remain_len = len;
     esp_err_t swd_ret = ESP_OK;
     uint8_t curr_buf = 0;
-    uint32_t curr_buf_addr = stack_top + stack_size;
+    uint32_t curr_buf_addr = stack_top;
     auto *buf = (uint8_t *)heap_caps_malloc(page_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if (buf == nullptr) {
+        ESP_LOGE(TAG, "perform_double_buffered_program: out of memory for %lu-byte page buffer", page_size);
+        return ESP_ERR_NO_MEM;
+    }
     memset(buf, 0, page_size);
 
     for (uint32_t page_idx = 0; page_idx < ((len / page_size) + ((len % page_size != 0) ? 1 : 0)); page_idx += 1) {
@@ -761,7 +772,7 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
             write_size = read_len;
         }
 
-        curr_buf_addr = curr_buf == 0 ? (stack_top + stack_size) : (stack_top + stack_size + page_size);
+        curr_buf_addr = curr_buf == 0 ? stack_top : (stack_top + page_size);
         swd_ret = swd_write_memory(curr_buf_addr, (uint8_t *)buf, write_size);
         if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when writing RAM cache");
@@ -820,8 +831,12 @@ esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t pa
 {
     uint32_t remain_len = len;
     esp_err_t swd_ret = ESP_OK;
-    uint32_t curr_buf_addr = stack_top + stack_size;
+    uint32_t curr_buf_addr = stack_top;
     auto *buf = (uint8_t *)heap_caps_malloc(page_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if (buf == nullptr) {
+        ESP_LOGE(TAG, "perform_simple_program: out of memory for %lu-byte page buffer", page_size);
+        return ESP_ERR_NO_MEM;
+    }
     memset(buf, 0, page_size);
 
     for (uint32_t page_idx = 0; page_idx < ((len / page_size) + ((len % page_size != 0) ? 1 : 0)); page_idx += 1) {
@@ -833,7 +848,7 @@ esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t pa
             write_size = read_len;
         }
 
-        curr_buf_addr = stack_top + stack_size;
+        curr_buf_addr = stack_top;
         swd_ret = swd_write_memory(curr_buf_addr, (uint8_t *)buf, write_size);
         if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed when writing RAM cache");

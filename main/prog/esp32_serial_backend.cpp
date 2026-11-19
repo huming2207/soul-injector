@@ -703,8 +703,11 @@ esp_err_t esp32_serial_backend::release_transport()
 esp_err_t esp32_serial_backend::reset_target()
 {
     if (connected) {
-        // Also clears the library's stub/SPI state before pulsing reset.
+        // Resetting boots the application firmware out of stub download mode,
+        // so tear down the loader and mark the session disconnected.
         esp_loader_reset_target(&loader);
+        esp_loader_deinit(&loader);
+        connected = false;
         return ESP_OK;
     }
 

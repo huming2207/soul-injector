@@ -153,7 +153,9 @@ void offline_flasher::on_self_test()
                  * not be silently skipped.
                  */
                 ESP_LOGW(TAG, "Self test not supported on this target, skipping remaining tests");
-                backend->reset_target();
+                if (cfg.family != si::config::target_family::esp32_serial) {
+                    backend->reset_target();
+                }
                 state = flasher::POST_PROGRAM;
                 return;
             } else if (ret != ESP_OK) {
@@ -181,7 +183,11 @@ void offline_flasher::on_self_test()
         }
     }
 
-    backend->reset_target();
+    // Keep ESP32 targets in download mode until release_transport() after POST_PROGRAM,
+    // so post_prog register operations can still talk to the flasher stub.
+    if (cfg.family != si::config::target_family::esp32_serial) {
+        backend->reset_target();
+    }
     state = flasher::POST_PROGRAM;
 }
 

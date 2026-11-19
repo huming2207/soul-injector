@@ -173,7 +173,8 @@ private:
     int64_t end_us = 0; // 0: no duration
 
     // Sampler state
-    volatile int64_t alert_us = 0;
+    portMUX_TYPE alert_lock = portMUX_INITIALIZER_UNLOCKED;
+    int64_t alert_us = 0;
     sidp::power_range_t active = sidp::POWER_RANGE_HIGH;
     int64_t settle_until_us = 0;
     int64_t holdoff_until_us = 0;

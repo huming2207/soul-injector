@@ -182,7 +182,10 @@ void power_profiler::sampler_task(void *ctx)
 void IRAM_ATTR power_profiler::alert_isr(void *ctx)
 {
     auto *self = static_cast<power_profiler *>(ctx);
-    self->alert_us = esp_timer_get_time();
+    const int64_t ts = esp_timer_get_time();
+    portENTER_CRITICAL_ISR(&self->alert_lock);
+    self->alert_us = ts;
+    portEXIT_CRITICAL_ISR(&self->alert_lock);
     BaseType_t woken = pdFALSE;
     xTaskNotifyFromISR(self->sampler, NOTIFY_ALERT, eSetBits, &woken);
     portYIELD_FROM_ISR(woken);
@@ -302,8 +305,11 @@ si_power_StopReason power_profiler::measure()
         }
 
         if ((bits & NOTIFY_ALERT) != 0) {
+            portENTER_CRITICAL(&alert_lock);
+            const int64_t ts = alert_us;
+            portEXIT_CRITICAL(&alert_lock);
             si_power_StopReason reason = si_power_StopReason_STOP_REASON_UNKNOWN;
-            if (!sample(alert_us, &reason)) {
+            if (!sample(ts, &reason)) {
                 return reason;
             }
             last_alert_us = now;

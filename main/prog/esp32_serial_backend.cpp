@@ -11,6 +11,10 @@
 
 #include "fw_asset_manager.hpp"
 
+#if defined(CONFIG_ESP_SWD_PHY_AXC2T245)
+extern "C" esp_err_t swd_esp_port_init(void);
+#endif
+
 namespace
 {
     const si::config::target_config &esp32_control_cfg()
@@ -162,6 +166,16 @@ esp_err_t esp32_serial_backend::prepare_control_pins()
     const gpio_num_t reset_pin = (gpio_num_t)CONFIG_ESP_SWD_NRST_PIN;
     const int reset_deasserted = cfg.reset_assert_level == si::config::assert_level::high ? 0 : 1;
 
+#if CONFIG_ESP_SWD_BOOT_PIN >= 0 && defined(CONFIG_ESP_SWD_PHY_AXC2T245)
+    // Ensure the SWD port (SWCLK idle low, SWCLK_nOE output, SPI2/PARLIO routing)
+    // is initialized once without resetting SWCLK away from its peripheral.
+    esp_err_t init_ret = swd_esp_port_init();
+    if (init_ret != ESP_OK) {
+        ESP_LOGE(TAG, "session: cannot init SWD port for BOOT translator: %s", esp_err_to_name(init_ret));
+        return init_ret;
+    }
+#endif
+
     esp_err_t ret = gpio_reset_pin(reset_pin);
     ret = ret ?: gpio_set_pull_mode(reset_pin, GPIO_PULLUP_ONLY);
     ret = ret ?: gpio_set_level(reset_pin, reset_deasserted);
@@ -185,17 +199,9 @@ esp_err_t esp32_serial_backend::prepare_control_pins()
 
 #if defined(CONFIG_ESP_SWD_PHY_AXC2T245)
     // HOST_SWBOOT shares the SWCLK translator's active-low /OE (SWCLK_nOE).
-    // Park SWCLK low before enabling the translator so BOOT actually reaches the target.
-    const gpio_num_t clk_pin = (gpio_num_t)CONFIG_ESP_SWD_CLK_PIN;
-    const gpio_num_t clk_noe_pin = (gpio_num_t)CONFIG_ESP_SWD_CLK_NOE_PIN;
-    ret = gpio_reset_pin(clk_pin);
-    ret = ret ?: gpio_set_level(clk_pin, 0);
-    ret = ret ?: gpio_set_direction(clk_pin, GPIO_MODE_OUTPUT);
-    ret = ret ?: gpio_reset_pin(clk_noe_pin);
-    ret = ret ?: gpio_set_level(clk_noe_pin, 0);
-    ret = ret ?: gpio_set_direction(clk_noe_pin, GPIO_MODE_OUTPUT);
+    ret = gpio_set_level((gpio_num_t)CONFIG_ESP_SWD_CLK_NOE_PIN, 0);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "session: cannot enable BOOT translator (SWCLK_nOE GPIO %d): %s", (int)clk_noe_pin, esp_err_to_name(ret));
+        ESP_LOGE(TAG, "session: cannot enable BOOT translator (SWCLK_nOE GPIO %d): %s", CONFIG_ESP_SWD_CLK_NOE_PIN, esp_err_to_name(ret));
         return ret;
     }
 #endif

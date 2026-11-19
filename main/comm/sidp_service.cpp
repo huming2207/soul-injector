@@ -748,8 +748,12 @@ sidp::status_t sidp_service::op_power_start(std::span<const uint8_t> payload, pb
 
 sidp::status_t sidp_service::op_power_stop(pb_ostream_t &out)
 {
+    auto *profiler = power_profiler::instance();
+    if (!profiler->available()) {
+        return sidp::STATUS_UNSUPPORTED;
+    }
     si_power_StopResponse response = si_power_StopResponse_init_zero;
-    power_profiler::instance()->stop(response);
+    profiler->stop(response);
     return encode(out, si_power_StopResponse_fields, &response);
 }
 

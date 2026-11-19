@@ -182,6 +182,23 @@ esp_err_t esp32_serial_backend::prepare_control_pins()
         ESP_LOGE(TAG, "session: cannot configure target boot GPIO %d: %s", (int)boot_pin, esp_err_to_name(ret));
         return ret;
     }
+
+#if defined(CONFIG_ESP_SWD_PHY_AXC2T245)
+    // HOST_SWBOOT shares the SWCLK translator's active-low /OE (SWCLK_nOE).
+    // Park SWCLK low before enabling the translator so BOOT actually reaches the target.
+    const gpio_num_t clk_pin = (gpio_num_t)CONFIG_ESP_SWD_CLK_PIN;
+    const gpio_num_t clk_noe_pin = (gpio_num_t)CONFIG_ESP_SWD_CLK_NOE_PIN;
+    ret = gpio_reset_pin(clk_pin);
+    ret = ret ?: gpio_set_level(clk_pin, 0);
+    ret = ret ?: gpio_set_direction(clk_pin, GPIO_MODE_OUTPUT);
+    ret = ret ?: gpio_reset_pin(clk_noe_pin);
+    ret = ret ?: gpio_set_level(clk_noe_pin, 0);
+    ret = ret ?: gpio_set_direction(clk_noe_pin, GPIO_MODE_OUTPUT);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "session: cannot enable BOOT translator (SWCLK_nOE GPIO %d): %s", (int)clk_noe_pin, esp_err_to_name(ret));
+        return ret;
+    }
+#endif
 #endif
 
     return ESP_OK;
@@ -676,6 +693,9 @@ esp_err_t esp32_serial_backend::release_transport()
         esp_loader_deinit(&loader);
         connected = false;
     }
+#if CONFIG_ESP_SWD_BOOT_PIN >= 0 && defined(CONFIG_ESP_SWD_PHY_AXC2T245)
+    gpio_set_level((gpio_num_t)CONFIG_ESP_SWD_CLK_NOE_PIN, 1);
+#endif
     flash_limit = 0;
     return ESP_OK;
 }

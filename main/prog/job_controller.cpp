@@ -63,7 +63,7 @@ esp_err_t job_controller::set_job(const uint8_t *sha256, si_manage_Trigger new_t
 
     lock();
     esp_err_t ret = ERR_RUNNING;
-    if (!running) {
+    if (!running && !debugging) {
         ret = fw_asset_manager::instance()->activate_staged(sha256);
         ret = ret ?: save_trigger(new_trigger);
     }
@@ -77,7 +77,7 @@ esp_err_t job_controller::set_job(const uint8_t *sha256, si_manage_Trigger new_t
 esp_err_t job_controller::commit_asset()
 {
     lock();
-    esp_err_t ret = running ? ERR_RUNNING : asset_store::instance()->commit();
+    esp_err_t ret = (running || debugging) ? ERR_RUNNING : asset_store::instance()->commit();
     unlock();
     return ret;
 }

@@ -114,17 +114,25 @@ esp_err_t bootstrap_fsm::setup_pm_locks()
 esp_err_t bootstrap_fsm::setup_io_pins()
 {
     ESP_LOGI(TAG, "Setting up detection pins");
-    gpio_config_t io_cfg = {};
-    io_cfg.pin_bit_mask = BIT64(DET_IO_PIN);
-    if (PLUG_DET_PIN != GPIO_NUM_NC) {
-        io_cfg.pin_bit_mask |= BIT64(PLUG_DET_PIN);
-    }
-    io_cfg.mode = GPIO_MODE_INPUT;
-    io_cfg.pull_up_en = GPIO_PULLUP_DISABLE;
-    io_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    io_cfg.intr_type = GPIO_INTR_DISABLE;
+    // DET_IO_PIN is active-low with no external pull-up on Rev 7.1 / Rev 8.
+    gpio_config_t det_cfg = {};
+    det_cfg.pin_bit_mask = BIT64(DET_IO_PIN);
+    det_cfg.mode = GPIO_MODE_INPUT;
+    det_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    det_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    det_cfg.intr_type = GPIO_INTR_DISABLE;
 
-    esp_err_t ret = gpio_config(&io_cfg);
+    esp_err_t ret = gpio_config(&det_cfg);
+    if (PLUG_DET_PIN != GPIO_NUM_NC) {
+        // PLUG_DET_PIN has its own external pull-up resistor network.
+        gpio_config_t plug_cfg = {};
+        plug_cfg.pin_bit_mask = BIT64(PLUG_DET_PIN);
+        plug_cfg.mode = GPIO_MODE_INPUT;
+        plug_cfg.pull_up_en = GPIO_PULLUP_DISABLE;
+        plug_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        plug_cfg.intr_type = GPIO_INTR_DISABLE;
+        ret = ret ?: gpio_config(&plug_cfg);
+    }
     gpio_install_isr_service(0);
     ret = ret ?: gpio_isr_handler_add(DET_IO_PIN, io_isr_handler, this);
     if (PLUG_DET_PIN != GPIO_NUM_NC) {

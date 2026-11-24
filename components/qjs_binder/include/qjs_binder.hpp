@@ -58,11 +58,17 @@ namespace qjs_binder
         {
             return ESP_ERR_NOT_SUPPORTED;
         }
+
+        virtual esp_err_t resume() { return ESP_ERR_NOT_SUPPORTED; }
+        virtual esp_err_t read_reg(uint32_t id, uint32_t *val) { return ESP_ERR_NOT_SUPPORTED; } // id: DCRSR REGSEL
+        virtual esp_err_t write_reg(uint32_t id, uint32_t val) { return ESP_ERR_NOT_SUPPORTED; }
     };
 
     enum class hook : uint8_t {
         pre_program = 0,    // export async function preProgram(ctx)
         post_program = 1,   // export async function postProgram(ctx)
+        test = 2,           // export async function test(ctx), replaces the job's self tests
+        on_fail = 3,        // export async function onFail(ctx, stage, err), run with run_on_fail()
     };
 
     struct run_info {
@@ -86,6 +92,9 @@ namespace qjs_binder
         bool has_hook(hook h) const;
 
         esp_err_t run_hook(hook h, js_target &target, uint32_t timeout_ms, cancel_fn cancelled);
+
+        esp_err_t run_on_fail(const char *stage, const char *reason, js_target &target, uint32_t timeout_ms,
+                              cancel_fn cancelled); // keeps last_error(); reason nullptr: the script's error
 
         void end_run();
 

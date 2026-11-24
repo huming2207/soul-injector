@@ -29,11 +29,15 @@ namespace qjs_binder::priv
         OP_FLASH_READ,  // xfer
         OP_FLASH_WRITE, // xfer
         OP_FLASH_ERASE,
+        OP_RESUME,
+        OP_READ_REG,
+        OP_WRITE_REG,
         OP_DONE, // load/hook settled
     };
 
     static constexpr uint8_t SYNC = 0xff;
     static constexpr int MAX_ASYNC = 4;
+    static constexpr int HOOKS = 4;
 
     struct req {
         uint8_t op;
@@ -105,7 +109,10 @@ namespace qjs_binder::priv
         const char *prog_last_stage; // owner
         int64_t prog_last_us;        // owner
 
-        bool hooks[2];
+        bool hooks[HOOKS];
+        std::atomic<bool> alive;     // the loop takes hooks
+        char fail_stage[16];         // onFail arguments
+        char fail_reason[96];
         char err[96];
         char results_json[RESULTS_MAX + 1];
 

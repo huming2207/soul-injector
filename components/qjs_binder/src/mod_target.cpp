@@ -1,4 +1,7 @@
+#include <cctype>
+#include <cstdlib>
 #include <cstring>
+#include <strings.h>
 
 #include <esp_err.h>
 #include <esp_timer.h>
@@ -41,7 +44,8 @@ namespace qjs_binder::priv
     static const char *op_name(uint8_t op)
     {
         static const char *names[] = {"read32", "write32", "rmw32",  "halt", "readMem",    "writeMem",    "waitHalt",   "reset",
-                                      "reinit", "poll32",  "delay",  "call", "flash.read", "flash.write", "flash.erase"};
+                                      "reinit", "poll32",  "delay",  "call", "flash.read", "flash.write", "flash.erase",
+                                      "resume", "readReg", "writeReg"};
         return op < sizeof(names) / sizeof(names[0]) ? names[op] : "?";
     }
 
@@ -181,7 +185,9 @@ namespace qjs_binder::priv
         }
         if (x.ret != ESP_OK) {
             xfer_seen(x.seq);
-            return JS_Throw(ctx, target_error(ctx, x.ret, code_of(x.ret), what));
+            bool reg = r.op == OP_READ_REG || r.op == OP_WRITE_REG;
+            const char *code = reg && x.ret == ESP_ERR_INVALID_STATE ? "NOT_HALTED" : code_of(x.ret);
+            return JS_Throw(ctx, target_error(ctx, x.ret, code, what));
         }
         *val = x.val;
         if (r.op != OP_READ_MEM) {
@@ -305,6 +311,79 @@ namespace qjs_binder::priv
         r.op = OP_HALT;
         uint32_t val = 0;
         return sync_call(ctx, r, argc > 0 ? argv[0] : JS_UNDEFINED, &val);
+    }
+
+    static JSValue js_resume(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        req r = {};
+        r.op = OP_RESUME;
+        uint32_t val = 0;
+        return sync_call(ctx, r, argc > 0 ? argv[0] : JS_UNDEFINED, &val);
+    }
+
+    static int get_reg(JSContext *ctx, JSValueConst v, uint32_t *out)
+    {
+        if (!JS_IsString(v)) {
+            if (get_u32(ctx, v, out)) {
+                return -1;
+            }
+            if (*out > 0x7f) {
+                JS_ThrowRangeError(ctx, "register %lu: REGSEL is 0-127", (unsigned long)*out);
+                return -1;
+            }
+            return 0;
+        }
+        static const struct {
+            const char *name;
+            uint8_t id;
+        } names[] = {{"sp", 13}, {"lr", 14}, {"pc", 15}, {"xpsr", 16}, {"msp", 17}, {"psp", 18}, {"cfbp", 20}, {"fpscr", 33}};
+        const char *s = JS_ToCString(ctx, v);
+        if (!s) {
+            return -1;
+        }
+        int id = -1;
+        char c = (char)tolower((unsigned char)s[0]);
+        if ((c == 'r' || c == 's') && isdigit((unsigned char)s[1])) {
+            char *end;
+            long n = strtol(s + 1, &end, 10);
+            if (*end == '\0' && n <= (c == 'r' ? 15 : 31)) {
+                id = c == 'r' ? (int)n : 0x40 + (int)n;
+            }
+        }
+        for (size_t i = 0; id < 0 && i < sizeof(names) / sizeof(names[0]); i++) {
+            if (strcasecmp(s, names[i].name) == 0) {
+                id = names[i].id;
+            }
+        }
+        if (id < 0) {
+            JS_ThrowRangeError(ctx, "unknown register '%s'", s);
+        }
+        JS_FreeCString(ctx, s);
+        *out = id;
+        return id < 0 ? -1 : 0;
+    }
+
+    static JSValue js_read_reg(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        req r = {};
+        r.op = OP_READ_REG;
+        uint32_t val = 0;
+        if (get_reg(ctx, argv[0], &r.addr)) {
+            return JS_EXCEPTION;
+        }
+        JSValue ret = sync_call(ctx, r, argc > 1 ? argv[1] : JS_UNDEFINED, &val);
+        return JS_IsException(ret) ? ret : JS_NewUint32(ctx, val);
+    }
+
+    static JSValue js_write_reg(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        req r = {};
+        r.op = OP_WRITE_REG;
+        uint32_t val = 0;
+        if (get_reg(ctx, argv[0], &r.addr) || get_u32(ctx, argv[1], &r.a)) {
+            return JS_EXCEPTION;
+        }
+        return sync_call(ctx, r, argc > 2 ? argv[2] : JS_UNDEFINED, &val);
     }
 
     static JSValue js_read_mem(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
@@ -456,6 +535,9 @@ namespace qjs_binder::priv
         JS_CFUNC_DEF("write32", 3, js_write32),
         JS_CFUNC_DEF("rmw32", 4, js_rmw32),
         JS_CFUNC_DEF("halt", 1, js_halt),
+        JS_CFUNC_DEF("resume", 1, js_resume),
+        JS_CFUNC_DEF("readReg", 2, js_read_reg),
+        JS_CFUNC_DEF("writeReg", 3, js_write_reg),
         JS_CFUNC_DEF("readMem", 3, js_read_mem),
         JS_CFUNC_DEF("writeMem", 3, js_write_mem),
         JS_CFUNC_DEF("poll32", 4, js_poll32),

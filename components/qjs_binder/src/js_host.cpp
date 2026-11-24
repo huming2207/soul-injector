@@ -33,7 +33,7 @@ namespace qjs_binder
     static constexpr uint32_t LOAD_TIMEOUT_MS = 5000;
     static constexpr uint32_t GRACE_MS = 2000;      // past a deadline
     static constexpr uint32_t CANCEL_POLL_MS = 50;
-    static constexpr const char *HOOK_NAMES[] = {"preProgram", "postProgram"};
+    static constexpr const char *HOOK_NAMES[HOOKS] = {"preProgram", "postProgram", "test", "onFail"};
 
     static __NOINIT_ATTR struct {
         uint32_t magic;
@@ -82,7 +82,7 @@ namespace qjs_binder
         }
         if (g.loading && ret == ESP_OK) {
             JSValue ns = JS_GetModuleNamespace(ctx, g.mod);
-            for (int i = 0; i < 2; i++) {
+            for (int i = 0; i < HOOKS; i++) {
                 JSValue fn = JS_GetPropertyStr(ctx, ns, HOOK_NAMES[i]);
                 g.hooks[i] = JS_IsFunction(ctx, fn);
                 JS_FreeValue(ctx, fn);
@@ -219,10 +219,19 @@ namespace qjs_binder
 
         JSValue ns = JS_GetModuleNamespace(ctx, g.mod);
         JSValue fn = JS_GetPropertyStr(ctx, ns, HOOK_NAMES[(int)g.cur_hook]);
-        JSValue arg = job_info(ctx);
-        JSValue r = JS_IsFunction(ctx, fn) ? JS_Call(ctx, fn, JS_UNDEFINED, 1, &arg)
+        JSValue args[3] = {job_info(ctx), JS_UNDEFINED, JS_UNDEFINED};
+        int argc = 1;
+        if (g.cur_hook == hook::on_fail) {
+            args[1] = JS_NewString(ctx, g.fail_stage);
+            args[2] = JS_NewError(ctx);
+            JS_SetPropertyStr(ctx, args[2], "message", JS_NewString(ctx, g.fail_reason));
+            argc = 3;
+        }
+        JSValue r = JS_IsFunction(ctx, fn) ? JS_Call(ctx, fn, JS_UNDEFINED, argc, args)
                                            : JS_ThrowTypeError(ctx, "no %s hook", HOOK_NAMES[(int)g.cur_hook]);
-        JS_FreeValue(ctx, arg);
+        for (auto &a : args) {
+            JS_FreeValue(ctx, a);
+        }
         JS_FreeValue(ctx, fn);
         JS_FreeValue(ctx, ns);
         settle(ctx, r);
@@ -265,6 +274,7 @@ namespace qjs_binder
         qjs_esp_loop_set_deadline(loop, now_us() + LOAD_TIMEOUT_MS * 1000LL);
         xSemaphoreTake(g.loop_lock, portMAX_DELAY);
         g.loop = loop;
+        g.alive = true;
         xSemaphoreGive(g.loop_lock);
 
         g.results = JS_NewObject(ctx);
@@ -272,10 +282,11 @@ namespace qjs_binder
         g.results_json[0] = '\0';
         g.xfer_busy = false;
         g.loading = true;
-        g.hooks[0] = g.hooks[1] = false;
+        memset(g.hooks, 0, sizeof(g.hooks));
         settle(ctx, qjs_esp_bc_eval(ctx, g.script, g.script_len, &g.mod));
 
         qjs_esp_stop_t why = qjs_esp_loop_run(loop);
+        g.alive = false; // before send_done, so no hook is posted to a stopped loop
         if (g.loading || g.hook_active) {
             set_err("%s", stop_text(why));
             ESP_LOGE(TAG, "%s", g.err);
@@ -394,6 +405,12 @@ namespace qjs_binder
             return t.flash_write(r.addr, g.xfer, r.a);
         case OP_FLASH_ERASE:
             return t.flash_erase(r.addr, r.a);
+        case OP_RESUME:
+            return t.resume();
+        case OP_READ_REG:
+            return t.read_reg(r.addr, val);
+        case OP_WRITE_REG:
+            return t.write_reg(r.addr, r.a);
         default:
             return ESP_ERR_NOT_SUPPORTED;
         }
@@ -541,7 +558,7 @@ namespace qjs_binder
     {
         end_run();
         g.err[0] = '\0';
-        g.hooks[0] = g.hooks[1] = false;
+        memset(g.hooks, 0, sizeof(g.hooks));
 
         size_t hash_len = 0;
         g.have_sha = psa_hash_compute(PSA_ALG_SHA_256, blob, len, g.sha256, sizeof(g.sha256), &hash_len) == PSA_SUCCESS;
@@ -597,7 +614,7 @@ namespace qjs_binder
 
     bool js_host::has_hook(hook h) const
     {
-        return g.running && g.hooks[(int)h];
+        return g.running && g.alive && !g.dead && g.hooks[(int)h];
     }
 
     esp_err_t js_host::run_hook(hook h, js_target &target, uint32_t timeout_ms, cancel_fn cancelled)
@@ -611,13 +628,34 @@ namespace qjs_binder
         xQueueReset(g.res_q);
 
         xSemaphoreTake(g.loop_lock, portMAX_DELAY);
-        bool posted = g.loop && qjs_esp_loop_post(g.loop, call_hook, nullptr, pdMS_TO_TICKS(100)) == ESP_OK;
+        bool posted = g.loop && g.alive && qjs_esp_loop_post(g.loop, call_hook, nullptr, pdMS_TO_TICKS(100)) == ESP_OK;
         xSemaphoreGive(g.loop_lock);
         if (!posted) {
             set_err("script isn't running");
             return ESP_ERR_INVALID_STATE;
         }
         return serve(&target, g.cur_timeout_ms, cancelled);
+    }
+
+    esp_err_t js_host::run_on_fail(const char *stage, const char *reason, js_target &target, uint32_t timeout_ms,
+                                   cancel_fn cancelled)
+    {
+        if (!has_hook(hook::on_fail)) {
+            return ESP_ERR_NOT_FOUND;
+        }
+        char err[sizeof(g.err)];
+        strlcpy(err, g.err, sizeof(err));
+        strlcpy(g.fail_stage, stage ? stage : "", sizeof(g.fail_stage));
+        if (reason == nullptr || reason[0] == '\0') {
+            reason = err[0] ? err : "failed";
+        }
+        strlcpy(g.fail_reason, reason, sizeof(g.fail_reason));
+        esp_err_t ret = run_hook(hook::on_fail, target, timeout_ms, cancelled);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "onFail failed too: %s", g.err);
+        }
+        strlcpy(g.err, err, sizeof(g.err));
+        return ret;
     }
 
     void js_host::end_run()
@@ -702,6 +740,7 @@ namespace qjs_binder
     esp_err_t js_host::begin_run(const uint8_t *, size_t, const uint8_t *, const run_info &) { return ESP_ERR_NOT_SUPPORTED; }
     bool js_host::has_hook(hook) const { return false; }
     esp_err_t js_host::run_hook(hook, js_target &, uint32_t, cancel_fn) { return ESP_ERR_NOT_SUPPORTED; }
+    esp_err_t js_host::run_on_fail(const char *, const char *, js_target &, uint32_t, cancel_fn) { return ESP_ERR_NOT_SUPPORTED; }
     void js_host::end_run() {}
     bool js_host::last_script(uint8_t[32], bool *) const { return false; }
     void js_host::forget_last_script() {}

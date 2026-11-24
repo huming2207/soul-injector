@@ -47,6 +47,25 @@ export async function preProgram(ctx) {
     }
     case 'throw':
         throw new Error('boom');
+    case 'fail':
+        throw new Error('boom2');
+    case 'failfail':
+        throw new Error('first');
+    case 'regs': {
+        t.halt();
+        t.writeReg('r0', 5);
+        t.writeReg('S3', 0x3f800000);
+        t.writeReg(0x14, 7);
+        if (t.readReg('R0') !== 5 || t.readReg(0x43) !== 0x3f800000 || t.readReg('cfbp') !== 7) throw new Error('regs');
+        for (const bad of ['r16', 'foo', 128]) {
+            const c = await codeOf(() => t.readReg(bad));
+            if (!c.startsWith('RangeError')) throw new Error(`readReg(${bad}) gave ${c}`);
+        }
+        t.resume();
+        const c = await codeOf(() => t.readReg('pc'));
+        if (c !== 'NOT_HALTED') throw new Error(`readReg while running gave ${c}`);
+        return;
+    }
     case 'spin':
         for (;;) {}
     case 'forever':
@@ -145,4 +164,16 @@ export async function postProgram(ctx) {
         }
         if (got !== (name === 'net-on' ? 'yes' : 'no')) throw new Error(`esp:ws import: ${got}`);
     }
+}
+
+export async function test(ctx) {
+    if (ctx.hook !== 'test') throw new Error(`ctx.hook ${ctx.hook}`);
+    log.record({ tested: 1 });
+}
+
+export async function onFail(ctx, stage, err) {
+    if (ctx.hook !== 'onFail' || !(err instanceof Error)) throw new Error('onFail args');
+    log.record({ stage, msg: err.message });
+    if (ctx.job.name === 'failfail') throw new Error('second');
+    t.write32(0x1000, 0xf);
 }

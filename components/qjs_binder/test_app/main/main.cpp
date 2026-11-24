@@ -139,7 +139,30 @@ public:
         return ESP_OK;
     }
 
-    esp_err_t halt() override { add("H"); return ESP_OK; }
+    bool halted = false;
+    uint32_t regs[128] = {};
+
+    esp_err_t resume() override { add("RU"); halted = false; return ESP_OK; }
+
+    esp_err_t read_reg(uint32_t id, uint32_t *val) override
+    {
+        char s[16];
+        snprintf(s, sizeof(s), "RG%lx", (unsigned long)id);
+        add(s);
+        *val = regs[id & 0x7f];
+        return halted ? ESP_OK : ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t write_reg(uint32_t id, uint32_t val) override
+    {
+        char s[24];
+        snprintf(s, sizeof(s), "WG%lx=%lx", (unsigned long)id, (unsigned long)val);
+        add(s);
+        regs[id & 0x7f] = val;
+        return halted ? ESP_OK : ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t halt() override { add("H"); halted = true; return ESP_OK; }
     esp_err_t wait_halt() override { add("WH"); return ESP_OK; }
     esp_err_t reset() override { add("RS"); return ESP_OK; }
     esp_err_t reinit() override { add("RI"); return ESP_OK; }
@@ -313,6 +336,53 @@ static void test_task(void *)
         outcome o = run("call", m);
         check(o.pre == ESP_OK && strcmp(m.log, "C20001000/20008000 Cdead/20008000 ") == 0, "call: args, r0, UNSUPPORTED",
               pre_err[0] ? pre_err : m.log);
+    }
+    {
+        mock_target m;
+        outcome o = run("regs", m);
+        const char *want = "H WG0=5 WG43=3f800000 WG14=7 RG0 RG43 RG14 RU RGf ";
+        check(o.pre == ESP_OK && strcmp(m.log, want) == 0, "regs: names, numbers, NOT_HALTED, resume", pre_err[0] ? pre_err : m.log);
+    }
+    {
+        mock_target m;
+        run_info info = {"fail", "", "mock", false};
+        esp_err_t load = h->begin_run(qbc, qbc_end - qbc, nullptr, info);
+        bool hooks = load == ESP_OK && h->has_hook(hook::test) && h->has_hook(hook::on_fail);
+        esp_err_t tr = h->run_hook(hook::test, m, 0, nullptr);
+        esp_err_t pre = h->run_hook(hook::pre_program, m, 0, nullptr);
+        esp_err_t f = h->run_on_fail("preProgram", nullptr, m, 0, nullptr);
+        char err[96];
+        strlcpy(err, h->last_error(), sizeof(err));
+        h->end_run();
+        const char *res = h->last_results();
+        check(hooks && tr == ESP_OK && strstr(res, "\"tested\":1"), "test: hook runs with its ctx", res);
+        check(pre == ESP_FAIL && f == ESP_OK && strstr(res, "\"stage\":\"preProgram\"") && strstr(res, "boom2") &&
+                  strcmp(m.log, "W1000=f ") == 0,
+              "onFail: gets the stage and the error", res);
+        check(strstr(err, "boom2") != nullptr, "onFail: last_error stays the first failure", err);
+        heap_same("fail");
+    }
+    {
+        mock_target m;
+        run_info info = {"failfail", "", "mock", false};
+        h->begin_run(qbc, qbc_end - qbc, nullptr, info);
+        h->run_hook(hook::pre_program, m, 0, nullptr);
+        esp_err_t f = h->run_on_fail("erase", "erase failed", m, 0, nullptr);
+        char err[96];
+        strlcpy(err, h->last_error(), sizeof(err));
+        h->end_run();
+        check(f == ESP_FAIL && strstr(h->last_results(), "erase failed") && strstr(err, "first"),
+              "onFail: its own throw doesn't hide the first", err);
+    }
+    {
+        mock_target m;
+        run_info info = {"spin", "", "mock", false};
+        h->begin_run(qbc, qbc_end - qbc, nullptr, info);
+        esp_err_t pre = h->run_hook(hook::pre_program, m, 0, nullptr);
+        bool gone = !h->has_hook(hook::on_fail) && h->run_on_fail("preProgram", nullptr, m, 0, nullptr) == ESP_ERR_NOT_FOUND;
+        h->end_run();
+        check(pre == ESP_ERR_TIMEOUT && gone, "onFail: not offered once the runtime stopped");
+        heap_same("spin onFail");
     }
     {
         mock_target m;

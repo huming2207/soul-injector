@@ -11,6 +11,8 @@
   ESP32 image configuration, and self tests. Compiled into `job.pb` on a PC.
 - [Pre/post programming procedure YAML](procedure-yaml.md) — `pre_prog.yaml`
   and `post_prog.yaml` step format and execution rules.
+- [Job scripts](job-scripts.md) — JavaScript `preProgram`/`postProgram` hooks
+  instead of the procedure YAML: compiling, `si:target`, limits.
 
 ## Operations
 

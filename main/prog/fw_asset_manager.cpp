@@ -1,5 +1,6 @@
 #include "fw_asset_manager.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 #include <esp_heap_caps.h>
@@ -25,8 +26,26 @@ esp_err_t fw_asset_manager::verify_image(const char *path, const uint8_t *pinned
     return ESP_OK;
 }
 
+void fw_asset_manager::make_script_path(const si_job_Job &new_job, char *out, size_t len)
+{
+    out[0] = '\0';
+    if (new_job.has_script) {
+        snprintf(out, len, "%s/%s", asset_store::BASE_PATH, new_job.script.asset);
+    }
+}
+
 esp_err_t fw_asset_manager::verify_job_images(const si_job_Job &new_job)
 {
+    // A pinned script is an image like the firmware: it must be the one the job names
+    if (new_job.has_script && new_job.script.sha256.size == SHA256_LEN) {
+        char path[sizeof(script_file)];
+        make_script_path(new_job, path, sizeof(path));
+        auto ret = verify_image(path, new_job.script.sha256.bytes);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
     if (new_job.target.has_cortex_m) {
         return verify_image(FIRMWARE_PATH, new_job.target.cortex_m.firmware_sha256);
     }
@@ -76,6 +95,7 @@ void fw_asset_manager::publish(const decoded_job &decoded, const uint8_t *sha256
     job = decoded.job;
     memcpy(active_sha256, sha256, sizeof(active_sha256));
     si::config::fill_target_config(*job, algo_bin_storage, decoded.algo_bin_len, cfg);
+    make_script_path(*job, script_file, sizeof(script_file));
     ESP_LOGI(TAG, "publish: '%s' active, algo_bin=%zu bytes", job_name(), cfg.algo.algo_bin_len);
 }
 
@@ -157,4 +177,22 @@ const si_job_Procedure *fw_asset_manager::post_program_steps() const
         return nullptr;
     }
     return non_empty(job->has_post_program, job->post_program);
+}
+
+const char *fw_asset_manager::script_path() const
+{
+    return job != nullptr && script_file[0] != '\0' ? script_file : nullptr;
+}
+
+const uint8_t *fw_asset_manager::script_sha256() const
+{
+    if (script_path() == nullptr || job->script.sha256.size != SHA256_LEN) {
+        return nullptr;
+    }
+    return job->script.sha256.bytes;
+}
+
+uint32_t fw_asset_manager::hook_timeout_ms() const
+{
+    return script_path() != nullptr ? job->script.hook_timeout_ms : 0;
 }

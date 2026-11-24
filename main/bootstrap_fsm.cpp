@@ -16,6 +16,7 @@
 #include "job_controller.hpp"
 #include "offline_flasher.hpp"
 #include "prog_log.hpp"
+#include "qjs_binder.hpp"
 #include "sidp_service.hpp"
 #include "sidp_transport_cdc.hpp"
 #include "swd_prog.hpp"
@@ -73,6 +74,11 @@ esp_err_t bootstrap_fsm::init()
     // No stored job is fine: the host pushes one over SIDP.
     asset_store::remove_stale_uploads();
     fw_asset_manager::instance()->init();
+    // Without it jobs with scripts fail; everything else works
+    esp_err_t js_ret = qjs_binder::js_host::instance()->init();
+    if (js_ret != ESP_OK && js_ret != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGE(TAG, "Job scripts unavailable: 0x%x %s", js_ret, esp_err_to_name(js_ret));
+    }
     ret = job_controller::instance()->init(evt_group, BIT_RUN_REQUEST);
     ret = ret ?: setup_usb();
     if (ret != ESP_OK) {
@@ -283,6 +289,7 @@ void bootstrap_fsm::run_job()
         ESP_LOGE(TAG, "Something went wrong");
     }
 
+    qjs_binder::js_host::instance()->end_run(); // the runtime goes; its script hash stays for the record
     target_lines::isolate();
     esp_pm_lock_release(run_pm_lock);
     uint32_t duration_ms = (esp_timer_get_time() - start_us) / 1000;

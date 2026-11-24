@@ -1,4 +1,5 @@
 #include "job_controller.hpp"
+#include "qjs_binder.hpp"
 
 #include <cstring>
 
@@ -216,6 +217,10 @@ void job_controller::record_run(esp_err_t ret)
     record.error_code = ret;
     strlcpy(record.job_name, asset->job_name(), sizeof(record.job_name));
     memcpy(record.job_sha256, asset->job_sha256(), sizeof(record.job_sha256));
+    // The script this run actually read, whether or not the job pinned it
+    if (qjs_binder::js_host::instance()->last_script(record.script_sha256.bytes, &record.script_pinned)) {
+        record.script_sha256.size = sizeof(record.script_sha256.bytes);
+    }
     prog_log::instance()->add_run(record);
 }
 

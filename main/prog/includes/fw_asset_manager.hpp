@@ -75,6 +75,15 @@ public:
     /** Steps run after self tests, or nullptr when there are none. */
     const si_job_Procedure *post_program_steps() const;
 
+    /** Path of the job's script (bytecode container), or nullptr without one. */
+    const char *script_path() const;
+
+    /** SHA-256 the job pins its script to, or nullptr when it doesn't pin it. */
+    const uint8_t *script_sha256() const;
+
+    /** Per-hook timeout the job asks for; 0 for the firmware default. */
+    uint32_t hook_timeout_ms() const;
+
     static const constexpr char JOB_PATH[] = "/data/job.pb";
     static const constexpr char STAGED_JOB_PATH[] = "/data/job.pb.new";
     static const constexpr char FIRMWARE_PATH[] = "/data/firmware.bin";
@@ -94,12 +103,14 @@ private:
     void publish(const decoded_job &decoded, const uint8_t *sha256);
     static esp_err_t verify_image(const char *path, const uint8_t *pinned_sha256);
     static esp_err_t verify_job_images(const si_job_Job &new_job);
+    static void make_script_path(const si_job_Job &new_job, char *out, size_t len);
     static const si_job_Procedure *non_empty(bool present, const si_job_Procedure &procedure);
 
     si::config::target_config cfg = {};
     si_job_Job *job = nullptr;           // PSRAM; replaced on each successful load
     uint8_t *algo_bin_storage = nullptr; // PSRAM; replaced on each successful load
     uint8_t active_sha256[SHA256_LEN] = {};
+    char script_file[64] = {};          // "/data/<asset>", empty without a script
 
     static const constexpr char *TAG = "asset_mgr";
 };

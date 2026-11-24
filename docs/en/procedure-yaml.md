@@ -10,6 +10,9 @@ into the job file together with `target.yaml` (see
 | `pre_prog.yaml`  | `--pre`         | After assets are loaded, before target detection. |
 | `post_prog.yaml` | `--post`        | After self tests, before the flow finishes. |
 
+A job can carry a [job script](job-scripts.md) instead; it has either one or
+the procedures, not both.
+
 Both files are optional:
 
 - An invalid file, unknown step type or missing field fails compilation.

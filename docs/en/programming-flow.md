@@ -6,13 +6,14 @@ was pushed with `--auto`. Each run goes through these states:
 
 1. Check that the job exists, and hash its images to check they still match
    the hashes it pins.
-2. Run the pre-program steps if the job has any.
+2. Run the pre-program steps, or the script's `preProgram` hook (see
+   [job scripts](job-scripts.md)), if the job has them.
 3. Detect the target through the selected backend (SWD or ESP32 UART).
 4. Erase the target flash.
 5. Program the configured firmware image(s).
 6. Verify the programmed firmware.
 7. Run the self tests listed in the job.
-8. Run the post-program steps if the job has any.
+8. Run the post-program steps, or the script's `postProgram` hook.
 9. Finish, or run the optional production-rig current test when enabled.
 
 The programming backend follows the `family` key of the `target.yaml` the job

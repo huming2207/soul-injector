@@ -11,6 +11,47 @@
 #include "fw_asset_manager.hpp"
 #include "job_controller.hpp"
 #include "swd_cortexm_backend.hpp"
+#include "qjs_binder.hpp"
+
+namespace
+{
+    /* The target as a job script sees it: this run's backend */
+    class backend_target final : public qjs_binder::js_target
+    {
+    public:
+        explicit backend_target(target_backend &backend) : backend(backend) {}
+        esp_err_t read32(uint32_t addr, uint32_t *val) override { return backend.read_mem32(addr, val); }
+        esp_err_t write32(uint32_t addr, uint32_t val) override { return backend.write_mem32(addr, val); }
+        esp_err_t halt() override { return backend.halt_target(); }
+        esp_err_t wait_halt() override { return backend.wait_halt(); }
+        esp_err_t reset() override { return backend.reset_target(); }
+        esp_err_t reinit() override { return backend.reinit_debug(); }
+
+    private:
+        target_backend &backend;
+    };
+
+    bool cancel_requested()
+    {
+        return job_controller::instance()->cancel_requested();
+    }
+
+    bool has_script()
+    {
+        return fw_asset_manager::instance()->script_path() != nullptr;
+    }
+
+    /* Run a hook if the script has it; a script without it is fine */
+    esp_err_t run_script_hook(qjs_binder::hook h, target_backend &backend)
+    {
+        auto *js = qjs_binder::js_host::instance();
+        if (!js->has_hook(h)) {
+            return ESP_OK;
+        }
+        backend_target target(backend);
+        return js->run_hook(h, target, fw_asset_manager::instance()->hook_timeout_ms(), cancel_requested);
+    }
+} // namespace
 
 void offline_flasher::init()
 {
@@ -21,6 +62,10 @@ void offline_flasher::init()
     if (backend != nullptr) {
         backend->release_transport();
     }
+
+    // A previous run's script must not end up in this run's record
+    qjs_binder::js_host::instance()->end_run();
+    qjs_binder::js_host::instance()->forget_last_script();
 
     failed_state = flasher::DONE;
     state = flasher::LOAD_ASSET;
@@ -201,6 +246,23 @@ void offline_flasher::on_post_program()
         return;
     }
 
+    if (has_script()) {
+        ret = run_script_hook(qjs_binder::hook::post_program, *backend);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "post_prog: script: %s (0x%x)", qjs_binder::js_host::instance()->last_error(), ret);
+            composer->display_error("SCRIPT ERROR", qjs_binder::js_host::instance()->last_error());
+            state = flasher::ERROR;
+            return;
+        }
+        backend->release_transport();
+#ifndef CONFIG_SI_SG_PROG_RIG
+        state = flasher::DONE;
+#else
+        state = flasher::SG_CURRENT_TEST;
+#endif
+        return;
+    }
+
     const si_job_Procedure *steps = fw_asset_manager::instance()->post_program_steps();
     if (steps == nullptr) {
         ESP_LOGI(TAG, "post_prog: no steps, skipping");
@@ -368,6 +430,18 @@ void offline_flasher::on_pre_program()
         return;
     }
 
+    if (has_script()) {
+        ret = run_script_hook(qjs_binder::hook::pre_program, *backend);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "pre_prog: script: %s (0x%x)", qjs_binder::js_host::instance()->last_error(), ret);
+            composer->display_error("SCRIPT ERROR", qjs_binder::js_host::instance()->last_error());
+            state = flasher::ERROR;
+            return;
+        }
+        state = flasher::DETECT;
+        return;
+    }
+
     const si_job_Procedure *steps = fw_asset_manager::instance()->pre_program_steps();
     if (steps == nullptr) {
         ESP_LOGI(TAG, "pre_prog: no steps, skipping");
@@ -407,5 +481,19 @@ void offline_flasher::on_load_asset()
     }
 
     select_backend();
+
+    const char *script = asset->script_path();
+    if (script != nullptr) {
+        auto *js = qjs_binder::js_host::instance();
+        const auto &cfg = asset->config();
+        qjs_binder::run_info info = {asset->job_name(), cfg.variant_name, si::config::family_to_str(cfg.family)};
+        ret = js->begin_run(script, asset->script_sha256(), info);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "load_asset: script: %s (0x%x)", js->last_error(), ret);
+            composer->display_error("SCRIPT ERROR", js->last_error());
+            state = flasher::ERROR;
+            return;
+        }
+    }
     state = flasher::PRE_PROGRAM;
 }

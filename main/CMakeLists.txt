@@ -99,6 +99,7 @@ idf_component_register(
         "esp_lvgl_port"
         "spi_flash"
         "esp-serial-flasher"
+        "qjs_binder"
 
     REQUIRES
         "tinyusb"

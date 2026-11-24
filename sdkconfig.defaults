@@ -52,3 +52,10 @@ CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 CONFIG_ON9RSTORE_SPARSE_FILE_SIZE=262144
 CONFIG_ON9STORE_SPARSE_FILE_CNT=7
 CONFIG_ON9RSTORE_TIME_ANCHOR_CNT=64
+
+# Job scripts (components/qjs_binder): no sockets for scripts, and bytecode is
+# compiled on the host (esp-quickjs-ng tools/qjs_esp_bc.py), never here.
+CONFIG_QJS_ESP_MOD_UDP=n
+CONFIG_QJS_ESP_MOD_POSIX_SOCKET=n
+CONFIG_QJS_ESP_MOD_WS=n
+CONFIG_QJS_ESP_BC_COMPILE=n

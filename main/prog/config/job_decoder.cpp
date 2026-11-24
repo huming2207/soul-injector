@@ -7,6 +7,8 @@
 #include <esp_log.h>
 #include <pb_decode.h>
 
+#include "asset_store.hpp"
+
 static const char *TAG = "job_decoder";
 
 using si::config::assert_level;
@@ -178,6 +180,35 @@ namespace
         return ESP_OK;
     }
 
+    bool has_steps(bool present, const si_job_Procedure &procedure)
+    {
+        return present && procedure.steps_count > 0;
+    }
+
+    esp_err_t validate_script(const si_job_Job &job)
+    {
+        if (!job.has_script) {
+            return ESP_OK;
+        }
+#if !CONFIG_SI_JS_ENABLE
+        ESP_LOGE(TAG, "job has a script, this firmware doesn't run scripts");
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
+        if (!asset_store::is_valid_name(job.script.asset)) {
+            ESP_LOGE(TAG, "script asset name '%s' is invalid", job.script.asset);
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (job.script.sha256.size != 0 && job.script.sha256.size != asset_store::SHA256_LEN) {
+            ESP_LOGE(TAG, "script sha256 must be empty or 32 bytes");
+            return ESP_ERR_INVALID_SIZE;
+        }
+        if (has_steps(job.has_pre_program, job.pre_program) || has_steps(job.has_post_program, job.post_program)) {
+            ESP_LOGE(TAG, "a job has a script or pre/post procedures, not both");
+            return ESP_ERR_INVALID_STATE;
+        }
+        return ESP_OK;
+    }
+
     esp_err_t validate_job(const si_job_Job &job, const algo_blob &blob)
     {
         if (job.schema_version != si_job_SchemaVersion_SCHEMA_VERSION_CURRENT) {
@@ -195,6 +226,7 @@ namespace
         auto ret = validate_self_tests(job.target);
         ret = ret ?: validate_procedure("pre-program", job.has_pre_program, job.pre_program);
         ret = ret ?: validate_procedure("post-program", job.has_post_program, job.post_program);
+        ret = ret ?: validate_script(job);
         if (ret != ESP_OK) {
             return ret;
         }

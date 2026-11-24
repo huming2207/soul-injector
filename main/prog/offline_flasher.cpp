@@ -35,6 +35,9 @@ namespace
         {
             return backend.call(addr, args, stack_top, timeout_ms, cancelled, r0);
         }
+        esp_err_t resume() override { return backend.resume_target(); }
+        esp_err_t read_reg(uint32_t id, uint32_t *val) override { return backend.read_core_reg(id, val); }
+        esp_err_t write_reg(uint32_t id, uint32_t val) override { return backend.write_core_reg(id, val); }
 
     private:
         target_backend &backend;
@@ -68,6 +71,34 @@ namespace
         }
         backend_target target(backend);
         return js->run_hook(h, target, fw_asset_manager::instance()->hook_timeout_ms(), cancel_requested);
+    }
+
+    const char *stage_name(flasher::pg_state s)
+    {
+        switch (s) {
+        case flasher::LOAD_ASSET:
+            return "load";
+        case flasher::PRE_PROGRAM:
+            return "preProgram";
+        case flasher::DETECT:
+            return "detect";
+        case flasher::ERASE:
+            return "erase";
+        case flasher::PROGRAM:
+            return "program";
+        case flasher::VERIFY:
+            return "verify";
+        case flasher::SELF_TEST:
+            return "test";
+        case flasher::POST_PROGRAM:
+            return "postProgram";
+#ifdef CONFIG_SI_SG_PROG_RIG
+        case flasher::SG_CURRENT_TEST:
+            return "currentTest";
+#endif
+        default:
+            return "unknown";
+        }
     }
 } // namespace
 
@@ -105,6 +136,14 @@ void offline_flasher::select_backend()
 
 void offline_flasher::on_error()
 {
+    auto *js = qjs_binder::js_host::instance();
+    if (backend != nullptr && has_script() && js->has_hook(qjs_binder::hook::on_fail)) {
+        backend_target target(*backend);
+        auto ret = js->run_on_fail(stage_name(failed_state), nullptr, target, fw_asset_manager::instance()->hook_timeout_ms(),
+                                   cancel_requested);
+        ESP_LOGI(TAG, "onFail(%s): 0x%x", stage_name(failed_state), ret);
+    }
+
     // Terminal error path: release the transport so the backend cannot carry
     // stale connection state into the next session (the FSM waits for target
     // disconnect/reconnect and then reloads assets; a still-connected backend
@@ -205,6 +244,25 @@ void offline_flasher::on_self_test()
     ESP_LOGI(TAG, "Run self test");
 
     const si::config::target_config &cfg = fw_asset_manager::instance()->config();
+    if (has_script() && qjs_binder::js_host::instance()->has_hook(qjs_binder::hook::test)) {
+        if (cfg.test_count > 0) {
+            ESP_LOGW(TAG, "Self test: the script's test() replaces the job's %u self tests", (unsigned)cfg.test_count);
+        }
+        composer->display_test(0, 0, "Script test");
+        auto ret = run_script_hook(qjs_binder::hook::test, *backend);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Self test: script: %s (0x%x)", qjs_binder::js_host::instance()->last_error(), ret);
+            composer->display_error("TEST FAILED", qjs_binder::js_host::instance()->last_error());
+            state = flasher::ERROR;
+            return;
+        }
+        if (cfg.family != si::config::target_family::esp32_serial) {
+            backend->reset_target();
+        }
+        state = flasher::POST_PROGRAM;
+        return;
+    }
+
     for (size_t idx = 0; idx < cfg.test_count; idx += 1) {
         const si::config::test_item &item = cfg.tests[idx];
         composer->display_test(idx, (cfg.test_count - 1), nullptr);

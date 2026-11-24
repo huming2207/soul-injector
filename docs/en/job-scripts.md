@@ -2,7 +2,8 @@
 
 A job can carry a JavaScript script instead of the pre/post procedure YAML.
 Its `preProgram` and `postProgram` hooks run where the procedures would, with
-the same target operations plus waits, error handling and logic. Scripts need
+the same target operations plus waits, error handling and logic. A `test`
+hook can replace the job's self tests, and `onFail` runs when the run fails. Scripts need
 a Rev 8 build (`CONFIG_SI_JS_ENABLE`); other builds refuse jobs that have one.
 
 ```js
@@ -60,14 +61,26 @@ only loads job scripts as bytecode, and scripts get no `eval` or
 
 ## Hooks
 
-Both hooks are optional exports; each gets `ctx`:
+All hooks are optional exports; each gets `ctx`:
 
 ```js
 { hook: 'preProgram', job: { name, variant, family } }
 ```
 
-- `preProgram` runs after the backend session starts, before target
-  detection. `postProgram` runs after the self tests.
+| Hook | Runs |
+| ---- | ---- |
+| `preProgram(ctx)` | After the backend session starts, before target detection. |
+| `test(ctx)` | After verify, instead of the job's `self_tests`. The CPU is reset after it passes (not on ESP32). |
+| `postProgram(ctx)` | After the self tests. |
+| `onFail(ctx, stage, err)` | When the run fails, before the device lets go of the target. |
+
+- `onFail` gets the stage that failed (`preProgram`, `detect`, `erase`,
+  `program`, `verify`, `test`, `postProgram`) and an `Error`. Its message is
+  the script's own error when a hook failed, or `'failed'`. Use it to put the
+  target in a safe state or `log.record()` what went wrong. If it throws, the
+  device logs that, and the run record still shows the first failure.
+- `onFail` doesn't run on a cancel, or after the script itself ran out of time
+  or was stopped: by then its runtime is gone.
 - A hook passes when it returns or its promise resolves. A throw or a
   rejection fails the run at that stage, and the device shows the message.
 - Both hooks of a run share one runtime, so `preProgram` can leave values for
@@ -83,6 +96,9 @@ Both hooks are optional exports; each gets `ctx`:
 | `write32(addr, value, opts?)` | sync | |
 | `rmw32(addr, andMask, orBits, opts?)` | sync | Writes and returns `(old & andMask) \| orBits`, like `READ_MOD_WRITE_32`. |
 | `halt(opts?)` | sync | Halts the CPU. |
+| `resume(opts?)` | sync | Lets a halted CPU run. Debug stays on, so `halt()` works after it. |
+| `readReg(reg, opts?)` | sync | Returns a core register. The CPU must be halted. |
+| `writeReg(reg, value, opts?)` | sync | The CPU must be halted. |
 | `readMem(addr, len, opts?)` | sync | Returns a `Uint8Array`, at most 4096 bytes. |
 | `writeMem(addr, bytes, opts?)` | sync | At most 4096 bytes. |
 | `poll32(addr, mask, expect, { timeoutMs = 1000, intervalMs = 1 })` | promise | Resolves with the value once `(value & mask) == expect`. |
@@ -91,6 +107,10 @@ Both hooks are optional exports; each gets `ctx`:
 | `reset()` | promise | Toggles the target reset line. |
 | `reinit()` | promise | Re-initialises the debug connection after a reset. |
 | `delay(ms)` | promise | |
+
+`reg` is a name (`r0`-`r15`, `sp`, `lr`, `pc`, `xpsr`, `msp`, `psp`,
+`fpscr`, `s0`-`s31`, any case) or the raw `DCRSR` register number (0-127).
+`cfbp` (20) is CONTROL, FAULTMASK, BASEPRI and PRIMASK packed into one word.
 
 Sync calls take `{ timeoutMs = 500, retries = 0 }`. They only work inside a
 hook, and not while a promise call is still pending. Failures throw (or
@@ -102,6 +122,7 @@ reject with) a `TargetError` whose `code` is:
   `flash.*`) before the first one finished.
 - `TIMEOUT`: the call, or the poll, ran out of time.
 - `STOPPED`: the run was cancelled.
+- `NOT_HALTED`: `readReg`/`writeReg` while the CPU runs.
 - `UNSUPPORTED`: this target can't do that (see [Targets](#targets)).
 - `FAULT`: the target operation failed; `err` holds the `esp_err_t`.
 
@@ -130,7 +151,7 @@ calibration.
   Sectors are `page_size` long. `write` needs erased flash and a length the
   flash can program (a multiple of 4, of 8 on STM32WL). Erase and write
   reload the flash algorithm first, which resets the target.
-- **ESP32**: through the flasher stub, only in `postProgram`. `erase` takes
+- **ESP32**: through the flasher stub, only after detection. `erase` takes
   whole 4 KB sectors; `write` erases the 4 KB sectors it covers itself, so
   anything else in them is lost, and is MD5-checked like an image.
 
@@ -170,12 +191,16 @@ import fails.
 
 | | Cortex-M (SWD) | ESP32 (UART) |
 | --- | --- | --- |
-| `read32`, `write32`, `rmw32` | yes | `postProgram` only (registers through the stub) |
-| `readMem`, `writeMem` | yes | `postProgram` only, word aligned |
-| `halt`, `waitHalt`, `reinit` | yes | `UNSUPPORTED` |
+| `read32`, `write32`, `rmw32` | yes | after detection only (registers through the stub) |
+| `readMem`, `writeMem` | yes | after detection only, word aligned |
+| `halt`, `resume`, `waitHalt`, `reinit` | yes | `UNSUPPORTED` |
+| `readReg`, `writeReg` | yes | `UNSUPPORTED` |
 | `reset` | yes | yes |
 | `call` | yes | `UNSUPPORTED` |
-| `flash.*` | yes | `postProgram` only |
+| `flash.*` | yes | after detection only |
+
+On ESP32, "after detection" means `test`, `postProgram`, and `onFail` when
+the run failed after detection.
 
 ## Limits
 
@@ -198,4 +223,4 @@ A script can't take the device down with it:
   plus `esp:ws` only for jobs that allow it.
 
 The arena, the guards and their limits are explained in esp-quickjs-ng's
-README ("Running code you don't trust").
+[docs/untrusted-code.md](../../components/esp-quickjs-ng/docs/untrusted-code.md).

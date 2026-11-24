@@ -116,4 +116,8 @@ public:
     {
         return ESP_ERR_NOT_SUPPORTED;
     }
+
+    virtual esp_err_t resume_target() { return ESP_ERR_NOT_SUPPORTED; }
+    virtual esp_err_t read_core_reg(uint32_t id, uint32_t *val) { return ESP_ERR_NOT_SUPPORTED; } // ESP_ERR_INVALID_STATE: running
+    virtual esp_err_t write_core_reg(uint32_t id, uint32_t val) { return ESP_ERR_NOT_SUPPORTED; }
 };

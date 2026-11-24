@@ -44,6 +44,9 @@ public:
     esp_err_t flash_erase(uint32_t addr, size_t len) override;
     esp_err_t call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms, bool (*cancelled)(),
                    uint32_t *r0) override;
+    esp_err_t resume_target() override;
+    esp_err_t read_core_reg(uint32_t id, uint32_t *val) override;
+    esp_err_t write_core_reg(uint32_t id, uint32_t val) override;
 
 private:
     swd_cortexm_backend() = default;

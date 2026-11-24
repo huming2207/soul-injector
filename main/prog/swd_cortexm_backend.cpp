@@ -10,6 +10,14 @@
 #include "swd_prog.hpp"
 
 static const char *TAG = "swd_backend";
+static constexpr uint32_t DHCSR_ADDR = 0xE000EDF0;
+
+static esp_err_t check_halted()
+{
+    uint32_t dhcsr = 0;
+    esp_err_t ret = swd_read_word(DHCSR_ADDR, &dhcsr);
+    return ret != ESP_OK ? ret : (dhcsr & S_HALT) ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
 
 esp_err_t swd_cortexm_backend::begin_session()
 {
@@ -153,4 +161,21 @@ esp_err_t swd_cortexm_backend::call(uint32_t addr, const uint32_t args[4], uint3
                                     bool (*cancelled)(), uint32_t *r0)
 {
     return swd_prog::instance()->call(addr, args, stack_top, timeout_ms, cancelled, r0);
+}
+
+esp_err_t swd_cortexm_backend::resume_target()
+{
+    return swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN); // debug stays on, unlike swd_run_target()
+}
+
+esp_err_t swd_cortexm_backend::read_core_reg(uint32_t id, uint32_t *val)
+{
+    esp_err_t ret = check_halted();
+    return ret != ESP_OK ? ret : swd_read_core_register(id, val);
+}
+
+esp_err_t swd_cortexm_backend::write_core_reg(uint32_t id, uint32_t val)
+{
+    esp_err_t ret = check_halted();
+    return ret != ESP_OK ? ret : swd_write_core_register(id, val);
 }

@@ -31,3 +31,6 @@
 [submodule "components/on9ringstore"]
 	path = components/on9ringstore
 	url = https://github.com/huming2207/on9ringstore
+[submodule "components/esp-quickjs-ng"]
+	path = components/esp-quickjs-ng
+	url = https://github.com/huming2207/esp-quickjs-ng

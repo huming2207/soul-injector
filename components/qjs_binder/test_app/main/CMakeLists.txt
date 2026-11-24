@@ -1,6 +1,5 @@
 idf_component_register(SRCS "main.cpp" PRIV_REQUIRES qjs_binder esp_timer)
 
-# test.js compiled on the host, as sidp-agent will ship job scripts
 idf_build_get_property(python PYTHON)
 set(tool "${CMAKE_CURRENT_LIST_DIR}/../../../esp-quickjs-ng/tools/qjs_esp_bc.py")
 set(qbc "${CMAKE_CURRENT_BINARY_DIR}/test.qbc")
@@ -12,7 +11,6 @@ add_custom_target(test_qbc DEPENDS "${qbc}")
 add_dependencies(${COMPONENT_LIB} test_qbc)
 target_add_binary_data(${COMPONENT_LIB} "${qbc}" BINARY)
 
-# The STM32WL script from the repo: must make the same target calls as pre/post_prog.yaml
 set(stm_js "${CMAKE_CURRENT_LIST_DIR}/../../../../scripts/stm32wl-rdp.js")
 set(stm_qbc "${CMAKE_CURRENT_BINARY_DIR}/stm32wl.qbc")
 add_custom_command(OUTPUT "${stm_qbc}"

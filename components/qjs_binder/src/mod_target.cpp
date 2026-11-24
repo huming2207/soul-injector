@@ -1,19 +1,3 @@
-/*
- * si:target - the target, as far as a job script may touch it.
- *
- *   read32(addr, opts?)            -> number      sync
- *   write32(addr, value, opts?)                   sync
- *   rmw32(addr, andMask, orBits, opts?) -> value  sync, value = (old & andMask) | orBits
- *   halt(opts?)                                   sync
- *   poll32(addr, mask, expect, { timeoutMs = 1000, intervalMs = 1 }) -> Promise<value>
- *   waitHalt() / reset() / reinit() -> Promise
- *   delay(ms) -> Promise
- *
- * Sync opts: { timeoutMs = CONFIG_SI_JS_CALL_TIMEOUT_MS, retries = 0 }. Calls
- * only work inside a hook. Failures throw (or reject with) a TargetError:
- * .code is NOT_OWNED, BUSY, TIMEOUT, STOPPED or FAULT, .err the esp_err_t.
- */
-
 #include <cstring>
 
 #include <esp_err.h>
@@ -25,7 +9,7 @@
 
 namespace qjs_binder::priv
 {
-    static JSValue target_error(JSContext *ctx, esp_err_t err, const char *code, const char *what)
+    JSValue target_error(JSContext *ctx, esp_err_t err, const char *code, const char *what)
     {
         JSValue e = JS_NewError(ctx);
         if (JS_IsException(e)) {
@@ -40,13 +24,15 @@ namespace qjs_binder::priv
         return e;
     }
 
-    static const char *code_of(esp_err_t err)
+    const char *code_of(esp_err_t err)
     {
         switch (err) {
         case ESP_ERR_TIMEOUT:
             return "TIMEOUT";
-        case ESP_ERR_INVALID_STATE:
-            return "STOPPED"; // cancelled, or no target to talk to
+        case ESP_ERR_NOT_FINISHED:
+            return "STOPPED"; // the run was cancelled
+        case ESP_ERR_NOT_SUPPORTED:
+            return "UNSUPPORTED";
         default:
             return "FAULT";
         }
@@ -54,8 +40,14 @@ namespace qjs_binder::priv
 
     static const char *op_name(uint8_t op)
     {
-        static const char *names[] = {"read32", "write32", "rmw32", "halt", "waitHalt", "reset", "reinit", "poll32", "delay"};
+        static const char *names[] = {"read32", "write32", "rmw32",  "halt", "readMem",    "writeMem",    "waitHalt",   "reset",
+                                      "reinit", "poll32",  "delay",  "call", "flash.read", "flash.write", "flash.erase"};
         return op < sizeof(names) / sizeof(names[0]) ? names[op] : "?";
+    }
+
+    static bool is_xfer(uint8_t op)
+    {
+        return op == OP_READ_MEM || op == OP_WRITE_MEM || op == OP_FLASH_READ || op == OP_FLASH_WRITE;
     }
 
     static int async_pending()
@@ -67,8 +59,29 @@ namespace qjs_binder::priv
         return n;
     }
 
-    /* Target calls only while a hook runs: that's when the owner serves them */
-    static JSValue check_owned(JSContext *ctx, const char *what)
+    void xfer_seen(uint32_t seq)
+    {
+        if (g.xfer_busy && (int32_t)(seq - g.xfer_seq) >= 0) {
+            g.xfer_busy = false;
+        }
+    }
+
+    static bool xfer_free(JSContext *ctx, const char *what)
+    {
+        if (g.xfer_busy) {
+            res x;
+            while (xQueueReceive(g.res_q, &x, 0) == pdTRUE) {
+                xfer_seen(x.seq);
+            }
+        }
+        if (g.xfer_busy) {
+            JS_Throw(ctx, target_error(ctx, ESP_ERR_INVALID_STATE, "BUSY", what));
+            return false;
+        }
+        return true;
+    }
+
+    JSValue check_owned(JSContext *ctx, const char *what)
     {
         if (!g.hook_active || g.loading) {
             return JS_Throw(ctx, target_error(ctx, ESP_ERR_INVALID_STATE, "NOT_OWNED", what));
@@ -81,8 +94,7 @@ namespace qjs_binder::priv
         return JS_ToUint32(ctx, out, v);
     }
 
-    /* opts.name as uint32, or dflt if absent */
-    static int opt_u32(JSContext *ctx, JSValueConst opts, const char *name, uint32_t dflt, uint32_t *out)
+    int opt_u32(JSContext *ctx, JSValueConst opts, const char *name, uint32_t dflt, uint32_t *out)
     {
         *out = dflt;
         if (!JS_IsObject(opts)) {
@@ -92,6 +104,31 @@ namespace qjs_binder::priv
         int ret = JS_IsUndefined(v) ? 0 : get_u32(ctx, v, out);
         JS_FreeValue(ctx, v);
         return ret;
+    }
+
+    int get_bytes(JSContext *ctx, JSValueConst v, const uint8_t **p, size_t *len)
+    {
+        size_t off = 0, n = 0, per = 0;
+        JSValue ab = JS_GetTypedArrayBuffer(ctx, v, &off, &n, &per);
+        if (!JS_IsException(ab)) {
+            size_t ab_len;
+            uint8_t *base = JS_GetArrayBuffer(ctx, &ab_len, ab);
+            JS_FreeValue(ctx, ab);
+            if (!base || off > ab_len || n > ab_len - off) {
+                JS_ThrowTypeError(ctx, "detached or out-of-range buffer");
+                return -1;
+            }
+            *p = base + off;
+            *len = n;
+            return 0;
+        }
+        JS_FreeValue(ctx, JS_GetException(ctx)); // maybe an ArrayBuffer
+        uint8_t *base = JS_GetArrayBuffer(ctx, len, v);
+        if (!base) {
+            return -1;
+        }
+        *p = base;
+        return 0;
     }
 
     static JSValue sync_call(JSContext *ctx, req &r, JSValueConst opts, uint32_t *val)
@@ -106,8 +143,10 @@ namespace qjs_binder::priv
             return JS_EXCEPTION;
         }
         if (async_pending()) {
-            // it would queue behind a poll or a delay and time out
             return JS_Throw(ctx, target_error(ctx, ESP_ERR_INVALID_STATE, "BUSY", what));
+        }
+        if (is_xfer(r.op) && !xfer_free(ctx, what)) {
+            return JS_EXCEPTION;
         }
 
         r.slot = SYNC;
@@ -116,8 +155,11 @@ namespace qjs_binder::priv
         if (xQueueSend(g.req_q, &r, 0) != pdTRUE) {
             return JS_Throw(ctx, target_error(ctx, ESP_ERR_INVALID_STATE, "BUSY", what));
         }
+        if (is_xfer(r.op)) {
+            g.xfer_busy = true;
+            g.xfer_seq = r.seq;
+        }
 
-        // Late answers to an earlier call that timed out carry an older seq
         int64_t end = esp_timer_get_time() + timeout_ms * 1000LL;
         res x = {};
         bool got = false;
@@ -130,21 +172,25 @@ namespace qjs_binder::priv
                 got = true;
                 break;
             }
+            xfer_seen(x.seq);
         }
-        // Waiting on the target isn't script CPU time: restart the slice
         qjs_esp_loop_set_limits(g.loop, &g.lim);
 
         if (!got) {
-            return JS_Throw(ctx, target_error(ctx, ESP_ERR_TIMEOUT, "TIMEOUT", what));
+            return JS_Throw(ctx, target_error(ctx, ESP_ERR_TIMEOUT, "TIMEOUT", what)); // buffer stays claimed
         }
         if (x.ret != ESP_OK) {
+            xfer_seen(x.seq);
             return JS_Throw(ctx, target_error(ctx, x.ret, code_of(x.ret), what));
         }
         *val = x.val;
+        if (r.op != OP_READ_MEM) {
+            xfer_seen(x.seq); // reads release after the copy
+        }
         return JS_UNDEFINED;
     }
 
-    static JSValue async_call(JSContext *ctx, req &r)
+    JSValue async_call(JSContext *ctx, req &r)
     {
         const char *what = op_name(r.op);
         if (JS_IsException(check_owned(ctx, what))) {
@@ -156,6 +202,9 @@ namespace qjs_binder::priv
         }
         if (i == MAX_ASYNC) {
             return JS_Throw(ctx, target_error(ctx, ESP_ERR_INVALID_STATE, "BUSY", what));
+        }
+        if (is_xfer(r.op) && !xfer_free(ctx, what)) {
+            return JS_EXCEPTION;
         }
 
         JSValue funcs[2];
@@ -171,7 +220,11 @@ namespace qjs_binder::priv
             JS_FreeValue(ctx, p);
             return JS_Throw(ctx, target_error(ctx, ESP_ERR_INVALID_STATE, "BUSY", what));
         }
-        g.slots[i] = {true, funcs[0], funcs[1], ESP_OK, 0};
+        if (is_xfer(r.op)) {
+            g.xfer_busy = true;
+            g.xfer_seq = r.seq;
+        }
+        g.slots[i] = {true, r.op, r.seq, funcs[0], funcs[1], ESP_OK, 0};
         return p;
     }
 
@@ -182,8 +235,17 @@ namespace qjs_binder::priv
             return; // the hook ended without waiting for it
         }
         s.used = false;
-        JSValue v = s.ret == ESP_OK ? JS_NewUint32(ctx, s.val) : target_error(ctx, s.ret, code_of(s.ret), "async call");
-        JSValue r = JS_Call(ctx, s.ret == ESP_OK ? s.resolve : s.reject, JS_UNDEFINED, 1, &v);
+        JSValue v;
+        if (s.ret != ESP_OK) {
+            v = target_error(ctx, s.ret, code_of(s.ret), op_name(s.op));
+        } else if (s.op == OP_FLASH_READ) {
+            v = JS_NewUint8ArrayCopy(ctx, g.xfer, s.val); // val: bytes read
+        } else {
+            v = JS_NewUint32(ctx, s.val);
+        }
+        xfer_seen(s.seq); // buffer free from here
+        bool ok = s.ret == ESP_OK && !JS_IsException(v);
+        JSValue r = JS_Call(ctx, ok ? s.resolve : s.reject, JS_UNDEFINED, 1, &v);
         JS_FreeValue(ctx, r);
         JS_FreeValue(ctx, v);
         JS_FreeValue(ctx, s.resolve);
@@ -199,9 +261,8 @@ namespace qjs_binder::priv
                 s.used = false;
             }
         }
+        g.xfer_busy = false;
     }
-
-    // ---- functions ----
 
     static JSValue js_read32(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
     {
@@ -246,6 +307,56 @@ namespace qjs_binder::priv
         return sync_call(ctx, r, argc > 0 ? argv[0] : JS_UNDEFINED, &val);
     }
 
+    static JSValue js_read_mem(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        req r = {};
+        r.op = OP_READ_MEM;
+        uint32_t val = 0;
+        if (get_u32(ctx, argv[0], &r.addr) || get_u32(ctx, argv[1], &r.a)) {
+            return JS_EXCEPTION;
+        }
+        if (r.a > XFER_MAX) {
+            return JS_ThrowRangeError(ctx, "readMem: at most %u bytes per call", (unsigned)XFER_MAX);
+        }
+        JSValue ret = sync_call(ctx, r, argc > 2 ? argv[2] : JS_UNDEFINED, &val);
+        if (JS_IsException(ret)) {
+            return ret;
+        }
+        JSValue out = JS_NewUint8ArrayCopy(ctx, g.xfer, r.a);
+        xfer_seen(r.seq);
+        return out;
+    }
+
+    static bool fill_xfer(JSContext *ctx, req &r, JSValueConst v)
+    {
+        const uint8_t *p;
+        size_t len;
+        if (get_bytes(ctx, v, &p, &len)) {
+            return false;
+        }
+        if (len > XFER_MAX) {
+            JS_ThrowRangeError(ctx, "at most %u bytes per call", (unsigned)XFER_MAX);
+            return false;
+        }
+        if (JS_IsException(check_owned(ctx, op_name(r.op))) || !xfer_free(ctx, op_name(r.op))) {
+            return false;
+        }
+        memcpy(g.xfer, p, len);
+        r.a = len;
+        return true;
+    }
+
+    static JSValue js_write_mem(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        req r = {};
+        r.op = OP_WRITE_MEM;
+        uint32_t val = 0;
+        if (get_u32(ctx, argv[0], &r.addr) || !fill_xfer(ctx, r, argv[1])) {
+            return JS_EXCEPTION;
+        }
+        return sync_call(ctx, r, argc > 2 ? argv[2] : JS_UNDEFINED, &val);
+    }
+
     static JSValue js_poll32(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
     {
         req r = {};
@@ -254,6 +365,38 @@ namespace qjs_binder::priv
         if (get_u32(ctx, argv[0], &r.addr) || get_u32(ctx, argv[1], &r.a) || get_u32(ctx, argv[2], &r.b) ||
             opt_u32(ctx, opts, "timeoutMs", 1000, &r.timeout_ms) || opt_u32(ctx, opts, "intervalMs", 1, &r.interval_ms)) {
             return JS_EXCEPTION;
+        }
+        return async_call(ctx, r);
+    }
+
+    static JSValue js_call(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        req r = {};
+        r.op = OP_CALL;
+        JSValueConst opts = argc > 2 ? argv[2] : JS_UNDEFINED;
+        if (get_u32(ctx, argv[0], &r.addr) || opt_u32(ctx, opts, "timeoutMs", 1000, &r.timeout_ms) ||
+            opt_u32(ctx, opts, "stackTop", 0, &r.b)) {
+            return JS_EXCEPTION;
+        }
+        if (r.b == 0 || (r.b & 7)) {
+            return JS_ThrowTypeError(ctx, "call: opts.stackTop must be an 8-byte aligned RAM address");
+        }
+        if (argc > 1 && !JS_IsUndefined(argv[1])) {
+            int64_t n = 0;
+            if (JS_GetLength(ctx, argv[1], &n)) {
+                return JS_EXCEPTION;
+            }
+            if (n > 4) {
+                return JS_ThrowRangeError(ctx, "call: at most 4 arguments");
+            }
+            for (int i = 0; i < n; i++) {
+                JSValue v = JS_GetPropertyUint32(ctx, argv[1], i);
+                int bad = get_u32(ctx, v, &r.args[i]);
+                JS_FreeValue(ctx, v);
+                if (bad) {
+                    return JS_EXCEPTION;
+                }
+            }
         }
         return async_call(ctx, r);
     }
@@ -275,30 +418,80 @@ namespace qjs_binder::priv
         return async_call(ctx, r);
     }
 
+    static JSValue js_flash_read(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        req r = {};
+        r.op = OP_FLASH_READ;
+        if (get_u32(ctx, argv[0], &r.addr) || get_u32(ctx, argv[1], &r.a)) {
+            return JS_EXCEPTION;
+        }
+        if (r.a > XFER_MAX) {
+            return JS_ThrowRangeError(ctx, "flash.read: at most %u bytes per call", (unsigned)XFER_MAX);
+        }
+        return async_call(ctx, r);
+    }
+
+    static JSValue js_flash_write(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        req r = {};
+        r.op = OP_FLASH_WRITE;
+        if (get_u32(ctx, argv[0], &r.addr) || !fill_xfer(ctx, r, argv[1])) {
+            return JS_EXCEPTION;
+        }
+        return async_call(ctx, r);
+    }
+
+    static JSValue js_flash_erase(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        req r = {};
+        r.op = OP_FLASH_ERASE;
+        if (get_u32(ctx, argv[0], &r.addr) || get_u32(ctx, argv[1], &r.a)) {
+            return JS_EXCEPTION;
+        }
+        return async_call(ctx, r);
+    }
+
     static const JSCFunctionListEntry funcs[] = {
         JS_CFUNC_DEF("read32", 2, js_read32),
         JS_CFUNC_DEF("write32", 3, js_write32),
         JS_CFUNC_DEF("rmw32", 4, js_rmw32),
         JS_CFUNC_DEF("halt", 1, js_halt),
+        JS_CFUNC_DEF("readMem", 3, js_read_mem),
+        JS_CFUNC_DEF("writeMem", 3, js_write_mem),
         JS_CFUNC_DEF("poll32", 4, js_poll32),
+        JS_CFUNC_DEF("call", 3, js_call),
         JS_CFUNC_MAGIC_DEF("waitHalt", 0, js_simple_async, OP_WAIT_HALT),
         JS_CFUNC_MAGIC_DEF("reset", 0, js_simple_async, OP_RESET),
         JS_CFUNC_MAGIC_DEF("reinit", 0, js_simple_async, OP_REINIT),
         JS_CFUNC_DEF("delay", 1, js_delay),
     };
 
-    static int module_init(JSContext *ctx, JSModuleDef *m)
+    static const JSCFunctionListEntry flash_funcs[] = {
+        JS_CFUNC_DEF("read", 2, js_flash_read),
+        JS_CFUNC_DEF("write", 2, js_flash_write),
+        JS_CFUNC_DEF("erase", 2, js_flash_erase),
+    };
+
+    template <const JSCFunctionListEntry *tab, size_t n> static int module_init(JSContext *ctx, JSModuleDef *m)
     {
-        return JS_SetModuleExportList(ctx, m, funcs, sizeof(funcs) / sizeof(funcs[0]));
+        return JS_SetModuleExportList(ctx, m, tab, n);
+    }
+
+    template <const JSCFunctionListEntry *tab, size_t n> static JSModuleDef *new_module(JSContext *ctx, const char *name)
+    {
+        JSModuleDef *m = JS_NewCModule(ctx, name, module_init<tab, n>);
+        if (m && JS_AddModuleExportList(ctx, m, tab, n)) {
+            return nullptr;
+        }
+        return m;
     }
 
     JSModuleDef *init_target_module(JSContext *ctx)
     {
-        JSModuleDef *m = JS_NewCModule(ctx, "si:target", module_init);
-        if (m && JS_AddModuleExportList(ctx, m, funcs, sizeof(funcs) / sizeof(funcs[0]))) {
+        if (!new_module<flash_funcs, sizeof(flash_funcs) / sizeof(flash_funcs[0])>(ctx, "si:flash")) {
             return nullptr;
         }
-        return m;
+        return new_module<funcs, sizeof(funcs) / sizeof(funcs[0])>(ctx, "si:target");
     }
 } // namespace qjs_binder::priv
 

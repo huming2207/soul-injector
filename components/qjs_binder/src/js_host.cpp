@@ -1,8 +1,3 @@
-/*
- * JS task, run lifecycle, hooks, and the owner side that serves target calls.
- * See host_priv.hpp for who talks to whom.
- */
-
 #include <cstdio>
 #include <cstring>
 
@@ -30,16 +25,16 @@ namespace qjs_binder
 
     static const char *TAG = "js_host";
 
+#if CONFIG_SI_JS_NETWORK
+    static constexpr bool HAVE_NETWORK = true;
+#else
+    static constexpr bool HAVE_NETWORK = false;
+#endif
     static constexpr uint32_t LOAD_TIMEOUT_MS = 5000;
-    static constexpr uint32_t GRACE_MS = 2000;      // JS task gets this long past a deadline to come back
+    static constexpr uint32_t GRACE_MS = 2000;      // past a deadline
     static constexpr uint32_t CANCEL_POLL_MS = 50;
     static constexpr const char *HOOK_NAMES[] = {"preProgram", "postProgram"};
 
-    /*
-     * The script of the run in progress. It survives a panic or watchdog reset
-     * (not a power cycle), so the next boot refuses that script instead of
-     * crashing again on every plugged-in target.
-     */
     static __NOINIT_ATTR struct {
         uint32_t magic;
         uint8_t sha256[32];
@@ -58,11 +53,6 @@ namespace qjs_binder
         snprintf(g.err, sizeof(g.err), fmt, arg);
     }
 
-    // ------------------------------------------------------------------
-    // JS task
-    // ------------------------------------------------------------------
-
-    /* Log an error value with its stack; keep one line for the display */
     static void record_error(JSContext *ctx, JSValueConst e)
     {
         const char *msg = JS_ToCString(ctx, e);
@@ -81,11 +71,10 @@ namespace qjs_binder
         r.op = OP_DONE;
         r.ret = ret;
         if (xQueueSend(g.req_q, &r, pdMS_TO_TICKS(100)) != pdTRUE) {
-            ESP_LOGE(TAG, "owner queue full, result lost"); // the owner's deadline catches it
+            ESP_LOGE(TAG, "owner queue full, result lost"); // owner's deadline catches it
         }
     }
 
-    /* The load or a hook settled. Only the first report counts. */
     static void finish(JSContext *ctx, esp_err_t ret)
     {
         if (!g.hook_active && !g.loading) {
@@ -119,13 +108,10 @@ namespace qjs_binder
         return JS_UNDEFINED;
     }
 
-    /* Report when r settles; r is consumed */
     static void settle(JSContext *ctx, JSValue r)
     {
         if (JS_IsException(r)) {
             JSValue e = JS_GetException(ctx);
-            // Uncatchable = the loop was stopped (slice, deadline, cancel); it
-            // reports that itself with the reason once it returns
             bool stopped = JS_IsUncatchableError(e);
             if (!stopped) {
                 record_error(ctx, e);
@@ -180,17 +166,12 @@ namespace qjs_binder
         JS_CFUNC_MAGIC_DEF("error", 1, js_console, 2),
     };
 
-    /* Imports resolve to the modules we registered, nothing else */
     static JSModuleDef *refuse_module(JSContext *ctx, const char *name, void *)
     {
         JS_ThrowReferenceError(ctx, "no module '%s' here (bundle local files into the script)", name);
         return nullptr;
     }
 
-    /*
-     * No eval/Function (bytecode only), no Proxy or WeakRef, no qjs:std or
-     * qjs:os (files, environment). The target is si:target.
-     */
     static JSContext *new_context(JSRuntime *rt)
     {
         JSContext *ctx = JS_NewContextRaw(rt);
@@ -200,7 +181,7 @@ namespace qjs_binder
         if (JS_AddIntrinsicBaseObjects(ctx) || JS_AddIntrinsicDate(ctx) || JS_AddIntrinsicRegExp(ctx) ||
             JS_AddIntrinsicJSON(ctx) || JS_AddIntrinsicMapSet(ctx) || JS_AddIntrinsicTypedArrays(ctx) ||
             JS_AddIntrinsicPromise(ctx) || JS_AddIntrinsicAToB(ctx) || JS_AddPerformance(ctx) ||
-            !init_target_module(ctx)) {
+            !init_target_module(ctx) || !init_misc_modules(ctx)) {
             JS_FreeContext(ctx);
             return nullptr;
         }
@@ -209,6 +190,12 @@ namespace qjs_binder
         JS_SetPropertyFunctionList(ctx, console, console_funcs, sizeof(console_funcs) / sizeof(console_funcs[0]));
         JS_SetPropertyStr(ctx, global, "console", console);
         JS_FreeValue(ctx, global);
+#if CONFIG_SI_JS_NETWORK
+        if (g.network && !qjs_esp_init_module_ws(ctx, "esp:ws")) {
+            JS_FreeContext(ctx);
+            return nullptr;
+        }
+#endif
         return ctx;
     }
 
@@ -224,7 +211,6 @@ namespace qjs_binder
         return c;
     }
 
-    /* qjs_esp_loop_post from the owner: call the current hook */
     static void call_hook(JSContext *ctx, void *)
     {
         g.hook_active = true;
@@ -260,7 +246,7 @@ namespace qjs_binder
     {
         JSRuntime *rt = qjs_esp_new_runtime_in(g.arena);
         if (!rt) {
-            qjs_esp_arena_reset(g.arena); // a leftover means a teardown went wrong; it's all garbage
+            qjs_esp_arena_reset(g.arena); // leftovers are garbage
             rt = qjs_esp_new_runtime_in(g.arena);
         }
         JSContext *ctx = rt ? (js_std_init_handlers(rt), new_context(rt)) : nullptr;
@@ -275,17 +261,20 @@ namespace qjs_binder
 
         g.lim = {CONFIG_SI_JS_SLICE_MS, CONFIG_SI_JS_YIELD_MS};
         qjs_esp_loop_set_limits(loop, &g.lim);
-        qjs_esp_loop_keep_alive(loop, true); // hooks arrive later as posted work
+        qjs_esp_loop_keep_alive(loop, true); // hooks come as posted work
         qjs_esp_loop_set_deadline(loop, now_us() + LOAD_TIMEOUT_MS * 1000LL);
         xSemaphoreTake(g.loop_lock, portMAX_DELAY);
         g.loop = loop;
         xSemaphoreGive(g.loop_lock);
 
+        g.results = JS_NewObject(ctx);
+        g.on_progress = JS_UNDEFINED;
+        g.results_json[0] = '\0';
+        g.xfer_busy = false;
         g.loading = true;
         g.hooks[0] = g.hooks[1] = false;
         settle(ctx, qjs_esp_bc_eval(ctx, g.script, g.script_len, &g.mod));
 
-        // Hooks run inside this. Only a stop gets us out: end_run, cancel, a deadline or a slice.
         qjs_esp_stop_t why = qjs_esp_loop_run(loop);
         if (g.loading || g.hook_active) {
             set_err("%s", stop_text(why));
@@ -295,13 +284,12 @@ namespace qjs_binder
         }
 
         xSemaphoreTake(g.loop_lock, portMAX_DELAY);
-        qjs_esp_loop_free(loop); // stops nothing here (no I/O modules), drains posted work
+        qjs_esp_loop_free(loop); // drains posted work
         g.loop = nullptr;
         xSemaphoreGive(g.loop_lock);
         memset(g.slots, 0, sizeof(g.slots));
         g.mod = nullptr;
-        // Everything the script made lives in the arena: drop it whole. A runtime
-        // stopped mid-call may not free cleanly, and JS_FreeRuntime asserts on leaks.
+        g.results = g.on_progress = JS_UNDEFINED;
         qjs_esp_arena_reset(g.arena);
     }
 
@@ -314,10 +302,6 @@ namespace qjs_binder
             xSemaphoreGive(g.ended);
         }
     }
-
-    // ------------------------------------------------------------------
-    // Owner: target calls
-    // ------------------------------------------------------------------
 
     static TickType_t ms_ticks(uint32_t ms)
     {
@@ -334,11 +318,10 @@ namespace qjs_binder
         xSemaphoreGive(g.loop_lock);
     }
 
-    /* Async ops never outlive the hook, nor a cancel: ESP_OK while there's time */
     static esp_err_t expired(int64_t until_us, cancel_fn cancelled)
     {
         if (cancelled && cancelled()) {
-            return ESP_ERR_INVALID_STATE; // STOPPED
+            return ESP_ERR_NOT_FINISHED; // STOPPED
         }
         return now_us() >= until_us || now_us() >= g.hook_end_us ? ESP_ERR_TIMEOUT : ESP_OK;
     }
@@ -360,6 +343,10 @@ namespace qjs_binder
         }
         case OP_HALT:
             return t.halt();
+        case OP_READ_MEM:
+            return t.read_mem(r.addr, g.xfer, r.a);
+        case OP_WRITE_MEM:
+            return t.write_mem(r.addr, g.xfer, r.a);
         case OP_WAIT_HALT:
             return t.wait_halt();
         case OP_RESET:
@@ -391,9 +378,22 @@ namespace qjs_binder
                 int64_t left_ms = (until - now_us()) / 1000;
                 vTaskDelay(ms_ticks(left_ms < CANCEL_POLL_MS ? left_ms : CANCEL_POLL_MS));
             }
-            // reaching the delay's own end is the point, running past the hook isn't
             return now_us() >= until && now_us() < g.hook_end_us ? ESP_OK : over;
         }
+        case OP_CALL: {
+            int64_t left_ms = (g.hook_end_us - now_us()) / 1000;
+            uint32_t ms = left_ms <= 0 ? 0 : (r.timeout_ms < left_ms ? r.timeout_ms : (uint32_t)left_ms);
+            return t.call(r.addr, r.args, r.b, ms, cancelled, val);
+        }
+        case OP_FLASH_READ: {
+            esp_err_t ret = t.flash_read(r.addr, g.xfer, r.a);
+            *val = r.a;
+            return ret;
+        }
+        case OP_FLASH_WRITE:
+            return t.flash_write(r.addr, g.xfer, r.a);
+        case OP_FLASH_ERASE:
+            return t.flash_erase(r.addr, r.a);
         default:
             return ESP_ERR_NOT_SUPPORTED;
         }
@@ -401,7 +401,7 @@ namespace qjs_binder
 
     static void execute(const req &r, js_target *t, cancel_fn cancelled)
     {
-        esp_err_t ret = ESP_ERR_INVALID_STATE; // no target: called during the load
+        esp_err_t ret = ESP_ERR_INVALID_STATE; // load: no target
         uint32_t val = 0;
         for (int i = 0; t && i <= r.retries; i++) {
             ret = run_op(r, *t, cancelled, &val);
@@ -422,19 +422,12 @@ namespace qjs_binder
         s.ret = ret;
         s.val = val;
         xSemaphoreTake(g.loop_lock, portMAX_DELAY);
-        // A JS task with a full queue is buried; its deadline sorts that out
         if (g.loop && qjs_esp_loop_post(g.loop, async_done, &s, pdMS_TO_TICKS(10)) != ESP_OK) {
             ESP_LOGW(TAG, "JS queue full, async result dropped");
         }
         xSemaphoreGive(g.loop_lock);
     }
 
-    /*
-     * Serve target calls until the script reports OP_DONE. The script's own
-     * deadline is timeout_ms; past that plus GRACE_MS we stop the loop, and if
-     * the JS task still doesn't answer it's stuck in native code: scripting is
-     * off until reboot, the caller fails the run and goes on.
-     */
     static esp_err_t serve(js_target *t, uint32_t timeout_ms, cancel_fn cancelled)
     {
         int64_t end = now_us() + (timeout_ms + GRACE_MS) * 1000LL;
@@ -470,10 +463,6 @@ namespace qjs_binder
         }
     }
 
-    // ------------------------------------------------------------------
-    // js_host
-    // ------------------------------------------------------------------
-
     js_host *js_host::instance()
     {
         static js_host h;
@@ -501,7 +490,8 @@ namespace qjs_binder
         g.res_q = xQueueCreate(1, sizeof(res));
         g.ended = xSemaphoreCreateBinary();
         g.loop_lock = xSemaphoreCreateMutex();
-        if (!g.arena || !g.cmd_q || !g.req_q || !g.res_q || !g.ended || !g.loop_lock) {
+        g.xfer = (uint8_t *)heap_caps_malloc(XFER_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!g.arena || !g.cmd_q || !g.req_q || !g.res_q || !g.ended || !g.loop_lock || !g.xfer) {
             ESP_LOGE(TAG, "init: out of memory, scripts are off");
             return ESP_ERR_NO_MEM;
         }
@@ -543,7 +533,7 @@ namespace qjs_binder
         if (ret == ESP_OK) {
             ret = begin_run(buf, len, pinned_sha256, info);
         }
-        heap_caps_free(buf); // the runtime has its own copy once loaded
+        heap_caps_free(buf); // runtime has its own copy
         return ret;
     }
 
@@ -572,6 +562,14 @@ namespace qjs_binder
             set_err("this script crashed the device, reboot to retry");
             return ESP_ERR_INVALID_STATE;
         }
+        if (info.network && !HAVE_NETWORK) {
+            set_err("job wants the network, this firmware has none for scripts");
+            return ESP_ERR_NOT_SUPPORTED;
+        }
+        g.network = info.network;
+        g.prog_last_stage = nullptr;
+        g.prog_last_us = 0;
+        g.prog_posted = false;
 
         strlcpy(g.job_name, info.job_name ? info.job_name : "", sizeof(g.job_name));
         strlcpy(g.variant, info.variant ? info.variant : "", sizeof(g.variant));
@@ -588,7 +586,7 @@ namespace qjs_binder
         g.hook_end_us = now_us() + LOAD_TIMEOUT_MS * 1000LL;
 
         uint8_t cmd = 1;
-        xQueueSend(g.cmd_q, &cmd, portMAX_DELAY); // empty: the last run ended
+        xQueueSend(g.cmd_q, &cmd, portMAX_DELAY);
         esp_err_t ret = serve(nullptr, LOAD_TIMEOUT_MS, nullptr);
         g.script = nullptr;
         if (ret != ESP_OK && g.err[0] == '\0') {
@@ -654,6 +652,34 @@ namespace qjs_binder
     {
         g.have_sha = false;
         g.pinned = false;
+        g.results_json[0] = '\0';
+    }
+
+    const char *js_host::last_results() const
+    {
+        return g.results_json;
+    }
+
+    void js_host::progress(const char *stage, int pct)
+    {
+        if (!g.running || g.dead) {
+            return;
+        }
+        g.prog_stage = stage;
+        g.prog_pct = pct;
+        int64_t now = now_us();
+        bool news = stage != g.prog_last_stage || pct >= 100 || now - g.prog_last_us >= 100000;
+        if (!news || g.prog_posted.exchange(true)) {
+            return;
+        }
+        g.prog_last_stage = stage;
+        g.prog_last_us = now;
+        xSemaphoreTake(g.loop_lock, portMAX_DELAY);
+        bool posted = g.loop && qjs_esp_loop_post(g.loop, progress_cb, nullptr, 0) == ESP_OK;
+        xSemaphoreGive(g.loop_lock);
+        if (!posted) {
+            g.prog_posted = false;
+        }
     }
 
     const char *js_host::last_error() const
@@ -662,7 +688,7 @@ namespace qjs_binder
     }
 } // namespace qjs_binder
 
-#else // !CONFIG_SI_JS_ENABLE: stubs, so none of QuickJS ends up in the image
+#else // stubs: no QuickJS linked
 
 namespace qjs_binder
 {
@@ -679,6 +705,8 @@ namespace qjs_binder
     void js_host::end_run() {}
     bool js_host::last_script(uint8_t[32], bool *) const { return false; }
     void js_host::forget_last_script() {}
+    const char *js_host::last_results() const { return ""; }
+    void js_host::progress(const char *, int) {}
     const char *js_host::last_error() const { return "this firmware doesn't run scripts"; }
 } // namespace qjs_binder
 

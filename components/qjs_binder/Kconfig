@@ -4,17 +4,19 @@ menu "Soul Injector job scripts"
         bool "Run job scripts (JS)"
         depends on SPIRAM
         default n
+
+    config SI_JS_NETWORK
+        bool "Let job scripts use WebSocket (esp:ws)"
+        depends on SI_JS_ENABLE
+        select QJS_ESP_MOD_WS
+        default n
         help
-            Jobs may carry a bytecode script whose preProgram/postProgram
-            hooks run around programming. Takes a PSRAM arena and a task.
+            Only for jobs with Script.network set.
 
     config SI_JS_ARENA_KB
         int "Script heap (KB of PSRAM)"
         range 512 8192
         default 2048
-        help
-            Everything a script allocates comes from here, nothing else.
-            Reserved at boot.
 
     config SI_JS_TASK_STACK
         int "JS task stack (bytes, internal RAM)"
@@ -25,9 +27,6 @@ menu "Soul Injector job scripts"
         int "JS task priority"
         range 1 20
         default 4
-        help
-            Below the programming, SIDP and power tasks, so a busy script
-            can't hold them up.
 
     config SI_JS_TASK_CORE
         int "JS task core"
@@ -38,9 +37,6 @@ menu "Soul Injector job scripts"
         int "Longest one turn of a script may run (ms)"
         range 10 10000
         default 200
-        help
-            One callback, or a batch of promise jobs. Waiting on the target
-            doesn't count. Past it the script is stopped.
 
     config SI_JS_YIELD_MS
         int "Yield a busy script every (ms)"
@@ -51,8 +47,6 @@ menu "Soul Injector job scripts"
         int "Default hook timeout (ms)"
         range 100 600000
         default 30000
-        help
-            A job can set its own. Past it the hook fails and the run with it.
 
     config SI_JS_CALL_TIMEOUT_MS
         int "Default timeout of a sync target call (ms)"

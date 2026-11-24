@@ -57,6 +57,9 @@ public:
     esp_err_t wait_halt() override;
     esp_err_t read_mem32(uint32_t addr, uint32_t *val) override;
     esp_err_t write_mem32(uint32_t addr, uint32_t val) override;
+    esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) override;
+    esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) override;
+    esp_err_t flash_erase(uint32_t addr, size_t len) override;
 
 private:
     esp32_serial_backend() = default;
@@ -64,6 +67,7 @@ private:
     esp_err_t program_one_image(const char *path, uint32_t offset, uint32_t *written_len);
     esp_err_t verify_one_image(const char *path, uint32_t offset);
     esp_err_t connect_locked();
+    esp_err_t check_flash_range(const char *what, uint32_t addr, size_t len);
     esp_err_t validate_images(uint32_t flash_limit);
     esp_err_t prepare_control_pins();
     esp_err_t pulse_reset();

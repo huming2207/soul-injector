@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include <esp_err.h>
 
@@ -74,4 +76,44 @@ public:
 
     /** Write one 32-bit word to target memory space. */
     virtual esp_err_t write_mem32(uint32_t addr, uint32_t val) = 0;
+
+
+    using progress_fn = void (*)(uint32_t done, uint32_t total);
+    progress_fn on_progress = nullptr; // done/total bytes of program()
+
+    virtual esp_err_t read_mem(uint32_t addr, uint8_t *buf, size_t len)
+    {
+        for (size_t i = 0; i < len; i += 4) {
+            uint32_t w = 0;
+            esp_err_t ret = ((addr | len) & 3) ? ESP_ERR_INVALID_ARG : read_mem32(addr + i, &w);
+            if (ret != ESP_OK) {
+                return ret;
+            }
+            memcpy(buf + i, &w, 4);
+        }
+        return ESP_OK;
+    }
+
+    virtual esp_err_t write_mem(uint32_t addr, const uint8_t *buf, size_t len)
+    {
+        for (size_t i = 0; i < len; i += 4) {
+            uint32_t w = 0;
+            memcpy(&w, buf + i, 4);
+            esp_err_t ret = ((addr | len) & 3) ? ESP_ERR_INVALID_ARG : write_mem32(addr + i, w);
+            if (ret != ESP_OK) {
+                return ret;
+            }
+        }
+        return ESP_OK;
+    }
+
+    virtual esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) { return ESP_ERR_NOT_SUPPORTED; }
+    virtual esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) { return ESP_ERR_NOT_SUPPORTED; }
+    virtual esp_err_t flash_erase(uint32_t addr, size_t len) { return ESP_ERR_NOT_SUPPORTED; }
+
+    virtual esp_err_t call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms,
+                           bool (*cancelled)(), uint32_t *r0)
+    {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
 };

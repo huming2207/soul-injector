@@ -330,6 +330,8 @@ esp_err_t swd_prog::init(uint32_t _stack_size)
     );
 
     state = swd_def::INITIALISED;
+    have_layout = true;
+    layout_generation = cfg.generation;
     return ESP_OK;
 }
 
@@ -813,6 +815,9 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
         }
 
         remain_len -= write_size;
+        if (on_progress != nullptr) {
+            on_progress(len - remain_len, len);
+        }
     }
 
     swd_ret = swd_flash_syscall_wait_result(FLASHALGO_RETURN_BOOL, nullptr);
@@ -880,6 +885,9 @@ esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t pa
         }
 
         remain_len -= write_size;
+        if (on_progress != nullptr) {
+            on_progress(len - remain_len, len);
+        }
     }
 
     free(buf);
@@ -889,4 +897,149 @@ esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t pa
 void swd_prog::reset_gpio()
 {
     swd_off();
+}
+
+
+esp_err_t swd_prog::ensure_layout()
+{
+    if (have_layout && layout_generation == fw_asset_manager::instance()->config().generation) {
+        return ESP_OK;
+    }
+    return init();
+}
+
+esp_err_t swd_prog::check_flash_range(uint32_t addr, uint32_t len)
+{
+    const si::config::flash_algorithm &fa = algo();
+    if (!fa.flash_start.has_value() || !fa.flash_end.has_value() || !fa.page_size.has_value()) {
+        ESP_LOGE(TAG, "flash: the algorithm has no flash range or page size");
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint32_t start = fa.flash_start.value(), end = fa.flash_end.value();
+    if (len == 0 || addr < start || addr > end || len > end - addr) {
+        ESP_LOGE(TAG, "flash: 0x%08lx+%lu is outside 0x%08lx-0x%08lx", addr, len, start, end);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return ESP_OK;
+}
+
+esp_err_t swd_prog::erase_range(uint32_t addr, uint32_t len)
+{
+    auto ret = ensure_layout();
+    ret = ret ?: check_flash_range(addr, len);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const si::config::flash_algorithm &fa = algo();
+    uint32_t sector = fa.page_size.value();
+    if (!fa.pc_erase_sector.has_value() || (addr - fa.flash_start.value()) % sector != 0 || len % sector != 0) {
+        ESP_LOGE(TAG, "erase_range: 0x%08lx+%lu isn't whole %lu-byte sectors (or no EraseSector)", addr, len, sector);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ret = run_algo_init(swd_def::ERASE);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    for (uint32_t a = addr; a - addr < len; a += sector) {
+        ret = swd_flash_syscall_exec(&syscall, fa.pc_erase_sector.value(), a, 0, 0, 0, FLASHALGO_RETURN_BOOL, nullptr);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "erase_range: sector 0x%08lx failed: 0x%x", a, ret);
+            state = swd_def::UNKNOWN;
+            return ret;
+        }
+    }
+    return run_algo_uninit(swd_def::ERASE);
+}
+
+esp_err_t swd_prog::write_range(uint32_t addr, const uint8_t *buf, uint32_t len)
+{
+    auto ret = ensure_layout();
+    ret = ret ?: check_flash_range(addr, len);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const si::config::flash_algorithm &fa = algo();
+    if (!fa.pc_program_page.has_value() || len % 4 != 0) {
+        ESP_LOGE(TAG, "write_range: length %lu isn't a multiple of 4 (or no ProgramPage)", len);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ret = run_algo_init(swd_def::PROGRAM);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const uint32_t page = fa.page_size.value(), base = fa.flash_start.value();
+    for (uint32_t done = 0; done < len;) {
+        uint32_t a = addr + done;
+        uint32_t n = std::min(page - (a - base) % page, len - done);
+        ret = swd_write_memory(stack_top, const_cast<uint8_t *>(buf + done), n);
+        ret = ret ?: swd_flash_syscall_exec(&syscall, fa.pc_program_page.value(), a, n, stack_top, 0, FLASHALGO_RETURN_BOOL, nullptr);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "write_range: %lu bytes at 0x%08lx failed: 0x%x", n, a, ret);
+            state = swd_def::UNKNOWN;
+            return ret;
+        }
+        done += n;
+    }
+    return run_algo_uninit(swd_def::PROGRAM);
+}
+
+esp_err_t swd_prog::call(uint32_t addr, const uint32_t args[4], uint32_t stack_top_in, uint32_t timeout_ms, bool (*cancelled)(), uint32_t *r0)
+{
+    static constexpr uint32_t DHCSR_ADDR = 0xE000EDF0; // DBG_HCSR is private to swd_host.c
+    const uint32_t bkpt = stack_top_in - 8; // returns here, stack below
+    const si::config::target_config &cfg = fw_asset_manager::instance()->config();
+    bool in_ram = false;
+    for (size_t i = 0; i < cfg.ram_region_count && !in_ram; i++) {
+        in_ram = cfg.ram_regions[i].contains_range(bkpt, 8);
+    }
+    if ((stack_top_in & 7) != 0 || !in_ram) {
+        ESP_LOGE(TAG, "call: stack top 0x%08lx isn't 8-aligned inside a RAM region of the job", stack_top_in);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    auto ret = swd_halt_target();
+    ret = ret ?: swd_wait_until_halted();
+    ret = ret ?: swd_write_word(bkpt, halt_header);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const program_syscall_t sc = {.breakpoint = bkpt | 1, .static_base = 0, .stack_pointer = bkpt};
+    ret = swd_flash_syscall_exec_async(&sc, addr | 1, args[0], args[1], args[2], args[3]); // interrupts masked
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    const int64_t until = esp_timer_get_time() + timeout_ms * 1000LL;
+    for (;;) {
+        uint32_t dhcsr = 0;
+        ret = swd_read_word(DHCSR_ADDR, &dhcsr);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        if (dhcsr & S_HALT) {
+            break;
+        }
+        bool late = esp_timer_get_time() >= until;
+        if (late || (cancelled != nullptr && cancelled())) {
+            swd_halt_target(); // leave it halted
+            ESP_LOGW(TAG, "call: 0x%08lx %s", addr, late ? "timed out" : "cancelled");
+            return late ? ESP_ERR_TIMEOUT : ESP_ERR_NOT_FINISHED;
+        }
+        vTaskDelay(1);
+    }
+
+    uint32_t pc = 0;
+    ret = swd_read_core_register(15, &pc);
+    ret = ret ?: swd_read_core_register(0, r0);
+    ret = ret ?: swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | C_HALT); // drop C_MASKINTS, stay halted
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if ((pc & ~1u) != bkpt) {
+        ESP_LOGE(TAG, "call: halted at 0x%08lx, not at the return breakpoint 0x%08lx (fault or BKPT?)", pc, bkpt);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
 }

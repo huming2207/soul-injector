@@ -15,7 +15,6 @@
 
 namespace
 {
-    /* The target as a job script sees it: this run's backend */
     class backend_target final : public qjs_binder::js_target
     {
     public:
@@ -26,6 +25,16 @@ namespace
         esp_err_t wait_halt() override { return backend.wait_halt(); }
         esp_err_t reset() override { return backend.reset_target(); }
         esp_err_t reinit() override { return backend.reinit_debug(); }
+        esp_err_t read_mem(uint32_t addr, uint8_t *buf, size_t len) override { return backend.read_mem(addr, buf, len); }
+        esp_err_t write_mem(uint32_t addr, const uint8_t *buf, size_t len) override { return backend.write_mem(addr, buf, len); }
+        esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) override { return backend.flash_read(addr, buf, len); }
+        esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) override { return backend.flash_write(addr, buf, len); }
+        esp_err_t flash_erase(uint32_t addr, size_t len) override { return backend.flash_erase(addr, len); }
+        esp_err_t call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms, qjs_binder::cancel_fn cancelled,
+                       uint32_t *r0) override
+        {
+            return backend.call(addr, args, stack_top, timeout_ms, cancelled, r0);
+        }
 
     private:
         target_backend &backend;
@@ -36,12 +45,21 @@ namespace
         return job_controller::instance()->cancel_requested();
     }
 
+    void progress(const char *stage, int pct)
+    {
+        qjs_binder::js_host::instance()->progress(stage, pct);
+    }
+
+    void program_progress(uint32_t done, uint32_t total)
+    {
+        progress("program", total ? (int)(done * 100ULL / total) : 100);
+    }
+
     bool has_script()
     {
         return fw_asset_manager::instance()->script_path() != nullptr;
     }
 
-    /* Run a hook if the script has it; a script without it is fine */
     esp_err_t run_script_hook(qjs_binder::hook h, target_backend &backend)
     {
         auto *js = qjs_binder::js_host::instance();
@@ -63,9 +81,8 @@ void offline_flasher::init()
         backend->release_transport();
     }
 
-    // A previous run's script must not end up in this run's record
     qjs_binder::js_host::instance()->end_run();
-    qjs_binder::js_host::instance()->forget_last_script();
+    qjs_binder::js_host::instance()->forget_last_script(); // record only this run's
 
     failed_state = flasher::DONE;
     state = flasher::LOAD_ASSET;
@@ -102,8 +119,10 @@ void offline_flasher::on_erase()
 {
     ESP_LOGI(TAG, "Erasing");
     composer->display_erase(UINT8_MAX);
+    progress("erase", 0);
 
     auto ret = backend->erase();
+    progress("erase", 100);
     if (ret == ESP_ERR_INVALID_STATE) {
         composer->display_error("CFG ERROR", "Flash address\nnot provided");
         state = flasher::ERROR;
@@ -119,7 +138,10 @@ void offline_flasher::on_erase()
 void offline_flasher::on_program()
 {
     composer->display_program(100);
+    progress("program", 0);
+    backend->on_progress = program_progress;
     auto ret = backend->program(&written_len);
+    backend->on_progress = nullptr;
     if (ret != ESP_OK) {
         composer->display_error("ERROR", "Cannot program target!\nPlease try again!");
         state = flasher::ERROR;
@@ -164,7 +186,9 @@ void offline_flasher::on_verify()
 {
     led.set_color(0x68, 0x26, 0x99); // Purple?
     composer->display_program(100);
+    progress("verify", 0);
     auto ret = backend->verify(written_len);
+    progress("verify", 100);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to verify!");
         composer->display_error("ERROR", "Failed to verify\nPlease try again");
@@ -486,7 +510,7 @@ void offline_flasher::on_load_asset()
     if (script != nullptr) {
         auto *js = qjs_binder::js_host::instance();
         const auto &cfg = asset->config();
-        qjs_binder::run_info info = {asset->job_name(), cfg.variant_name, si::config::family_to_str(cfg.family)};
+        qjs_binder::run_info info = {asset->job_name(), cfg.variant_name, si::config::family_to_str(cfg.family), asset->script_network()};
         ret = js->begin_run(script, asset->script_sha256(), info);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "load_asset: script: %s (0x%x)", js->last_error(), ret);

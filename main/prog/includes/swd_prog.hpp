@@ -57,6 +57,8 @@ private:
     size_t algo_bin_len = 0;
     led_ctrl &led = led_ctrl::instance();
     uint8_t programmed_hash[32] = {}; // SHA256 for the stuff programmed?
+    uint32_t layout_generation = 0;   // config the layout is for
+    bool have_layout = false;
 
 private:
     static const constexpr uint32_t halt_header = 0xBE00BE00; // Two breakpoint instructions.
@@ -68,6 +70,8 @@ private:
     esp_err_t load_flash_algorithm();
     esp_err_t run_algo_init(swd_def::init_mode mode);
     esp_err_t run_algo_uninit(swd_def::init_mode mode);
+    esp_err_t ensure_layout();
+    esp_err_t check_flash_range(uint32_t addr, uint32_t len);
     static inline uint32_t next_multiple_of(uint32_t input, uint32_t of);
     inline esp_err_t perform_double_buffered_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset);
     inline esp_err_t perform_simple_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset);
@@ -83,6 +87,12 @@ public:
     esp_err_t program_file(const char *path, uint32_t *len_written = nullptr, uint32_t start_addr = UINT32_MAX);
     esp_err_t verify(const char *path, uint32_t start_addr = UINT32_MAX, size_t len = 0);
     esp_err_t self_test(uint32_t test_id, uint8_t *readout_buf, size_t readout_buf_len = 0, uint32_t *func_return_val = nullptr);
+
+    esp_err_t erase_range(uint32_t addr, uint32_t len);
+    esp_err_t write_range(uint32_t addr, const uint8_t *buf, uint32_t len);
+    esp_err_t call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms, bool (*cancelled)(), uint32_t *r0);
+
+    void (*on_progress)(uint32_t done, uint32_t total) = nullptr;
     static void trigger_nrst();
     static void reset_gpio();
 };

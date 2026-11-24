@@ -32,12 +32,14 @@ The job names the script as an asset and may pin its SHA-256
 | `asset`           | Asset name; the device reads `/data/<asset>`. |
 | `sha256`          | Optional. When set, the job only activates and runs with exactly this file, like the firmware images. |
 | `hook_timeout_ms` | Per hook. 0 uses `CONFIG_SI_JS_HOOK_TIMEOUT_MS` (30 s). |
+| `network`         | The script may use `esp:ws`. Needs firmware built with `CONFIG_SI_JS_NETWORK`; others refuse the job's script. |
 
 A job has either a script or pre/post procedures, not both.
 
 Every run record in the production log carries the SHA-256 of the script the
-run read (`RunRecord.script_sha256`) and whether the job pinned it
-(`script_pinned`), so an unpinned script is still traceable.
+run read (`RunRecord.script_sha256`), whether the job pinned it
+(`script_pinned`), and what the script logged (`results_json`, see
+[si:log](#silog)).
 
 ## Compiling
 
@@ -81,7 +83,10 @@ Both hooks are optional exports; each gets `ctx`:
 | `write32(addr, value, opts?)` | sync | |
 | `rmw32(addr, andMask, orBits, opts?)` | sync | Writes and returns `(old & andMask) \| orBits`, like `READ_MOD_WRITE_32`. |
 | `halt(opts?)` | sync | Halts the CPU. |
+| `readMem(addr, len, opts?)` | sync | Returns a `Uint8Array`, at most 4096 bytes. |
+| `writeMem(addr, bytes, opts?)` | sync | At most 4096 bytes. |
 | `poll32(addr, mask, expect, { timeoutMs = 1000, intervalMs = 1 })` | promise | Resolves with the value once `(value & mask) == expect`. |
+| `call(addr, [r0, r1, r2, r3], { stackTop, timeoutMs = 1000 })` | promise | Runs the function at `addr` in target RAM and resolves with its `r0`. |
 | `waitHalt()` | promise | Waits for the CPU to halt. |
 | `reset()` | promise | Toggles the target reset line. |
 | `reinit()` | promise | Re-initialises the debug connection after a reset. |
@@ -92,13 +97,85 @@ hook, and not while a promise call is still pending. Failures throw (or
 reject with) a `TargetError` whose `code` is:
 
 - `NOT_OWNED`: called outside a hook.
-- `BUSY`: a sync call while a promise call is pending, or more than four
-  promise calls at once.
+- `BUSY`: a sync call while a promise call is pending, more than four
+  promise calls at once, or a second buffer call (`readMem`, `writeMem`,
+  `flash.*`) before the first one finished.
 - `TIMEOUT`: the call, or the poll, ran out of time.
-- `STOPPED`: the run was cancelled, or there's no target to talk to.
+- `STOPPED`: the run was cancelled.
+- `UNSUPPORTED`: this target can't do that (see [Targets](#targets)).
 - `FAULT`: the target operation failed; `err` holds the `esp_err_t`.
 
+`call()` puts two breakpoint instructions at `stackTop - 8` to return to, and
+the function's stack below them; `stackTop` must be 8-byte aligned inside a
+RAM region of the job. The function runs with interrupts masked. On a
+timeout, a cancel, or a halt anywhere but the return breakpoint (a fault),
+the CPU is left halted where it stopped.
+
 `console.log/info/warn/error` go to the device log.
+
+## si:flash
+
+| Call | Does |
+| ---- | ---- |
+| `erase(addr, len)` | Erases whole sectors. |
+| `write(addr, bytes)` | Programs at most 4096 bytes. |
+| `read(addr, len)` | Resolves with a `Uint8Array`, at most 4096 bytes. |
+
+All three return promises. Addresses are what the target uses: absolute on
+Cortex-M (`0x0803f800`), the flash offset on ESP32 (`0x3f0000`). They're
+meant for per-board data next to the firmware: serial numbers, keys,
+calibration.
+
+- **Cortex-M**: through the job's flash algorithm, inside its flash range.
+  Sectors are `page_size` long. `write` needs erased flash and a length the
+  flash can program (a multiple of 4, of 8 on STM32WL). Erase and write
+  reload the flash algorithm first, which resets the target.
+- **ESP32**: through the flasher stub, only in `postProgram`. `erase` takes
+  whole 4 KB sectors; `write` erases the 4 KB sectors it covers itself, so
+  anything else in them is lost, and is MD5-checked like an image.
+
+## si:crypto, si:log, si:job
+
+```js
+import { randomBytes, sha256 } from 'si:crypto';
+import * as log from 'si:log';
+import { onProgress } from 'si:job';
+
+const key = randomBytes(16);                  // hardware RNG, at most 4096
+const digest = sha256(key);                   // bytes or a string (UTF-8)
+
+log.record({ serial: 'SN0001' });             // merged into the run's results
+log.check('vdd', 3.31, { lo: 3.0, hi: 3.6, unit: 'V' });  // throws when out of limits
+
+onProgress(({ stage, pct }) => console.log(stage, pct));
+```
+
+- `log.check()` records `{ value, lo, hi, unit, pass }` under its name, then
+  throws a `RangeError` when the value is out of limits, which fails the hook.
+- The results are one JSON object of at most 359 bytes in the run record. A
+  `record()` or `check()` that would go over throws and changes nothing.
+- `onProgress` gets `{ stage, pct }` while the device erases (`erase`),
+  programs (`program`) and verifies (`verify`), between the hooks. Updates
+  are merged: at most one every 100 ms, plus every stage change and every
+  100 %.
+
+## Network
+
+With `Script.network` set (and a firmware built with `CONFIG_SI_JS_NETWORK`),
+the script can `import * as ws from 'esp:ws'` and talk to a server over
+WebSocket, e.g. to report a run or fetch per-board data. Without it the
+import fails.
+
+## Targets
+
+| | Cortex-M (SWD) | ESP32 (UART) |
+| --- | --- | --- |
+| `read32`, `write32`, `rmw32` | yes | `postProgram` only (registers through the stub) |
+| `readMem`, `writeMem` | yes | `postProgram` only, word aligned |
+| `halt`, `waitHalt`, `reinit` | yes | `UNSUPPORTED` |
+| `reset` | yes | yes |
+| `call` | yes | `UNSUPPORTED` |
+| `flash.*` | yes | `postProgram` only |
 
 ## Limits
 
@@ -117,8 +194,8 @@ A script can't take the device down with it:
 - **Crashes**: if the device resets from a panic or watchdog during a run, the
   next boot refuses that script until the following restart, instead of
   crashing on every target plugged in.
-- **Access**: no files, network or environment; only `si:target` and
-  `console`.
+- **Access**: no files or environment; the `si:*` modules and `console`,
+  plus `esp:ws` only for jobs that allow it.
 
 The arena, the guards and their limits are explained in esp-quickjs-ng's
 README ("Running code you don't trust").

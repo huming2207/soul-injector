@@ -1,11 +1,3 @@
-// STM32WL readout protection around programming: pre_prog.yaml and
-// post_prog.yaml as a job script.
-//
-//   preProgram:  RDP level 0 (0xAA). Coming down from level 1 mass-erases flash.
-//   postProgram: RDP level 1 (0xBB).
-//
-// Compile it for a job with esp-quickjs-ng's tools/qjs_esp_bc.py:
-//   python components/esp-quickjs-ng/tools/qjs_esp_bc.py compile scripts/stm32wl-rdp.js -o stm32wl-rdp.qbc
 import * as t from 'si:target';
 
 const FLASH_KEYR = 0x58004008;
@@ -36,7 +28,6 @@ async function setRdp(level, programMs) {
     t.rmw32(FLASH_OPTR, 0xffffff00, level);
     t.rmw32(FLASH_CR, ~CR_OPTSTRT >>> 0, CR_OPTSTRT);
     await t.poll32(FLASH_SR, SR_BSY, 0, { timeoutMs: programMs });
-    // Loading the option bytes resets the target, so this write isn't acknowledged
     try {
         t.rmw32(FLASH_CR, ~CR_OBL_LAUNCH >>> 0, CR_OBL_LAUNCH);
     } catch (e) {

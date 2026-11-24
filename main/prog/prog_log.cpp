@@ -9,6 +9,8 @@
 #include <on9rstore.hpp>
 #include <pb_encode.h>
 
+static_assert(si_manage_RunRecord_size <= sizeof(si_manage_LogEntry::record.bytes), "raise LogEntry.record in manage.options");
+
 esp_err_t prog_log::init()
 {
     const esp_vfs_fat_mount_config_t mount_cfg = {

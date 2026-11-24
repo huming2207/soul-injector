@@ -36,7 +36,6 @@ void fw_asset_manager::make_script_path(const si_job_Job &new_job, char *out, si
 
 esp_err_t fw_asset_manager::verify_job_images(const si_job_Job &new_job)
 {
-    // A pinned script is an image like the firmware: it must be the one the job names
     if (new_job.has_script && new_job.script.sha256.size == SHA256_LEN) {
         char path[sizeof(script_file)];
         make_script_path(new_job, path, sizeof(path));
@@ -195,4 +194,9 @@ const uint8_t *fw_asset_manager::script_sha256() const
 uint32_t fw_asset_manager::hook_timeout_ms() const
 {
     return script_path() != nullptr ? job->script.hook_timeout_ms : 0;
+}
+
+bool fw_asset_manager::script_network() const
+{
+    return script_path() != nullptr && job->script.network;
 }

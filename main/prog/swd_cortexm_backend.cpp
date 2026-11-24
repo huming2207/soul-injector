@@ -61,7 +61,9 @@ esp_err_t swd_cortexm_backend::erase()
 esp_err_t swd_cortexm_backend::program(uint32_t *written_len)
 {
     uint32_t written = 0;
+    swd_prog::instance()->on_progress = on_progress;
     auto ret = swd_prog::instance()->program_file(fw_asset_manager::FIRMWARE_PATH, &written);
+    swd_prog::instance()->on_progress = nullptr;
     if (written_len != nullptr) {
         *written_len = written;
     }
@@ -120,4 +122,35 @@ esp_err_t swd_cortexm_backend::read_mem32(uint32_t addr, uint32_t *val)
 esp_err_t swd_cortexm_backend::write_mem32(uint32_t addr, uint32_t val)
 {
     return swd_write_word(addr, val);
+}
+
+esp_err_t swd_cortexm_backend::read_mem(uint32_t addr, uint8_t *buf, size_t len)
+{
+    return swd_read_memory(addr, buf, len);
+}
+
+esp_err_t swd_cortexm_backend::write_mem(uint32_t addr, const uint8_t *buf, size_t len)
+{
+    return swd_write_memory(addr, const_cast<uint8_t *>(buf), len);
+}
+
+esp_err_t swd_cortexm_backend::flash_read(uint32_t addr, uint8_t *buf, size_t len)
+{
+    return swd_read_memory(addr, buf, len); // flash is memory mapped
+}
+
+esp_err_t swd_cortexm_backend::flash_write(uint32_t addr, const uint8_t *buf, size_t len)
+{
+    return swd_prog::instance()->write_range(addr, buf, len);
+}
+
+esp_err_t swd_cortexm_backend::flash_erase(uint32_t addr, size_t len)
+{
+    return swd_prog::instance()->erase_range(addr, len);
+}
+
+esp_err_t swd_cortexm_backend::call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms,
+                                    bool (*cancelled)(), uint32_t *r0)
+{
+    return swd_prog::instance()->call(addr, args, stack_top, timeout_ms, cancelled, r0);
 }

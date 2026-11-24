@@ -532,6 +532,9 @@ esp_err_t esp32_serial_backend::program_one_image(const char *path, uint32_t off
             return loader_err_to_esp(err);
         }
         file_remaining -= want;
+        if (on_progress != nullptr) {
+            on_progress(real_len - file_remaining, real_len);
+        }
     }
     fclose(file);
 
@@ -765,6 +768,81 @@ esp_err_t esp32_serial_backend::write_mem32(uint32_t addr, uint32_t val)
     esp_loader_error_t err = esp_loader_write_register(&loader, addr, val);
     if (err != ESP_LOADER_SUCCESS) {
         ESP_LOGE(TAG, "write_mem32: register write @ 0x%08lx failed: %s", addr, loader_err_str(err));
+    }
+    return loader_err_to_esp(err);
+}
+
+esp_err_t esp32_serial_backend::check_flash_range(const char *what, uint32_t addr, size_t len)
+{
+    if (!connected) {
+        ESP_LOGE(TAG, "%s: target not connected; flash access is only available after detect()", what);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (len == 0 || addr > flash_limit || len > flash_limit - addr) {
+        ESP_LOGE(TAG, "%s: 0x%08lx+%u is outside the %lu bytes of flash", what, addr, (unsigned)len, (unsigned long)flash_limit);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return ESP_OK;
+}
+
+esp_err_t esp32_serial_backend::flash_read(uint32_t addr, uint8_t *buf, size_t len)
+{
+    auto ret = check_flash_range("flash_read", addr, len);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    esp_loader_error_t err = esp_loader_flash_read(&loader, buf, addr, len);
+    if (err != ESP_LOADER_SUCCESS) {
+        ESP_LOGE(TAG, "flash_read: 0x%08lx+%u failed: %s", addr, (unsigned)len, loader_err_str(err));
+    }
+    return loader_err_to_esp(err);
+}
+
+esp_err_t esp32_serial_backend::flash_write(uint32_t addr, const uint8_t *buf, size_t len)
+{
+    auto ret = check_flash_range("flash_write", addr, len);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if ((addr & 3u) != 0 || (len & 3u) != 0 || len > sizeof(block)) {
+        ESP_LOGE(TAG, "flash_write: 0x%08lx+%u must be 4-byte aligned and at most %u bytes", addr, (unsigned)len,
+                 (unsigned)sizeof(block));
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_loader_flash_cfg_t cfg = {
+        .offset = addr,
+        .image_size = (uint32_t)len,
+        .block_size = sizeof(block),
+        .skip_verify = false,
+        ._state = {._sequence_number = 0, ._md5_context = {}},
+    };
+    memcpy(block, buf, len);
+    esp_loader_error_t err = esp_loader_flash_start(&loader, &cfg); // erases the 4 KB sectors it covers
+    if (err == ESP_LOADER_SUCCESS) {
+        err = esp_loader_flash_write(&loader, &cfg, block, len);
+    }
+    if (err == ESP_LOADER_SUCCESS) {
+        err = esp_loader_flash_finish(&loader, &cfg);
+    }
+    if (err != ESP_LOADER_SUCCESS) {
+        ESP_LOGE(TAG, "flash_write: 0x%08lx+%u failed: %s", addr, (unsigned)len, loader_err_str(err));
+    }
+    return loader_err_to_esp(err);
+}
+
+esp_err_t esp32_serial_backend::flash_erase(uint32_t addr, size_t len)
+{
+    auto ret = check_flash_range("flash_erase", addr, len);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if ((addr | len) % 4096 != 0) {
+        ESP_LOGE(TAG, "flash_erase: 0x%08lx+%u isn't whole 4 KB sectors", addr, (unsigned)len);
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_loader_error_t err = esp_loader_flash_erase_region(&loader, addr, len);
+    if (err != ESP_LOADER_SUCCESS) {
+        ESP_LOGE(TAG, "flash_erase: 0x%08lx+%u failed: %s", addr, (unsigned)len, loader_err_str(err));
     }
     return loader_err_to_esp(err);
 }

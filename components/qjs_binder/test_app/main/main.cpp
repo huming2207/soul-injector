@@ -316,7 +316,7 @@ static void session_tests()
     size_t ext0 = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     mock_target m;
     m.regs[15] = 0x08000123;
-    session_config cfg = {{false, false, false}, true, on_notify, nullptr};
+    session_config cfg = {{false, false, false}, true, on_notify, nullptr, 0};
     check(h->begin_session(cfg) == ESP_OK && h->in_session(), "session: begins");
     check(h->begin_session(cfg) == ESP_ERR_INVALID_STATE, "session: only one at a time");
     run_info info = {"ops", "", "mock", false};
@@ -576,7 +576,7 @@ static void trap_tests()
 {
     auto *h = js_host::instance();
     mock_target m;
-    session_config cfg = {{false, false, false}, true, on_notify, nullptr};
+    session_config cfg = {{false, false, false}, true, on_notify, nullptr, 0};
     h->begin_session(cfg);
     sres r = eval("incident", m);
     check(r.value == "0" && find_event("incident", "\"name\":\"bad-crc\",\"incident\":0,\"data\":{\"n\":3}"),
@@ -644,8 +644,24 @@ static void trap_tests()
     h->begin_session(cfg);
     r = run_mod("trap", m);
     serve_for(m, 100);
-    check(inc_log.empty() && m.halted, "trap: a core a debugger halted is left alone", inc_log.c_str());
+    check(inc_log.empty() && m.halted, "a core a debugger halted is left alone (no hold limit)", inc_log.c_str());
     m.halted = false;
+    m.dfsr = 0;
+    h->end_session(m);
+
+    // In a trap nobody would let it go (it may be a throttled hold from before the
+    // probe restarted): after throttle_hold_ms it runs, still without an incident.
+    inc_log.clear();
+    m.halted = true;
+    m.dfsr = 1;
+    cfg.throttle_hold_ms = 150;
+    h->begin_session(cfg);
+    r = run_mod("trap", m);
+    serve_for(m, 60);
+    const bool held_first = m.halted;
+    serve_for(m, 300);
+    check(held_first && !m.halted && inc_log.empty(), "trap: a core found halted runs after throttle_hold_ms", inc_log.c_str());
+    cfg.throttle_hold_ms = 0;
     m.dfsr = 0;
     h->end_session(m);
 
@@ -666,6 +682,34 @@ static void trap_tests()
     check(inc_log.find("W:bp") == 0 && inc_log.find(" O") != std::string::npos && !m.halted,
           "trap: a stop whose firing was cut short is found again", inc_log.c_str());
     h->end_session(m);
+
+    // A watch firing more than 10 times a second is throttled and holds the core:
+    // a trap (throttle_hold_ms) lets it run again after a while, a session doesn't.
+    for (uint32_t hold_ms : {150u, 0u}) {
+        cfg.throttle_hold_ms = hold_ms;
+        h->begin_session(cfg);
+        r = run_mod("trap", m);
+        serve_for(m, 20);
+        for (int i = 0; i < 11; i++) {
+            m.halted = true;
+            m.dfsr = 8;
+            m.regs[16] = 3;
+            serve_for(m, 30);
+        }
+        const bool held = m.halted;
+        find_event("-", ""); // past every event so far
+        serve_for(m, 400);
+        const bool resumed = find_event("target", "resumed after a throttle hold");
+        if (hold_ms != 0) {
+            check(held && !m.halted && resumed, "trap: a throttled hold ends after throttle_hold_ms", m.log);
+        } else {
+            check(held && m.halted && !resumed, "session: a throttled hold lasts until resumed", m.log);
+        }
+        m.halted = false;
+        m.dfsr = 0;
+        h->end_session(m);
+    }
+    cfg.throttle_hold_ms = 0;
 }
 
 static void test_task(void *)

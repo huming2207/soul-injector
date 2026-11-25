@@ -349,8 +349,15 @@ sidp::status_t agent_service::claim(const si_agent_Permissions &perms, bool conn
     }
 
     static const qjs_binder::incident_hooks hooks = {on_incident_open, on_incident_add};
+    // A session's agent is there to resume a throttled watch; a trap lets it run after a while.
+    uint32_t throttle_hold_ms = 0;
+    if (for_trap) {
+        throttle_hold_ms = trap.cfg.throttle_hold_ms == 0            ? DEFAULT_THROTTLE_HOLD_MS
+                           : trap.cfg.throttle_hold_ms == UINT32_MAX ? 0
+                                                                     : trap.cfg.throttle_hold_ms;
+    }
     qjs_binder::session_config cfg = {{perms.write, perms.flash, perms.reset}, info.profile != sidp::PROFILE_ARMV6M, notify,
-                                      for_trap ? &hooks : nullptr};
+                                      for_trap ? &hooks : nullptr, throttle_hold_ms};
     ret = js->begin_session(cfg);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "claim: no script session: %s", esp_err_to_name(ret));

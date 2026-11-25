@@ -116,6 +116,7 @@ sidp-agent trap disarm --port /dev/ttyACM0
 | `--name` | The trap's name, in its status and incidents. |
 | `--mode yield\|exclusive` | `yield` (the default): GDB attaching or a programming run pauses the trap, and it starts again 3 s after they finish. `exclusive`: they are refused while the trap is armed. |
 | `--incidents-per-hour` | More are only counted. 0 for the device's default (12). |
+| `--throttle-hold SECONDS\|forever` | A watch firing more than 10 times a second is throttled: the core is held and its handler isn't called. In a trap the hold lasts this long (default 10 s), then the trap lets the target run, so a boot loop doesn't stop the target until someone looks. The same limit applies to a target the trap finds halted by a halt request when it starts (a throttled hold from before the device restarted, a debugger's halt), which it otherwise wouldn't touch. `forever` holds it until someone resumes it. |
 | `--allow-*`, `--connect-under-reset` | As for sessions; the trap keeps them. |
 
 - Arming replaces the armed trap, and only takes when the target answers and

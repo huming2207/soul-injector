@@ -102,6 +102,7 @@ namespace qjs_binder
         bool fault_regs;                     // the target has CFSR, HFSR... (ARMv7-M and up)
         void (*notify)(uint32_t newest_seq); // new events; any task, must not block
         const incident_hooks *incidents;
+        uint32_t throttle_hold_ms;           // a throttled watch's hold, then the core runs; 0: until resumed
     };
 
     enum class script_outcome : uint8_t { ok, error, pending, stopped };

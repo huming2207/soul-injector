@@ -112,6 +112,7 @@ namespace qjs_binder::priv
         uint16_t window_n[WATCHES];
         uint32_t captures;         // ids handed out
         int next_slot;
+        int64_t throttle_until_us; // a throttled hold ends then (session_config.throttle_hold_ms); 0: none
     };
 
     struct ev_slot {

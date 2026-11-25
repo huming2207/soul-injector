@@ -848,6 +848,7 @@ namespace qjs_binder::priv
     static void fire(uint8_t on, const char *cause, bool halted, bool stopped, uint32_t dfsr, js_target &t) // stopped: by the event
     {
         engine &e = g.eng;
+        e.throttle_until_us = 0; // an earlier throttled hold is over: this is a new stop
         watch_def d;
         xSemaphoreTake(g.watch_lock, portMAX_DELAY);
         d = g.watches[on];
@@ -927,6 +928,25 @@ namespace qjs_binder::priv
             return;
         }
         emit_watch(m, action, call ? "called" : "none", throttled, note);
+        if (throttled && m.halted && strcmp(action, "hold") == 0 && g.cfg.throttle_hold_ms != 0) {
+            // Unattended (a trap): a boot loop held here would stay stopped until someone looks.
+            e.throttle_until_us = now_us() + g.cfg.throttle_hold_ms * 1000LL;
+        }
+    }
+
+    // A throttled hold that has lasted session_config.throttle_hold_ms: let the core run.
+    static void end_throttle_hold(js_target &t)
+    {
+        engine &e = g.eng;
+        e.throttle_until_us = 0;
+        if (!e.known || !e.halted) {
+            return; // resumed or reset by something else meanwhile
+        }
+        const char *note = nullptr;
+        const char *action = apply(V_RESUME, t, &note);
+        const bool resumed = strcmp(action, "resume") == 0;
+        ESP_LOGI(TAG, "throttle hold over: %s", resumed ? "resumed" : note);
+        emit_target(resumed ? "resumed after a throttle hold" : "throttle hold over, resume failed", resumed ? ESP_OK : ESP_FAIL);
     }
 
     static void finish_wait(uint8_t v, const char *handler, js_target &t)
@@ -1004,6 +1024,9 @@ namespace qjs_binder::priv
             }
             return;
         }
+        if (e.throttle_until_us != 0 && now >= e.throttle_until_us) {
+            end_throttle_hold(t);
+        }
         if (now < e.next_poll_us) {
             return;
         }
@@ -1041,6 +1064,7 @@ namespace qjs_binder::priv
             // stays stopped and the trap records nothing. After our own op (a call,
             // flash work, a reset) the stop is ours.
             const bool stop_cause = st.halted && (st.dfsr & DFSR_STOP_CAUSES) != 0;
+            const bool ours = e.after_op;
             const bool unseen = !e.after_op && stop_cause;
             if (e.after_op && stop_cause) {
                 t.clear_stop_cause(); // ours: a call or the flash algorithm ends at a BKPT
@@ -1051,6 +1075,12 @@ namespace qjs_binder::priv
             e.lockup = st.lockup;
             e.ignore_reset = false;
             if (!unseen) {
+                if (e.halted && !ours && g.cfg.throttle_hold_ms != 0) {
+                    // Halted by a request (a throttled hold before the probe restarted, a
+                    // debugger): unattended, nobody would let it go. Same limit as a throttled hold.
+                    e.throttle_until_us = now + g.cfg.throttle_hold_ms * 1000LL;
+                    ESP_LOGI(TAG, "target found halted; letting it run in %lu ms", (unsigned long)g.cfg.throttle_hold_ms);
+                }
                 return;
             }
             ESP_LOGI(TAG, "target found stopped (DFSR 0x%lx), reporting it", (unsigned long)st.dfsr);
@@ -1076,6 +1106,7 @@ namespace qjs_binder::priv
             fire(on, cause, true, true, st.dfsr, t);
         } else if (!st.halted && e.halted) {
             e.halted = false; // resumed by something else (a DHCSR write)
+            e.throttle_until_us = 0;
             t.clear_stop_cause();
         }
         if (!st.halted && st.lockup && !e.lockup) {
@@ -1102,6 +1133,9 @@ namespace qjs_binder::priv
         // An op that lets a stopped core go (or resets it) deals with the stop.
         const bool goes = op == OP_RESUME || op == OP_RESET || op == OP_REINIT || op == OP_CALL || op == OP_FLASH_WRITE ||
                           op == OP_FLASH_ERASE || ((op == OP_WRITE32 || op == OP_RMW32) && addr == DHCSR);
+        if (goes) {
+            g.eng.throttle_until_us = 0; // the script deals with the held core itself
+        }
         if (goes && g.eng.known && g.eng.halted) {
             t.clear_stop_cause();
         }

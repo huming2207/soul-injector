@@ -638,14 +638,21 @@ namespace qjs_binder::priv
         if (!g.cfg.incidents) {
             return 0;
         }
-        char cause[192];
+        char cause[320];
         size_t n = snprintf(cause, sizeof(cause), "{\"kind\":\"watch\",\"watch\":%u,\"name\":", m.id);
+        n = std::min(n, sizeof(cause) - 1);
         n += json_str(cause + n, sizeof(cause) - n, m.name);
-        n += snprintf(cause + n, sizeof(cause) - n,
-                      ",\"on\":\"%s\",\"cause\":\"%s\",\"reflex\":\"%s\",\"first_action\":\"%s\",\"halted\":%s,\"fire\":%lu",
-                      ON_NAMES[m.on], m.cause, REFLEX_NAMES[m.reflex], action, m.halted ? "true" : "false", (unsigned long)m.fire);
+        int w = snprintf(cause + n, sizeof(cause) - n,
+                         ",\"on\":\"%s\",\"cause\":\"%s\",\"reflex\":\"%s\",\"first_action\":\"%s\",\"halted\":%s,\"fire\":%lu",
+                         ON_NAMES[m.on], m.cause, REFLEX_NAMES[m.reflex], action, m.halted ? "true" : "false", (unsigned long)m.fire);
+        if (w > 0) {
+            n = std::min(n + (size_t)w, sizeof(cause) - 1);
+        }
         if (m.halted) {
-            n += snprintf(cause + n, sizeof(cause) - n, ",\"pc\":\"0x%08lx\"", (unsigned long)m.pc);
+            w = snprintf(cause + n, sizeof(cause) - n, ",\"pc\":\"0x%08lx\"", (unsigned long)m.pc);
+            if (w > 0) {
+                n = std::min(n + (size_t)w, sizeof(cause) - 1);
+            }
         }
         strlcpy(cause + n, "}", sizeof(cause) - n);
         const capture_slot *c = m.slot >= 0 && g.caps[m.slot].id == m.capture ? &g.caps[m.slot] : nullptr;

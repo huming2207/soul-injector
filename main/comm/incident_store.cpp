@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <esp_log.h>
 #include <nvs.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -58,7 +59,7 @@ namespace
     {
         unsigned long v = 0;
         char tail[8] = {};
-        return strlen(name) == 12 && sscanf(name, "%8lu.%3s", &v, tail) == 2 && strcmp(tail, "sin") == 0 && v != 0 &&
+        return strlen(name) == 12 && sscanf(name, "%8lu.%3s", &v, tail) == 2 && strcasecmp(tail, "sin") == 0 && v != 0 &&
                (*id = v, true);
     }
 } // namespace
@@ -193,6 +194,9 @@ uint32_t incident_store::create(const header &h)
 
 esp_err_t incident_store::append(uint32_t id, uint8_t type, const void *data, size_t len)
 {
+    if (find(id) < 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
     const size_t padded = (len + 3) & ~(size_t)3;
     make_room(id, 8 + padded, false);
     int i = find(id);
@@ -215,7 +219,7 @@ esp_err_t incident_store::append(uint32_t id, uint8_t type, const void *data, si
     const uint32_t total = entries[i].size + 8 + padded;
     uint8_t total_le[4];
     put32(total_le, total);
-    bool ok = fseek(f, entries[i].size, SEEK_SET) == 0 && fwrite(sec, 1, 8, f) == 8 && fwrite(data, 1, len, f) == len &&
+    bool ok = fseek(f, entries[i].size, SEEK_SET) == 0 && fwrite(sec, 1, 8, f) == 8 && (len == 0 || fwrite(data, 1, len, f) == len) &&
               fwrite(zeros, 1, padded - len, f) == padded - len && fseek(f, TOTAL_OFFSET, SEEK_SET) == 0 &&
               fwrite(total_le, 1, 4, f) == 4;
     ok = fclose(f) == 0 && ok;

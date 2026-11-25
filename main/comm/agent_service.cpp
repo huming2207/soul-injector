@@ -68,8 +68,10 @@ namespace
         FILE *f = fopen(tmp, "wb");
         bool ok = f != nullptr && fwrite(data, 1, len, f) == len;
         ok = f != nullptr && fclose(f) == 0 && ok;
-        unlink(path);
-        ok = ok && rename(tmp, path) == 0;
+        if (ok) {
+            unlink(path);
+            ok = rename(tmp, path) == 0;
+        }
         if (!ok) {
             unlink(tmp);
         }
@@ -861,7 +863,11 @@ bool agent_service::yield_for_run(uint32_t wait_ms)
     while (trap_holds && now_us() < end) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    return !trap_holds;
+    if (trap_holds) {
+        run_wanted = false;
+        return false;
+    }
+    return true;
 }
 
 sidp::status_t agent_service::op_trap_arm(std::span<const uint8_t> payload, pb_ostream_t &out)
@@ -872,7 +878,8 @@ sidp::status_t agent_service::op_trap_arm(std::span<const uint8_t> payload, pb_o
     auto &req = *static_cast<si_agent_ArmRequest *>(scratch);
     req = si_agent_ArmRequest_init_zero;
     if (!decode(payload, si_agent_ArmRequest_fields, &req) || (req.staged && req.bytecode.size != 0) || !req.has_config ||
-        req.config.name[0] == '\0' || req.config.mode > si_agent_TrapMode_TRAP_MODE_EXCLUSIVE) {
+        req.config.name[0] == '\0' || req.config.mode < si_agent_TrapMode_TRAP_MODE_YIELD ||
+        req.config.mode > si_agent_TrapMode_TRAP_MODE_EXCLUSIVE) {
         return sidp::STATUS_INVALID_ARGUMENT;
     }
     const si_agent_TrapConfig cfg = req.config;
@@ -930,7 +937,8 @@ sidp::status_t agent_service::op_trap_arm(std::span<const uint8_t> payload, pb_o
     auto &st = *static_cast<si_agent_TrapStatus *>(scratch);
     st = si_agent_TrapStatus_init_zero;
     st.has_first_result = true;
-    st.first_result.outcome = static_cast<si_agent_ScriptResult_Outcome>(r.outcome);
+    st.first_result.outcome =
+        ret != ESP_OK ? si_agent_ScriptResult_Outcome_OUTCOME_ERROR : static_cast<si_agent_ScriptResult_Outcome>(r.outcome);
     st.first_result.truncated = r.truncated;
     strlcpy(st.first_result.value, r.value, sizeof(st.first_result.value));
     strlcpy(st.first_result.error, ret != ESP_OK ? esp_err_to_name(ret) : r.error, sizeof(st.first_result.error));

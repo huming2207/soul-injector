@@ -490,6 +490,7 @@ namespace qjs_binder
             fn = JS_UNDEFINED; // freed with the arena
         }
         g.mod = nullptr;
+        log_runtime_end("session runtime");
         qjs_esp_arena_reset(g.arena);
     }
 

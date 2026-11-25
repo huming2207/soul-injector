@@ -277,6 +277,7 @@ namespace qjs_binder::priv
     int64_t now_us();
     TickType_t ms_ticks(uint32_t ms);
     void record_error(JSContext *ctx, JSValueConst e);
+    void log_runtime_end(const char *what); // arena peak and device heap, before the arena is reset
 
     bool session_alloc();
     bool init_agent_module(JSContext *ctx);

@@ -74,6 +74,19 @@ namespace qjs_binder
         snprintf(g.err, sizeof(g.err), fmt, arg);
     }
 
+    // One line per runtime, so a long run of jobs or a trap that restarts for
+    // days shows whether the device heap outside the arena drifts, and how
+    // close scripts come to the arena's size.
+    void priv::log_runtime_end(const char *what)
+    {
+        ESP_LOGI(TAG, "%s ended: arena peak %u of %u KB; free internal %u (min %u), PSRAM %u (min %u)", what,
+                 (unsigned)(qjs_esp_arena_peak(g.arena) / 1024), (unsigned)CONFIG_SI_JS_ARENA_KB,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                 (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
+    }
+
     void priv::record_error(JSContext *ctx, JSValueConst e)
     {
         const char *msg = JS_ToCString(ctx, e);
@@ -330,6 +343,7 @@ namespace qjs_binder
         memset(g.slots, 0, sizeof(g.slots));
         g.mod = nullptr;
         g.results = g.on_progress = JS_UNDEFINED;
+        log_runtime_end("job script runtime");
         qjs_esp_arena_reset(g.arena);
     }
 

@@ -1116,6 +1116,7 @@ uint32_t agent_service::incident_open(const qjs_binder::incident_open &inc)
     if (inc.capture != nullptr) {
         store->append(id, incident_store::SEC_CAPTURE, inc.capture, inc.capture_len);
     }
+    ESP_LOGI(TAG, "incident %lu written in %lld ms", (unsigned long)id, (now_us() - now) / 1000); // slow storage shows here
     return id;
 }
 

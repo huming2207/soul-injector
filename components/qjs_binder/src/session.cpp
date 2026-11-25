@@ -331,7 +331,7 @@ namespace qjs_binder
         JS_ToInt32(ctx, &is_eval, data[1]);
         JSValueConst v = argc ? argv[0] : JS_UNDEFINED;
         if (magic) {
-            if (!JS_IsUncatchableError(v)) {
+            if (!ends_runtime(v)) {
                 result_error(ctx, token, v);
             }
         } else if (is_eval) {
@@ -348,7 +348,7 @@ namespace qjs_binder
     {
         if (JS_IsException(r)) {
             JSValue e = JS_GetException(ctx);
-            if (!JS_IsUncatchableError(e)) { // stopped: the runtime's end answers
+            if (!ends_runtime(e)) { // else the runtime's end answers
                 result_error(ctx, token, e);
             }
             JS_FreeValue(ctx, e);

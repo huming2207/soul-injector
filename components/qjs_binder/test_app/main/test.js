@@ -71,6 +71,15 @@ export async function preProgram(ctx) {
     case 'forever':
         await new Promise(() => {});
         return;
+    case 'oom': { // before any await: the hook's call itself fails, uncatchably
+        const k = [];
+        for (;;) k.push(new Uint8Array(65536));
+    }
+    case 'oomlate': { // after one: the async function dies without settling its promise
+        await t.delay(1);
+        const k = [];
+        for (;;) k.push(new Uint8Array(65536));
+    }
     case 'slow': {
         const c = await codeOf(() => t.read32(0xdead));
         if (c !== 'TIMEOUT') throw new Error(`slow read gave ${c}`);

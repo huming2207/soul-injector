@@ -123,8 +123,9 @@ sidp-agent trap disarm --port /dev/ttyACM0
 ## Limits
 
 - A session's scripts run in the same arena as job scripts, with the same
-  limits: 200 ms of JavaScript at a time, out of memory throws, a script that
-  crashed the device is refused until the next restart.
+  limits: 200 ms of JavaScript at a time, running out of memory ends the
+  runtime (it can't be caught), a script that crashed the device is refused
+  until the next restart.
 - There are no timers; scripts wait with `target.delay()`.
 - The device keeps the newest 64 events and 4 captures; `console` and
   `agent.emit()` together get 20 events a second.

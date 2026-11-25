@@ -84,7 +84,7 @@ All hooks are optional exports; each gets `ctx`:
   target in a safe state or `log.record()` what went wrong. If it throws, the
   device logs that, and the run record still shows the first failure.
 - `onFail` doesn't run on a cancel, or after the script itself ran out of time
-  or was stopped: by then its runtime is gone.
+  or memory or was stopped: by then its runtime is gone.
 - A hook passes when it returns or its promise resolves. A throw or a
   rejection fails the run at that stage, and the device shows the message.
 - Both hooks of a run share one runtime, so `preProgram` can leave values for
@@ -211,8 +211,11 @@ the run failed after detection.
 A script can't take the device down with it:
 
 - **Memory**: everything it allocates comes from a private 2 MB PSRAM arena
-  (`CONFIG_SI_JS_ARENA_KB`); running out throws in the script, nothing else
-  is affected.
+  (`CONFIG_SI_JS_ARENA_KB`); a bare runtime takes about 160 KB of it. Running
+  out ends the script: the hook fails at once with "InternalError: out of
+  memory", and nothing else is affected. `try`/`catch` can't catch it
+  (QuickJS-NG makes it uncatchable), so a script that might use a lot should
+  keep its own count.
 - **Time**: a hook that runs past its timeout fails. One turn of JS (a
   callback, or a batch of promise jobs) may run at most 200 ms
   (`CONFIG_SI_JS_SLICE_MS`); waiting on the target doesn't count. A busy

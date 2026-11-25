@@ -482,8 +482,8 @@ namespace qjs_binder::priv
         memcpy(&m, raw, sizeof(m));
         JSValueConst v = argc ? argv[0] : JS_UNDEFINED;
         if (magic) {
-            if (JS_IsUncatchableError(v)) {
-                return JS_UNDEFINED; // stopped: the owner sees the runtime end
+            if (ends_runtime(v)) {
+                return JS_UNDEFINED; // the owner sees the runtime end
             }
             handler_failed(ctx, v, m);
             send_verdict(m, V_HOLD, H_THREW);
@@ -531,7 +531,7 @@ namespace qjs_binder::priv
         JS_FreeValue(ctx, ev);
         if (JS_IsException(r)) {
             JSValue e = JS_GetException(ctx);
-            if (!JS_IsUncatchableError(e)) {
+            if (!ends_runtime(e)) {
                 handler_failed(ctx, e, m);
                 send_verdict(m, V_HOLD, H_THREW);
             }

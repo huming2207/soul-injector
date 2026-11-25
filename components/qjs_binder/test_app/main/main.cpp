@@ -427,6 +427,17 @@ static void session_tests()
     check(find_event("runtime", "yield") != 0, "session: runtime end is an event");
     r = eval("add", m);
     check(r.value == "3", "session: next eval starts a runtime", r.error.c_str());
+    for (const char *name : {"oom", "oomlate"}) {
+        int64_t t0 = esp_timer_get_time();
+        r = eval(name, m, 5000);
+        char d[160];
+        snprintf(d, sizeof(d), "%s: %lld ms, %s", name, (esp_timer_get_time() - t0) / 1000, r.error.c_str());
+        check(r.outcome == script_outcome::stopped && r.error.find("out of memory") != std::string::npos &&
+                  esp_timer_get_time() - t0 < 3000000,
+              "session: out of memory ends the runtime at once", d);
+        r = eval("add", m);
+        check(r.value == "3", "session: eval after out of memory", r.error.c_str());
+    }
     h->session_stop(m);
     r = eval("typeofx", m);
     check(r.value == "\"undefined\"", "session: stop, then eval again", r.value.c_str());
@@ -605,6 +616,18 @@ static void test_task(void *)
         snprintf(d, sizeof(d), "%lld ms", o.pre_ms);
         check(o.pre == ESP_ERR_TIMEOUT && o.pre_ms >= 300 && o.pre_ms < 1000, "forever: hook timeout", d);
         heap_same("forever");
+    }
+    // QuickJS-NG's "out of memory" is uncatchable; it used to leave the hook
+    // waiting for its timeout instead of failing it.
+    for (const char *name : {"oom", "oomlate"}) {
+        mock_target m;
+        outcome o = run(name, m, 5000);
+        char d[160];
+        snprintf(d, sizeof(d), "%s: %lld ms, %s", name, o.pre_ms, pre_err);
+        check(o.pre == ESP_FAIL && o.pre_ms < 3000, "out of memory: the hook fails at once, not at its timeout", d);
+        check(strstr(pre_err, "out of memory") != nullptr, "out of memory: says why", d);
+        check(o.post == ESP_ERR_INVALID_STATE, "out of memory: no more hooks after that", d);
+        heap_same(name);
     }
     {
         mock_target m;

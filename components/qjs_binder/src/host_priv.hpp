@@ -278,6 +278,10 @@ namespace qjs_binder::priv
     TickType_t ms_ticks(uint32_t ms);
     void record_error(JSContext *ctx, JSValueConst e);
     void log_runtime_end(const char *what); // arena peak and device heap, before the arena is reset
+    // True for an uncatchable error: the loop's own interrupt, or one the script can't recover
+    // from (out of memory). Either way the runtime ends and its end answers whoever waits; for
+    // the second kind this stops the loop, which nothing else would.
+    bool ends_runtime(JSValueConst e);
 
     bool session_alloc();
     bool init_agent_module(JSContext *ctx);

@@ -87,6 +87,17 @@ namespace qjs_binder
                  (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
     }
 
+    bool priv::ends_runtime(JSValueConst e)
+    {
+        if (!JS_IsUncatchableError(e)) {
+            return false;
+        }
+        if (g.loop) {
+            qjs_esp_loop_fail(g.loop, e); // no-op when it's the loop's own interrupt
+        }
+        return true;
+    }
+
     void priv::record_error(JSContext *ctx, JSValueConst e)
     {
         const char *msg = JS_ToCString(ctx, e);
@@ -132,8 +143,8 @@ namespace qjs_binder
 
     static JSValue on_settled(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv, int magic, JSValueConst *)
     {
-        if (magic && argc && JS_IsUncatchableError(argv[0])) {
-            return JS_UNDEFINED; // stopped, see settle()
+        if (magic && argc && ends_runtime(argv[0])) {
+            return JS_UNDEFINED; // see settle()
         }
         if (magic) {
             record_error(ctx, argc ? argv[0] : JS_UNDEFINED);
@@ -146,7 +157,7 @@ namespace qjs_binder
     {
         if (JS_IsException(r)) {
             JSValue e = JS_GetException(ctx);
-            bool stopped = JS_IsUncatchableError(e);
+            bool stopped = ends_runtime(e); // run_script() answers when the loop returns
             if (!stopped) {
                 record_error(ctx, e);
             }
@@ -288,6 +299,9 @@ namespace qjs_binder
             return "script ran too long without yielding";
         case QJS_ESP_STOP_REQUESTED:
             return "script stopped";
+        case QJS_ESP_STOP_ERROR:
+            // Uncatchable, so the script never saw it: usually "InternalError: out of memory".
+            return g.loop && qjs_esp_loop_error(g.loop)[0] ? qjs_esp_loop_error(g.loop) : "script failed";
         default:
             return "script ended";
         }
@@ -333,7 +347,9 @@ namespace qjs_binder
             set_err("%s", stop_text(why));
             ESP_LOGE(TAG, "%s", g.err);
             g.loading = g.hook_active = false;
-            send_done(why == QJS_ESP_STOP_REQUESTED ? ESP_ERR_INVALID_STATE : ESP_ERR_TIMEOUT);
+            send_done(why == QJS_ESP_STOP_REQUESTED ? ESP_ERR_INVALID_STATE
+                      : why == QJS_ESP_STOP_ERROR   ? ESP_FAIL
+                                                    : ESP_ERR_TIMEOUT);
         }
 
         xSemaphoreTake(g.loop_lock, portMAX_DELAY);

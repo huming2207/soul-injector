@@ -171,7 +171,7 @@ namespace qjs_binder::priv
         JSValue r = JS_Call(ctx, fn, JS_UNDEFINED, 1, &p);
         if (JS_IsException(r)) {
             JSValue e = JS_GetException(ctx);
-            if (!JS_IsUncatchableError(e)) {
+            if (!ends_runtime(e)) {
                 const char *msg = JS_ToCString(ctx, e);
                 ESP_LOGW(TAG, "onProgress threw: %s", msg ? msg : "?");
                 JS_FreeCString(ctx, msg);

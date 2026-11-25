@@ -125,7 +125,7 @@ crash.elf ...`, then a restart of Claude Code so it loads).
 | 4.10 | Module that throws after starting | Restarted with backoff, gives up after 5 with a note; arming a module whose top level throws is refused with the error | Pass after a fix: a top level that throws is refused at arm; one that throws later was never restarted (trap stayed "running"), fixed (c42ff27): 5 starts, then `failed` |
 | 4.11 | UTC times | With the clock set (`log pull` sets it), incidents have UTC; after a restart with no computer, boot count and uptime | Pass. With the clock set, UTC; after a restart with no `log pull` since, incidents show "boot 111 +97.2 s" |
 | 4.12 | Disarm | Target left as it is; sessions work again; the device goes back to light sleep (PM lock released) | Pass for GDB and sessions after disarm. Light sleep: can't be seen while USB powers the device (light sleep is off then) |
-| 4.13 | Soak, 48 to 72 h: `rare.bin`, a trap keeping the last 64 state values, USB power only | One incident per fault (count against the target's own fault counter), no device restarts, `starts` stays 1, heap steady on the UART log | First 7 h pass (2026-11-25 23:45 to 06:40, build 41b1c31): 50 faults, 50 incidents (309-358; the target's fault counter in each capture equals its capture id, so none missed), 0 suppressed, `starts_this_boot` 1, no ESP restart (uptime 6.9 h), UART log has no errors or panics. The 32 newest kept (about 3.9 KB each). Heap isn't logged while a trap runs, so "heap steady" is only "no restart". Stopped there to try the review fixes. In the 50 minutes after that (ESP reflashed and restarted, trap back each time) one fault was **missed**: the target sat halted at the HardFault entry with DFSR VCATCH, counter 51, no incident. Fixed (a371cf9, c7f195c, below). **Started again 2026-11-26 08:24:01** on build bbdfb54+c7f195c, trap `soak` on `rare.bin`, target fault counter 78 at the start: incidents from then on should equal the counter's growth |
+| 4.13 | Soak, 48 to 72 h: `rare.bin`, a trap keeping the last 64 state values, USB power only | One incident per fault (count against the target's own fault counter), no device restarts, `starts` stays 1, heap steady on the UART log | First 7 h pass (2026-11-25 23:45 to 06:40, build 41b1c31): 50 faults, 50 incidents (309-358; the target's fault counter in each capture equals its capture id, so none missed), 0 suppressed, `starts_this_boot` 1, no ESP restart (uptime 6.9 h), UART log has no errors or panics. The 32 newest kept (about 3.9 KB each). Heap isn't logged while a trap runs, so "heap steady" is only "no restart". Stopped there to try the review fixes. In the 50 minutes after that (ESP reflashed and restarted, trap back each time) one fault was **missed**: the target sat halted at the HardFault entry with DFSR VCATCH, counter 51, no incident. Fixed (a371cf9, c7f195c, below). **Started again 2026-11-26 08:24:01** on build bbdfb54+c7f195c, trap `soak` on `rare.bin`, target fault counter 78 at the start: incidents from then on should equal the counter's growth. Second run passes (08:24 to 10:41, 2 h 17 m): counter 78 to 98, 20 faults, 20 incidents (441-460), 0 suppressed, `starts_this_boot` 1. Stopped to flash the Q2/Q8 fixes. **Third run armed 2026-11-26 10:56:27** on build 941a50c, `rare.bin`, fault counter 103, newest incident 484 |
 
 Not covered on hardware: the crash quarantine across an ESP32 panic (no way
 to cause one on demand; covered in esp-emu), and `esp:ws` (Rev 8 doesn't
@@ -152,6 +152,12 @@ build `CONFIG_SI_JS_NETWORK`).
 | **A fault while the probe restarted was lost for good.** The target's vector catch survives an ESP restart, so a fault in that window halts the core with nobody polling; the restarted trap's first look only noted "halted" and never fired. The soak's fault 51 sat halted for 50 minutes. Now a core found halted with a stop cause in DFSR (VCATCH, BKPT, DWT, EDBGRQ) fires the watch (or a `stop` event) once the module's watches are in; a core halted by a debugger's halt request is left alone. Then the cause stayed in DFSR only until a stop was *seen*, so a restart while a held watch's handler worked (an incident takes 0.7 s to write) left it halted again; now DFSR is cleared only when the stop is dealt with (resume or reset), and a still-held stop fires again at the next start. Bench: 18 ESP resets at random times on `rarequick.bin`, 14 faults = 14 incidents, target running; a halt trap on `bkpt.bin` armed 5 times right as the core stopped: found every time; a handler holding 1.5 s of every 2 s, the trap disarmed and armed 10 times at random: each start found the held stop again. | soul-injector a371cf9 and c7f195c, sidp_agent a4a286d |
 | The first USB request after the device had been busy (a trap writing an incident) as the host reconnected was lost: the DTR edges closed the old session and kept the new request, then the busy owner tore the old connection down and `close_session()` drained the queue again. Seen as `trap status` timing out right after arming a trap that fired at once (every time). Closing a session that's already closed now does nothing; host test added. Bench: the same sequence 5 times, answered in 0.65 s. | sidp_client 9016a19, soul-injector bbdfb54 |
 | Added: a log line per incident with how long it took to write (0.63 to 0.70 s on Rev 8). | soul-injector bbdfb54 |
+| **A passed run could leave the target halted (Q2).** The job now says how a run ends (`--on-pass`, `--on-fail`: `reset`, `resume`, `as-is`); default reset after a pass, as it is after a failure or cancel. `reset` catches the reset at its vector, then clears the vector catch and C_DEBUGEN, so no firmware runs with debug on; `reset` and `resume` also drop the DP power-up requests. ESP32 jobs are always reset, as before. Board (`bkpt.bin`: a BKPT every 2 s faults, and is counted, when debug is off, and halts the core when it's on), `hw-halted-end` and `hw-fail-post`: pass default and `resume`, fail `reset` and `resume` give faults +1 and a running core; pass `as-is` stays halted where `postProgram` left it; fail default halts at the BKPT. | sidp_client dd02741, soul-injector f0b2037, sidp_agent 9a57306 |
+| `--session-end reset` left C_DEBUGEN set: a BKPT or semihosting call in the firmware halted it for good with nobody attached. Now caught at the reset vector and let go with debug off; `resume` also drops the DP power-up requests. Board: after `--session-end reset` on `bkpt.bin` the next BKPT faults (counted). | soul-injector 9abd34f |
+| **Throttling held an unattended trap's target for good (Q8).** A throttled hold now ends after `--throttle-hold` (default 10 s, `forever` keeps the old behaviour); the same applies to a core a trap finds halted by a halt request when it starts (a throttled hold from before the device restarted would otherwise stay). Board (`resetfast.bin`, reset watch): `--throttle-hold 3` releases every 3.5 s, default every 10.5 s, `forever` never; a trap armed on the core a `forever` trap left halted let it run after 10 s. | sidp_client 25daebb, soul-injector 941a50c, sidp_agent 906b4fa |
+| `job push` under an armed trap said `BUSY` (Q10). Now "a trap is armed" (43), in either mode: disarm, push, arm again. `job run` still pauses a `yield` trap. Board: push refused with the message, run passed and paused the trap. | soul-injector c9fca6b, sidp_agent da99274 |
+| Plain arrays for bytes (Q3) stay refused, with a TypeError that says to use a `Uint8Array`; `api.d.ts` no longer declares `number[]`. Board: `crypto.sha256([1,2,3])` gives the new message. | soul-injector 76bbde2, sidp_agent 65eff79 |
+| `--session-end reset` now implies `--allow-reset` (Q6). Board: `target.reset()` in such a session works. | sidp_agent 160d0c2 |
 
 Found in the code review afterwards; test_app cases added; tried on the
 board 2026-11-26:
@@ -290,59 +296,27 @@ data" request.*
   result should be no loss beyond the file being written, and free space
   that stays the same.
 
-**Q2. A passed run can leave the target halted.** `release_transport()`
-only tri-states the pins. A `postProgram` that halts, or uses
-`flash.erase`/`flash.write` (which leave the core in the flash algorithm),
-ends "passed" with the firmware not running (DHCSR `0x00030003`) until a
-power cycle. Should the device resume or reset the target at the end of
-every run, or only document that `postProgram` must leave it running?
+Answered 2026-11-26:
 
-**Q3. `number[]` for bytes.** `api.d.ts` declares `Bytes` as
-`Uint8Array | ArrayBuffer | number[]`; the firmware refuses plain arrays in
-`writeMem`, `flash.write`, `sha256` ("ArrayBuffer object expected"). Accept
-arrays in `get_bytes()` (friendlier for agents, a copy per call), or narrow
-the declaration?
-
-**Q4. First boot after a ragged EN pulse locks up.** Opening the CH340
-gives a short, uneven EN pulse; the S31 then takes an instruction access
-fault in early ESP-IDF startup (`esp_ocode_calib_init`), faults again in the
-panic handler (`CPU_LOCKUP_RESET`) and restarts by itself 0.5 s later. 6 of 6
-port opens, 0 of 10 clean 100 ms pulses. Harmless on the bench; an EN glitch
-in the field would do the same. Worth checking the EN RC on Rev 8 and the S31
-errata. Anything you want me to try?
-
-**Q5.** (Lost USB requests: found and fixed, see above.)
-
-**Q6. Should `--session-end reset` need `--allow-reset`?** It works without
-it today; the person running the server chooses it, not the agent, so I left
-it.
-
-**Q7. 3.13 and the WiFi tests (1.5, 3.15)** need the device's WiFi settings
-again (wiped since 2026-11-13) and the WiFi password; 3.10, 4.1 (USB data
-cut), 4.2 (power cycle), 4.4 (auto run on detect) and 3.8 (reset button)
-need your hands. The MCP tests (3.15, 3.16) need the Claude Code restart.
-
-**Q8. Throttling in a trap holds the target.** Past 10 firings a second a
-watch is throttled and the core is held (documented). In a session that's
-right; in an unattended trap it stops a boot-looping target until someone
-looks. Keep it, or let traps throttle by skipping the capture and letting
-the core run?
-
-**Q9. Something reset the target between 07:38 and 07:42 on 2026-11-26.**
-After I found the soak's missed fault (target halted at the HardFault entry,
-boots 68, faults 51), the next look showed boots 69, faults 51: a reset, not
-the firmware's own handler (that counts the fault first). In that window I
-closed an MCP session (`asis`), reflashed the ESP over UART, restarted the
-logger (an ESP reset) and armed the trap. I then repeated each of those
-steps on a halted target and none of them reset it. Were you at the bench
-then (cable or board touched)? If not, it's something I can't reproduce yet.
-
-**Q10. `job push` is refused (`BUSY`, status 4) while a `yield` trap is
-armed, but `job run` goes ahead and pauses the trap.** Should a push also
-pause a `yield` trap (it changes the job the trap's target config comes
-from, so the trap would restart on the new job), or should both be refused
-until you disarm? Today the first is surprising: `prog.sh` fails half-way
-(push refused, then the old job runs).
+- **Q2** (a passed run can leave the target halted): configurable, reset
+  after a pass and as it is after a failure by default. Done, see Fixed.
+- **Q3** (`number[]` for bytes): keep plain arrays out (RAM on an embedded
+  device). Declaration narrowed, clearer error. Done.
+- **Q4** (first boot after a ragged EN pulse locks up): not an issue; the
+  product has no CH340 or UART adaptor on the probe.
+- **Q6** (`--session-end reset` and `--allow-reset`): reset at the end
+  implies `--allow-reset`. Done.
+- **Q7** (tests that need WiFi, hands or an MCP restart): postponed.
+- **Q8** (throttling holds a trap's target): a time limit. Done
+  (`--throttle-hold`), see Fixed.
+- **Q9** (target reset between 07:38 and 07:42, nobody at the bench): keep
+  an eye on it. Since then, the soak's second run (08:24 to 10:41) had one
+  incident per counted fault and nothing else unexplained.
+- **Q10** (`job push` refused under a yield trap, `job run` allowed): a
+  push now needs a deliberate disarm, with a message that says so.
+  `job run` still pauses a `yield` trap: that's what `yield` means (a
+  production fixture keeps working while a trap watches between runs);
+  `--mode exclusive` refuses runs too.
 
 ### Morning checklist (2026-11-25, done 2026-11-26)
 
@@ -365,17 +339,19 @@ until you disarm? Today the first is surprising: `prog.sh` fails half-way
 
 ### Next (2026-11-26)
 
-1. Soak (4.13) runs again since 2026-11-26 08:24:01 (fault counter 78 at
-   the start): `sidp-agent trap status` (`starts_this_boot` 1, `running`),
-   `sidp-agent incident list`; incidents should equal the target's fault
-   counter minus 78 (read it with `tools/boots.sh` after `trap disarm`).
-   UART log: `results/uart.log` ("incident N written in", "found stopped").
-2. Q1 decides how `/data` should survive power cuts; until then, don't
+1. Soak (4.13) third run since 2026-11-26 10:56:27 (fault counter 103,
+   newest incident 484): `sidp-agent trap status` (`starts_this_boot` 1,
+   `running`), `sidp-agent incident list`; incidents after 484 should equal
+   the counter's growth past 103 (the newest incident's `data.status` bytes
+   8-11, or `tools/end_state.sh` after `trap disarm`). UART log:
+   `results/uart.log`.
+2. Q1 is decided (later hardware: battery and ext4 on SD); on Rev 8 don't
    reset the ESP while a trap writes incidents if the incidents matter.
-3. Still needs you: 3.8 reset button, 3.10 target power, 4.1 USB data cut,
-   4.2 power cycle, 4.4 auto run, 4.9 target unplugged; WiFi password for
-   1.5, 3.13, 3.15; `--elf` in the MCP server's args for the named-frame
-   part of 3.16.
+3. Postponed (Q7): 3.8 reset button, 3.10 target power, 4.1 USB data cut,
+   4.2 power cycle, 4.4 auto run, 4.9 target unplugged; WiFi for 1.5, 3.13,
+   3.15; `--elf` in the MCP server's args for the named-frame part of 3.16.
+   The MCP server needs a restart to pick up today's sidp-agent (the
+   `throttle_hold_ms` argument, the narrowed `Bytes`).
 
 ### Smaller (not fixed yet)
 

@@ -80,6 +80,9 @@ public:
     const uint8_t *script_sha256() const; // nullptr when not pinned
 
     uint32_t hook_timeout_ms() const;     // 0: firmware default
+
+    /** What a run leaves the target doing: RESET, RESUME or AS_IS, never DEFAULT. */
+    si_job_RunEnd run_end(bool passed) const;
     bool script_network() const;
 
     static const constexpr char JOB_PATH[] = "/data/job.pb";

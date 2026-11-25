@@ -117,6 +117,19 @@ public:
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+    /** What a run leaves the target doing when it ends. */
+    enum class run_end {
+        reset,  // debug state cleared and the target reset: the firmware boots
+        resume, // debug state cleared: the core goes on from where it is
+        as_is,  // only the transport is released
+    };
+
+    /**
+     * End a run: leave the target as `how` says and release the transport.
+     * Families with one way to end (ESP32: reset into the application) ignore `how`.
+     */
+    virtual esp_err_t end_run(run_end how) { return release_transport(); }
+
     virtual esp_err_t resume_target() { return ESP_ERR_NOT_SUPPORTED; }
     virtual esp_err_t read_core_reg(uint32_t id, uint32_t *val) { return ESP_ERR_NOT_SUPPORTED; } // ESP_ERR_INVALID_STATE: running
     virtual esp_err_t write_core_reg(uint32_t id, uint32_t val) { return ESP_ERR_NOT_SUPPORTED; }

@@ -77,16 +77,6 @@ static uint32_t core_reg_selector(uint16_t id)
     return id == sidp::ARM_REG_FPSCR ? CORE_REG_FPSCR : id;
 }
 
-static void drive_nrst(bool asserted)
-{
-#ifdef CONFIG_ESP_SWD_PHY_AXC2T245
-    // A high GPIO turns on the reset MOSFET.
-    gpio_set_level(static_cast<gpio_num_t>(CONFIG_ESP_SWD_NRST_PIN), asserted ? 1 : 0);
-#else
-    gpio_set_level(static_cast<gpio_num_t>(CONFIG_ESP_SWD_NRST_PIN), asserted ? 0 : 1);
-#endif
-}
-
 static uint32_t fpb_comparator(uint32_t address)
 {
     const uint32_t replace = (address & 2) != 0 ? FP_COMP_REPLACE_UPPER : FP_COMP_REPLACE_LOWER;
@@ -352,9 +342,9 @@ esp_err_t sidp_swd_backend::reset(sidp::reset_kind_t kind, bool halt_after, sidp
 
 void sidp_swd_backend::pulse_nrst()
 {
-    drive_nrst(true);
+    target_lines::drive_nrst(true);
     vTaskDelay(pdMS_TO_TICKS(RESET_PULSE_MS));
-    drive_nrst(false);
+    target_lines::drive_nrst(false);
 }
 
 esp_err_t sidp_swd_backend::finish_reset(bool halt_after, sidp::stop_detect_t &stop)

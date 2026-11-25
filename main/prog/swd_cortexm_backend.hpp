@@ -31,6 +31,7 @@ public:
     esp_err_t verify(uint32_t written_len) override;
     esp_err_t self_test(const si::config::test_item &item, uint32_t *func_return_val) override;
     esp_err_t release_transport() override;
+    esp_err_t end_run(run_end how) override;
     esp_err_t reset_target() override;
     esp_err_t reinit_debug() override;
     esp_err_t halt_target() override;
@@ -50,6 +51,8 @@ public:
 
 private:
     swd_cortexm_backend() = default;
+
+    esp_err_t free_core(bool reset);
 
     bool connected_under_reset = false;
 };

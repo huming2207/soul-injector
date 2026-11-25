@@ -136,6 +136,29 @@ void offline_flasher::select_backend()
     ESP_LOGI(TAG, "select_backend: using %s", backend->name());
 }
 
+void offline_flasher::end_run(bool passed)
+{
+    if (backend == nullptr) {
+        return;
+    }
+    // The job says how the target is left (default: reset after a pass, as it is after a failure).
+    target_backend::run_end how = target_backend::run_end::as_is;
+    switch (fw_asset_manager::instance()->run_end(passed)) {
+    case si_job_RunEnd_RUN_END_RESET:
+        how = target_backend::run_end::reset;
+        break;
+    case si_job_RunEnd_RUN_END_RESUME:
+        how = target_backend::run_end::resume;
+        break;
+    default:
+        break;
+    }
+    const esp_err_t ret = backend->end_run(how);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "end_run: 0x%x", ret); // the run's result stands
+    }
+}
+
 void offline_flasher::on_error()
 {
     auto *js = qjs_binder::js_host::instance();
@@ -150,9 +173,7 @@ void offline_flasher::on_error()
     // stale connection state into the next session (the FSM waits for target
     // disconnect/reconnect and then reloads assets; a still-connected backend
     // would short-circuit its connect sequence on the new target).
-    if (backend != nullptr) {
-        backend->release_transport();
-    }
+    end_run(false);
     led.set_color(0x80, 0x00, 0x00);
 }
 
@@ -338,7 +359,7 @@ void offline_flasher::on_post_program()
             state = flasher::ERROR;
             return;
         }
-        backend->release_transport();
+        end_run(true);
 #ifndef CONFIG_SI_SG_PROG_RIG
         state = flasher::DONE;
 #else
@@ -350,8 +371,7 @@ void offline_flasher::on_post_program()
     const si_job_Procedure *steps = fw_asset_manager::instance()->post_program_steps();
     if (steps == nullptr) {
         ESP_LOGI(TAG, "post_prog: no steps, skipping");
-        // Leaving the transport connected here would poison the next session.
-        backend->release_transport();
+        end_run(true); // also releases the transport, which would poison the next session
 #ifndef CONFIG_SI_SG_PROG_RIG
         state = flasher::DONE;
 #else
@@ -370,7 +390,7 @@ void offline_flasher::on_post_program()
 
     ESP_LOGI(TAG, "post_prog: OK");
 
-    backend->release_transport();
+    end_run(true);
 
 #ifndef CONFIG_SI_SG_PROG_RIG
     state = flasher::DONE;
@@ -404,9 +424,7 @@ void offline_flasher::on_current_test()
 
 void offline_flasher::on_cancelled()
 {
-    if (backend != nullptr) {
-        backend->release_transport();
-    }
+    end_run(false);
     led.set_color(0x80, 0x80, 0x00); // Yellow
     composer->display_error("CANCELLED", "Job cancelled");
 }

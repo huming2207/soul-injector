@@ -196,6 +196,19 @@ uint32_t fw_asset_manager::hook_timeout_ms() const
     return script_path() != nullptr ? job->script.hook_timeout_ms : 0;
 }
 
+si_job_RunEnd fw_asset_manager::run_end(bool passed) const
+{
+    si_job_RunEnd end = si_job_RunEnd_RUN_END_DEFAULT;
+    if (job != nullptr) {
+        end = passed ? job->on_pass : job->on_fail;
+    }
+    if (end == si_job_RunEnd_RUN_END_DEFAULT) {
+        // A passed run boots the new firmware; a failed one is left for a look.
+        end = passed ? si_job_RunEnd_RUN_END_RESET : si_job_RunEnd_RUN_END_AS_IS;
+    }
+    return end;
+}
+
 bool fw_asset_manager::script_network() const
 {
     return script_path() != nullptr && job->script.network;

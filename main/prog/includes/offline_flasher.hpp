@@ -90,6 +90,7 @@ private:
     void on_pre_program();
     void on_load_asset();
     void on_detect();
+    void end_run(bool passed);
     void on_error();
     void on_erase();
     void on_program();

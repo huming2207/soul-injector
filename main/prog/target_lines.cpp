@@ -45,6 +45,16 @@ void target_lines::isolate()
     set_swdio_pulldowns(true);
 }
 
+void target_lines::drive_nrst(bool asserted)
+{
+#ifdef CONFIG_ESP_SWD_PHY_AXC2T245
+    // A high GPIO turns on the reset MOSFET.
+    gpio_set_level(static_cast<gpio_num_t>(CONFIG_ESP_SWD_NRST_PIN), asserted ? 1 : 0);
+#else
+    gpio_set_level(static_cast<gpio_num_t>(CONFIG_ESP_SWD_NRST_PIN), asserted ? 0 : 1);
+#endif
+}
+
 void target_lines::set_swdio_pulldowns(bool enable)
 {
 #ifdef CONFIG_ESP_SWD_PHY_AXC2T245

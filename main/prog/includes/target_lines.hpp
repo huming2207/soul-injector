@@ -19,6 +19,9 @@ public:
     static void connect();
     static void isolate();
 
+    /** Drive the target's nRST line (asserted: held in reset). */
+    static void drive_nrst(bool asserted);
+
 private:
     static void set_swdio_pulldowns(bool enable);
 };

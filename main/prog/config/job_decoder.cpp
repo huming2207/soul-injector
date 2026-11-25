@@ -209,6 +209,21 @@ namespace
         return ESP_OK;
     }
 
+    esp_err_t validate_run_end(const si_job_Job &job)
+    {
+        for (si_job_RunEnd end : {job.on_pass, job.on_fail}) {
+            if (end < _si_job_RunEnd_MIN || end > _si_job_RunEnd_MAX) {
+                ESP_LOGE(TAG, "unknown run end %d", (int)end);
+                return ESP_ERR_NOT_SUPPORTED;
+            }
+            if (job.target.has_esp32 && end != si_job_RunEnd_RUN_END_DEFAULT) {
+                ESP_LOGE(TAG, "an ESP32 target is always reset at the end of a run; on_pass/on_fail are for Cortex-M");
+                return ESP_ERR_NOT_SUPPORTED;
+            }
+        }
+        return ESP_OK;
+    }
+
     esp_err_t validate_job(const si_job_Job &job, const algo_blob &blob)
     {
         if (job.schema_version != si_job_SchemaVersion_SCHEMA_VERSION_CURRENT) {
@@ -227,6 +242,7 @@ namespace
         ret = ret ?: validate_procedure("pre-program", job.has_pre_program, job.pre_program);
         ret = ret ?: validate_procedure("post-program", job.has_post_program, job.post_program);
         ret = ret ?: validate_script(job);
+        ret = ret ?: validate_run_end(job);
         if (ret != ESP_OK) {
             return ret;
         }

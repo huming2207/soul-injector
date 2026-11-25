@@ -8,9 +8,17 @@
 
 #include "fw_asset_manager.hpp"
 #include "swd_prog.hpp"
+#include "target_lines.hpp"
 
 static const char *TAG = "swd_backend";
 static constexpr uint32_t DHCSR_ADDR = 0xE000EDF0;
+static constexpr uint32_t DFSR_ADDR = 0xE000ED30;
+static constexpr uint32_t DEMCR_ADDR = 0xE000EDFC;
+static constexpr uint32_t DEMCR_VC_ALL = 0x7F1;  // VC_CORERESET and the fault catches; TRCENA stays
+static constexpr uint32_t DFSR_CLEAR_ALL = 0x1F;
+static constexpr uint8_t DP_CTRL_STAT_ADDR = 0x04;
+static constexpr uint32_t END_PULSE_MS = 20;     // nRST low
+static constexpr uint32_t END_CATCH_MS = 500;    // for the core to stop at its reset vector
 
 static esp_err_t check_halted()
 {
@@ -97,6 +105,78 @@ esp_err_t swd_cortexm_backend::release_transport()
     }
     swd_prog::reset_gpio(); // tri-state the SWD pins so the target can run
     return ESP_OK;
+}
+
+esp_err_t swd_cortexm_backend::end_run(run_end how)
+{
+    if (how == run_end::as_is) {
+        return release_transport();
+    }
+
+    // Free the core from the debugger: a vector catch left set halts it at the
+    // next reset or fault, and with C_DEBUGEN set a BKPT halts it for good.
+    esp_err_t ret = free_core(how == run_end::reset);
+    if (ret != ESP_OK) {
+        // Retried once on a fresh link: the run may have left the debug port in error.
+        ESP_LOGW(TAG, "end_run: %s (0x%x), once more after reconnecting", esp_err_to_name(ret), ret);
+        ret = reinit_debug();
+        ret = ret ?: free_core(how == run_end::reset);
+    }
+    if (ret == ESP_OK) {
+        // Drop the debug power-up requests, or some parts keep their debug domain on in sleep.
+        (void)swd_write_dp(DP_CTRL_STAT_ADDR, 0);
+        ESP_LOGI(TAG, "end_run: target %s, debug off", how == run_end::reset ? "reset" : "resumed");
+    } else {
+        ESP_LOGE(TAG, "end_run: couldn't free the target: %s (0x%x)", esp_err_to_name(ret), ret);
+    }
+    connected_under_reset = false;
+    swd_prog::reset_gpio();
+    return ret;
+}
+
+esp_err_t swd_cortexm_backend::free_core(bool reset)
+{
+    uint32_t demcr = 0;
+    esp_err_t ret = swd_read_word(DEMCR_ADDR, &demcr);
+    if (reset) {
+        // Stop at the reset vector, so no firmware runs with debug still enabled.
+        ret = ret ?: swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | C_HALT);
+        ret = ret ?: swd_write_word(DEMCR_ADDR, (demcr & ~DEMCR_VC_ALL) | VC_CORERESET);
+        ret = ret ?: swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        target_lines::drive_nrst(true);
+        vTaskDelay(pdMS_TO_TICKS(END_PULSE_MS));
+        target_lines::drive_nrst(false);
+
+        bool caught = false;
+        const TickType_t start = xTaskGetTickCount();
+        while (!caught && xTaskGetTickCount() - start < pdMS_TO_TICKS(END_CATCH_MS)) {
+            vTaskDelay(1);
+            uint32_t dhcsr = 0;
+            if (swd_read_word(DHCSR_ADDR, &dhcsr) != ESP_OK) {
+                swd_clear_errors(); // the debug port can report errors during the reset
+                continue;
+            }
+            caught = (dhcsr & S_HALT) != 0;
+        }
+        if (!caught) {
+            // Not fatal: debug is turned off below either way.
+            ESP_LOGW(TAG, "end_run: the reset wasn't caught at its vector; the firmware ran briefly with debug on");
+        }
+    } else {
+        uint32_t dhcsr = 0;
+        ret = ret ?: swd_read_word(DHCSR_ADDR, &dhcsr);
+        if (ret == ESP_OK && (dhcsr & S_HALT) != 0) {
+            // The interrupt mask and single step can only be cleared while halted.
+            ret = swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | C_HALT);
+        }
+    }
+    ret = ret ?: swd_write_word(DEMCR_ADDR, demcr & ~DEMCR_VC_ALL);
+    ret = ret ?: swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
+    // C_DEBUGEN off: a halted core runs, and BKPTs become faults the firmware handles.
+    return ret ?: swd_write_word(DHCSR_ADDR, DBGKEY);
 }
 
 esp_err_t swd_cortexm_backend::reset_target()

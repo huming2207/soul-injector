@@ -37,6 +37,14 @@ The job names the script as an asset and may pin its SHA-256
 
 A job has either a script or pre/post procedures, not both.
 
+After the hooks the device leaves the target as the job says (`Job.on_pass`
+and `on_fail`, `sidp-agent job push --on-pass/--on-fail`): by default a passed
+run resets it with debug off, so the new firmware boots whatever
+`postProgram` left (a halt, the flash algorithm after `flash.write`), and a
+failed run leaves it as it is. `onFail` runs before that. Debug bits a script
+sets in the target's own registers (STM32 `DBGMCU`) survive the reset; clear
+them in `postProgram`.
+
 Every run record in the production log carries the SHA-256 of the script the
 run read (`RunRecord.script_sha256`), whether the job pinned it
 (`script_pinned`), and what the script logged (`results_json`, see

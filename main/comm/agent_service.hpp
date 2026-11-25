@@ -73,6 +73,7 @@ private:
         int64_t lost_since_us;
         int64_t running_since_us;
         uint32_t backoff_ms;
+        uint32_t first_event_seq; // events up to this one aren't the trap's (an earlier session's)
         bool starting;          // the module was started; waiting for its top level's outcome
         uint32_t start_token;
         int64_t start_until_us; // past it a top level that's still going counts as started

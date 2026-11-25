@@ -951,6 +951,7 @@ sidp::status_t agent_service::op_trap_arm(std::span<const uint8_t> payload, pb_o
 
     trap_disarm();
     trap.cfg = cfg;
+    qjs_binder::js_host::instance()->read_events(0, nullptr, 0, &trap.first_event_seq, nullptr);
     size_t sha_len = 0;
     if (psa_hash_compute(PSA_ALG_SHA_256, module, len, trap.sha256, sizeof(trap.sha256), &sha_len) != PSA_SUCCESS) {
         heap_caps_free(module);
@@ -1125,6 +1126,7 @@ size_t agent_service::events_json(char *out, size_t cap)
     uint32_t newest = 0;
     js->read_events(0, nullptr, 0, &newest, nullptr);
     uint32_t after = newest > INCIDENT_EVENTS ? newest - INCIDENT_EVENTS : 0;
+    after = std::max(after, trap.first_event_seq); // sessions are refused while armed: the rest are the trap's
     size_t n = strlcpy(out, "[", cap);
     bool first = true;
     for (size_t got; (got = js->read_events(after, evs, EVENTS_PER_READ, nullptr, nullptr)) != 0;) {

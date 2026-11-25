@@ -54,11 +54,16 @@ namespace qjs_binder::priv
         return op == OP_READ_MEM || op == OP_WRITE_MEM || op == OP_FLASH_READ || op == OP_FLASH_WRITE;
     }
 
+    // Promise calls that hold the owner up: a sync call would wait behind them.
+    // A session's owner steps delay, poll32 and waitHalt between other work
+    // (session.cpp, add_pending), so there they don't; a watch handler reading
+    // memory while the module awaits target.delay() is the usual case.
     static int async_pending()
     {
         int n = 0;
         for (auto &s : g.slots) {
-            n += s.used;
+            bool stepped = g.session && (s.op == OP_DELAY || s.op == OP_POLL32 || s.op == OP_WAIT_HALT);
+            n += s.used && !stepped;
         }
         return n;
     }

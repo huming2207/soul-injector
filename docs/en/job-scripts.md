@@ -121,7 +121,8 @@ hook, and not while a promise call is still pending. Failures throw (or
 reject with) a `TargetError` whose `code` is:
 
 - `NOT_OWNED`: called outside a hook.
-- `BUSY`: a sync call while a promise call is pending, more than four
+- `BUSY`: a sync call while a promise call is pending (in an agent session
+  only `call`, `reset`, `reinit` and `flash.*` count), more than four
   promise calls at once, or a second buffer call (`readMem`, `writeMem`,
   `flash.*`) before the first one finished.
 - `TIMEOUT`: the call, or the poll, ran out of time.

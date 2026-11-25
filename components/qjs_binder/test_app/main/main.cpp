@@ -366,6 +366,11 @@ static void session_tests()
     check(r.outcome == script_outcome::error && r.error.find("TIMEOUT") != std::string::npos && r.ms >= 90 && r.ms < 400,
           "session: waitHalt({timeoutMs})", r.error.c_str());
 
+    // A session steps delay/poll32/waitHalt between other work, so a sync call
+    // needn't wait for them: watch handlers read memory while the module awaits.
+    r = eval("syncdelay", m);
+    check(r.value == "0", "session: sync call while a delay is pending", r.error.c_str());
+
     r = run_mod("watchers", m);
     serve_for(m, 20);
     check(r.outcome == script_outcome::ok && m.vc == 0x7F0, "session: run, fault watch sets vector catch", r.error.c_str());

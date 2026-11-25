@@ -168,6 +168,9 @@ namespace qjs_binder::priv
         JS_FreeValue(ctx, JS_GetException(ctx)); // maybe an ArrayBuffer
         uint8_t *base = JS_GetArrayBuffer(ctx, len, v);
         if (!base) {
+            // Plain arrays are refused on purpose: a number per byte costs far more RAM.
+            JS_FreeValue(ctx, JS_GetException(ctx));
+            JS_ThrowTypeError(ctx, "bytes must be a Uint8Array or an ArrayBuffer (not a plain array: use new Uint8Array([...]))");
             return -1;
         }
         *p = base;

@@ -145,6 +145,11 @@ export async function preProgram(ctx) {
         const h = hex(crypto.sha256('abc'));
         if (h !== 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') throw new Error(`sha256 ${h}`);
         if (hex(crypto.sha256(new Uint8Array([0x61, 0x62, 0x63]))) !== h) throw new Error('sha256 of bytes');
+        if (hex(crypto.sha256(new Uint8Array([0x61, 0x62, 0x63]).buffer)) !== h) throw new Error('sha256 of an ArrayBuffer');
+        // Plain arrays are refused (a number per byte), with a message that says what to use.
+        let refused = '';
+        try { crypto.sha256([0x61, 0x62, 0x63]); } catch (e) { refused = String(e); }
+        if (!refused.startsWith('TypeError') || !refused.includes('Uint8Array')) throw new Error(`plain array gave '${refused}'`);
         const a = crypto.randomBytes(16);
         const b = crypto.randomBytes(16);
         if (a.length !== 16 || hex(a) === hex(b)) throw new Error('randomBytes');

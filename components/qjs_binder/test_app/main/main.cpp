@@ -446,6 +446,35 @@ static void session_tests()
     r = run_mod("bad", m);
     check(r.outcome == script_outcome::error && r.error.find("nope") != std::string::npos, "session: run that fails to link",
           r.error.c_str());
+
+    // session_start/session_poll_result: what a trap's owner uses so it can go
+    // on serving others while a module starts.
+    {
+        size_t len;
+        const uint8_t *p = piece("bad", &len);
+        uint32_t token = 0;
+        bool ok = h->session_start(p, len, &token) == ESP_OK && token != 0;
+        int64_t end = esp_timer_get_time() + 2000000;
+        bool done = false;
+        while (ok && !(done = h->session_poll_result(token, false, m)) && esp_timer_get_time() < end) {
+            h->session_service(m, 5);
+        }
+        script_result sr = h->last_script_result();
+        check(done && sr.outcome == script_outcome::error && strstr(sr.error, "nope"), "session: start, then poll its failure", sr.error);
+
+        p = piece("forever", &len);
+        ok = h->session_start(p, len, &token) == ESP_OK && token != 0;
+        end = esp_timer_get_time() + 300000;
+        done = false;
+        while (ok && !done && esp_timer_get_time() < end) {
+            done = h->session_poll_result(token, false, m);
+            h->session_service(m, 5);
+        }
+        bool given_up = h->session_poll_result(token, true, m);
+        sr = h->last_script_result();
+        check(ok && !done && given_up && sr.outcome == script_outcome::pending && h->session_running(),
+              "session: start, a top level that goes on is pending", sr.error);
+    }
     r = eval("spin", m);
     check(r.outcome == script_outcome::stopped && r.error.find("yield") != std::string::npos, "session: spin is stopped",
           r.error.c_str());

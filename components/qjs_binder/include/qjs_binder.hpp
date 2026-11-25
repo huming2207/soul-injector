@@ -185,6 +185,13 @@ namespace qjs_binder
 
         esp_err_t session_run(const uint8_t *blob, size_t len, uint32_t timeout_ms, js_target &target); // replaces the runtime
 
+        // session_run() without the wait, for an owner that mustn't stop serving
+        // others meanwhile: keep calling session_service(), and
+        // session_poll_result() until it says the top level has an outcome
+        // (last_script_result()) or give_up (pending from then on).
+        esp_err_t session_start(const uint8_t *blob, size_t len, uint32_t *token);
+        bool session_poll_result(uint32_t token, bool give_up, js_target &target);
+
         esp_err_t session_eval(const uint8_t *blob, size_t len, uint32_t timeout_ms, js_target &target);
 
         void session_stop(js_target &target);

@@ -877,8 +877,10 @@ namespace qjs_binder
         g.owner_note = error;
     }
 
-    esp_err_t js_host::session_run(const uint8_t *blob, size_t len, uint32_t timeout_ms, js_target &target)
+    // *token 0: answered without a runtime (last_script_result() has why).
+    esp_err_t js_host::session_start(const uint8_t *blob, size_t len, uint32_t *token)
     {
+        *token = 0;
         esp_err_t ret = check_blob(blob, len);
         if (ret != ESP_OK) {
             return ret;
@@ -895,11 +897,40 @@ namespace qjs_binder
             owner_result(script_outcome::error, quarantined ? "this script crashed the device, reboot to retry" : "no room for the script");
             return ESP_OK;
         }
-        uint32_t token = next_token();
-        g.want_token = token;
+        *token = next_token();
+        g.want_token = *token;
         g.owner_note = nullptr;
+        g.out_pending = false;
         set_crash_mark(sha);
-        start_runtime(FIRST_MODULE, token, copy, len);
+        start_runtime(FIRST_MODULE, *token, copy, len);
+        return ESP_OK;
+    }
+
+    bool js_host::session_poll_result(uint32_t token, bool give_up, js_target &target)
+    {
+        if (token == 0) {
+            return true;
+        }
+        if (g.done_token != token && !give_up) {
+            return false;
+        }
+        if (g.want_token.exchange(0) == (token | CLAIMED)) { // its result is being written: take it
+            int64_t end = now_us() + CLAIMED_WAIT_MS * 1000LL;
+            while (g.done_token != token && now_us() < end) {
+                session_service(target, 1);
+            }
+        }
+        g.out_pending = g.done_token != token;
+        return true;
+    }
+
+    esp_err_t js_host::session_run(const uint8_t *blob, size_t len, uint32_t timeout_ms, js_target &target)
+    {
+        uint32_t token = 0;
+        esp_err_t ret = session_start(blob, len, &token);
+        if (ret != ESP_OK || token == 0) {
+            return ret;
+        }
         return wait_result(token, timeout_ms, target);
     }
 
@@ -1088,6 +1119,12 @@ namespace qjs_binder
 {
     esp_err_t js_host::begin_session(const session_config &) { return ESP_ERR_NOT_SUPPORTED; }
     esp_err_t js_host::session_run(const uint8_t *, size_t, uint32_t, js_target &) { return ESP_ERR_NOT_SUPPORTED; }
+    esp_err_t js_host::session_start(const uint8_t *, size_t, uint32_t *token)
+    {
+        *token = 0;
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    bool js_host::session_poll_result(uint32_t, bool, js_target &) { return true; }
     esp_err_t js_host::session_eval(const uint8_t *, size_t, uint32_t, js_target &) { return ESP_ERR_NOT_SUPPORTED; }
     void js_host::session_stop(js_target &) {}
     void js_host::session_service(js_target &, uint32_t wait_ms) { vTaskDelay(pdMS_TO_TICKS(wait_ms) ? pdMS_TO_TICKS(wait_ms) : 1); }

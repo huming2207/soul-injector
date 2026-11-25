@@ -683,6 +683,7 @@ uint8_t *agent_service::load_module(size_t *len)
 
 void agent_service::drop_trap_hold()
 {
+    trap.starting = false;
     if (trap_holds) {
         release(si_agent_SessionEnd_SESSION_END_AS_IS);
         trap_holds = false;
@@ -762,12 +763,41 @@ void agent_service::trap_start()
     trap_holds = true;
     trap_yields = trap.cfg.mode == si_agent_TrapMode_TRAP_MODE_YIELD;
 
-    esp_err_t ret = js->session_run(module, len, TRAP_TOP_LEVEL_MS, target);
+    // Don't wait here for the top level: this is the SIDP service task, and a
+    // trap's top level usually never ends, so every start would leave GDB and
+    // every other request unanswered for TRAP_TOP_LEVEL_MS. trap_service()
+    // checks the outcome between requests (trap_check_start).
+    uint32_t token = 0;
+    esp_err_t ret = js->session_start(module, len, &token);
     heap_caps_free(module);
-    const auto r = js->last_script_result();
-    if (ret != ESP_OK || r.outcome == qjs_binder::script_outcome::error || r.outcome == qjs_binder::script_outcome::stopped) {
+    if (ret != ESP_OK) {
         char why[sizeof(trap.note)];
-        snprintf(why, sizeof(why), "module: %s", ret != ESP_OK ? esp_err_to_name(ret) : r.error);
+        snprintf(why, sizeof(why), "module: %s", esp_err_to_name(ret));
+        if (++trap.failures >= MAX_FAILURES) {
+            trap_fail(why);
+        } else {
+            trap.backoff_ms = std::clamp(trap.backoff_ms * 2, BACKOFF_MIN_MS, BACKOFF_MAX_MS);
+            trap_retry(why, trap.backoff_ms);
+        }
+        return;
+    }
+    trap.starting = true;
+    trap.start_token = token;
+    trap.start_until_us = now_us() + TRAP_TOP_LEVEL_MS * 1000LL;
+    strlcpy(trap.note, "starting the module", sizeof(trap.note));
+}
+
+void agent_service::trap_check_start()
+{
+    auto *js = qjs_binder::js_host::instance();
+    if (!js->session_poll_result(trap.start_token, now_us() >= trap.start_until_us, target)) {
+        return;
+    }
+    trap.starting = false;
+    const auto r = js->last_script_result();
+    if (r.outcome == qjs_binder::script_outcome::error || r.outcome == qjs_binder::script_outcome::stopped) {
+        char why[sizeof(trap.note)];
+        snprintf(why, sizeof(why), "module: %s", r.error);
         if (++trap.failures >= MAX_FAILURES) {
             trap_fail(why);
         } else {
@@ -794,6 +824,10 @@ void agent_service::trap_service()
     const int64_t now = now_us();
     if (run_wanted.exchange(false) && trap_yields) {
         trap_pause("a programming run");
+    }
+    if (trap_holds && trap.starting) {
+        trap_check_start();
+        return;
     }
     if (trap_holds) {
         if (trap.failures && now - trap.running_since_us > STABLE_MS * 1000LL) {

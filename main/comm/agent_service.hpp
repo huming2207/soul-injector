@@ -73,6 +73,9 @@ private:
         int64_t lost_since_us;
         int64_t running_since_us;
         uint32_t backoff_ms;
+        bool starting;          // the module was started; waiting for its top level's outcome
+        uint32_t start_token;
+        int64_t start_until_us; // past it a top level that's still going counts as started
     };
 
     sidp::status_t op_open(std::span<const uint8_t> payload, pb_ostream_t &out);
@@ -99,6 +102,7 @@ private:
     void erase_trap();
     void trap_service();
     void trap_start();
+    void trap_check_start();
     void trap_pause(const char *why);
     void trap_retry(const char *why, uint32_t first_ms);
     void trap_fail(const char *why);

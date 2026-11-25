@@ -84,9 +84,24 @@ esp_err_t incident_store::init()
             continue;
         }
         path_of(id, path, sizeof(path));
-        if (stat(path, &st) != 0 || st.st_size < (off_t)HEADER_SIZE) {
+        // The header's total, not the file's length: append() writes a section and
+        // then the total, so a reset in between leaves a partial section at the
+        // end, and readers reject an incident whose total isn't its length.
+        uint8_t hdr[TOTAL_OFFSET + 4] = {};
+        FILE *f = stat(path, &st) == 0 ? fopen(path, "rb") : nullptr;
+        bool ok = f != nullptr && fread(hdr, 1, sizeof(hdr), f) == sizeof(hdr);
+        if (f != nullptr) {
+            fclose(f);
+        }
+        const uint32_t total = get32(hdr + TOTAL_OFFSET);
+        if (!ok || memcmp(hdr, "SIIN", 4) != 0 || hdr[4] != 1 || total < HEADER_SIZE || (off_t)total > st.st_size) {
             unlink(path);
             continue;
+        }
+        if ((off_t)total < st.st_size) {
+            ESP_LOGW(TAG, "init: incident %lu ends in a partial section; keeping its first %lu bytes", (unsigned long)id,
+                     (unsigned long)total);
+            truncate(path, total);
         }
         max_id = std::max(max_id, id);
         if (n == CONFIG_SI_AGENT_INCIDENTS_MAX) {
@@ -97,8 +112,8 @@ esp_err_t incident_store::init()
             }
             drop(oldest - entries);
         }
-        entries[n++] = {id, (uint32_t)st.st_size};
-        bytes += st.st_size;
+        entries[n++] = {id, total};
+        bytes += total;
     }
     closedir(dir);
     std::sort(entries, entries + n, [](const entry &a, const entry &b) { return a.id < b.id; });

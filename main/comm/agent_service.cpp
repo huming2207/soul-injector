@@ -340,6 +340,9 @@ sidp::status_t agent_service::claim(const si_agent_Permissions &perms, bool conn
     if (ret == ESP_ERR_INVALID_STATE || ret == job_controller::ERR_RUNNING) {
         return sidp::STATUS_BUSY; // GDB or a job run has it; refused before any SWD traffic
     }
+    if (ret == ESP_ERR_NOT_FOUND) {
+        return sidp::STATUS_NEEDS_CORTEX_M; // the job went away since the check above
+    }
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "claim: attach failed: %s", esp_err_to_name(ret));
         return sidp::STATUS_SWD_ERROR;

@@ -109,13 +109,13 @@ esp_err_t sidp_swd_backend::load_target()
     auto *asset = fw_asset_manager::instance();
     if (!asset->has_job() || asset->config().family != si::config::target_family::swd_cortex_m || !asset->config().has_algo) {
         ESP_LOGE(TAG, "load_target: the device needs a Cortex-M job to debug");
-        return ESP_ERR_INVALID_STATE;
+        return ESP_ERR_NOT_FOUND; // ATTACH answers NEEDS_CORTEX_M (INVALID_STATE would be BUSY)
     }
 
     const auto &cfg = asset->config();
     if (!cfg.algo.flash_start.has_value() || !cfg.algo.flash_end.has_value()) {
         ESP_LOGE(TAG, "load_target: the job has no flash address range");
-        return ESP_ERR_INVALID_STATE;
+        return ESP_ERR_NOT_FOUND;
     }
 
     const auto flash_flags = static_cast<sidp::memory_flag_t>(sidp::MEM_READ | sidp::MEM_EXECUTE);
@@ -148,8 +148,10 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
         return ret == job_controller::ERR_RUNNING ? ESP_ERR_INVALID_STATE : ret;
     }
 
+    // Attach must not reset the target unless asked (sidp_backend.hpp); swd_init_debug()
+    // pulses nRST between retries, which wiped a sleeping target's state.
     ret = params.connect_under_reset ? connect_under_reset(params.halt_after_attach)
-                                     : swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+                                     : swd_attach_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "attach: cannot connect: %s", esp_err_to_name(ret));
         swd_off(); // Harmless when swd_host has already dropped the session

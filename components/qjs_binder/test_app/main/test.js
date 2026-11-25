@@ -155,6 +155,10 @@ export async function preProgram(ctx) {
         log.check('vdd', 3.31, { lo: 3.0, hi: 3.6, unit: 'V' });
         const c = await codeOf(() => log.record({ blob: 'x'.repeat(1000) }));
         if (!c.startsWith('RangeError')) throw new Error(`oversized record gave ${c}`);
+        // A value JSON can't hold is refused and leaves nothing behind.
+        const b = await codeOf(() => log.record({ big: 1n }));
+        if (!b.startsWith('TypeError')) throw new Error(`BigInt record gave ${b}`);
+        log.record({ after: 1 });
         return;
     }
     }

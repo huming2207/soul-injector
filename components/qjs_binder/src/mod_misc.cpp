@@ -55,16 +55,34 @@ namespace qjs_binder::priv
         return JS_NewUint8ArrayCopy(ctx, out, sizeof(out));
     }
 
+    // Back to the last committed results: a record() or check() that fails
+    // changes nothing (and a value JSON can't hold mustn't fail every later one).
+    static void rollback_results(JSContext *ctx)
+    {
+        JSValue e = JS_GetException(ctx); // keep the error the caller is about to throw
+        JS_FreeValue(ctx, g.results);
+        const char *last = g.results_json[0] ? g.results_json : "{}";
+        g.results = JS_ParseJSON(ctx, last, strlen(last), "<results>");
+        if (JS_IsException(g.results)) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+            g.results = JS_NewObject(ctx);
+        }
+        JS_Throw(ctx, e);
+    }
+
     static JSValue commit_results(JSContext *ctx)
     {
         JSValue s = JS_JSONStringify(ctx, g.results, JS_UNDEFINED, JS_UNDEFINED);
         if (JS_IsException(s)) {
-            return s;
+            rollback_results(ctx); // e.g. a BigInt or a cycle
+            return JS_EXCEPTION;
         }
         size_t len = 0;
-        const char *str = JS_ToCStringLen(ctx, &len, s);
+        const char *str = JS_IsString(s) ? JS_ToCStringLen(ctx, &len, s) : nullptr;
         JS_FreeValue(ctx, s);
         if (!str) {
+            JS_ThrowTypeError(ctx, "results: not representable as JSON");
+            rollback_results(ctx);
             return JS_EXCEPTION;
         }
         if (len <= RESULTS_MAX) {
@@ -73,11 +91,9 @@ namespace qjs_binder::priv
             return JS_UNDEFINED;
         }
         JS_FreeCString(ctx, str);
-        JS_FreeValue(ctx, g.results);
-        const char *last = g.results_json[0] ? g.results_json : "{}";
-        g.results = JS_ParseJSON(ctx, last, strlen(last), "<results>");
-        return JS_ThrowRangeError(ctx, "results would be %zu bytes of JSON, at most %u fit the run record", len,
-                                  (unsigned)RESULTS_MAX);
+        JS_ThrowRangeError(ctx, "results would be %zu bytes of JSON, at most %u fit the run record", len, (unsigned)RESULTS_MAX);
+        rollback_results(ctx);
+        return JS_EXCEPTION;
     }
 
     static JSValue js_record(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
@@ -96,7 +112,11 @@ namespace qjs_binder::priv
             bad = JS_IsException(v) || JS_SetProperty(ctx, g.results, tab[i].atom, v) < 0;
         }
         JS_FreePropertyEnum(ctx, tab, n);
-        return bad ? JS_EXCEPTION : commit_results(ctx);
+        if (bad) {
+            rollback_results(ctx); // a getter that threw: the part already merged goes too
+            return JS_EXCEPTION;
+        }
+        return commit_results(ctx);
     }
 
     static JSValue js_check(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)

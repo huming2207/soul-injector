@@ -836,7 +836,8 @@ static void test_task(void *)
         const char *res = h->last_results();
         bool ok = o.pre == ESP_OK && o.post == ESP_FAIL && strstr(res, "\"serial\":\"SN0001\"") &&
                   strstr(res, "\"vdd\":{\"value\":3.31,\"lo\":3,\"hi\":3.6,\"unit\":\"V\",\"pass\":true}") &&
-                  strstr(res, "\"idle_uA\":{\"value\":5,\"hi\":1,\"unit\":\"uA\",\"pass\":false}") && !strstr(res, "blob");
+                  strstr(res, "\"idle_uA\":{\"value\":5,\"hi\":1,\"unit\":\"uA\",\"pass\":false}") && !strstr(res, "blob") &&
+                  strstr(res, "\"after\":1") && !strstr(res, "big");
         check(ok, "log: record, check, too-big refused, failed check fails the hook", res);
         check(strstr(h->last_error(), "idle_uA = 5uA is out of limits") != nullptr, "log: failed check says why", h->last_error());
         heap_same("log");

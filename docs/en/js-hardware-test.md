@@ -212,6 +212,28 @@ failure. A smaller step that only covers incidents: keep them in their own
 raw partition as a ring (no directory to lose). I haven't changed anything
 here; it's your call.
 
+*Decision (2026-11-26): leave `data` as it is on Rev 8.* Later hardware
+gets a battery and an ext4 partition on an SD card. Conditions for that to
+hold:
+
+- **ESP resets.** Every loss seen here came from ESP resets with the power
+  on, and a battery doesn't stop those (watchdog, panic, OTA, the reset
+  button, the debug UART). ext4's journal covers them, as long as the card
+  stays powered through the reset. If an ESP GPIO switches the card's power,
+  that switch must default to on when the pin floats.
+- **What goes on the card.** The job store and incidents move to ext4; on
+  internal FAT they keep this problem.
+- **Mount and recovery.** At mount, the ext4 port must replay the journal
+  and check the file system (lwext4: check that it recovers the journal).
+  The device must also work with no card fitted, or a dead one.
+- **Atomic file replace.** File contents still need "temp file, fsync,
+  rename" to be replaced all or nothing.
+- **Low battery.** Stop writing and unmount before the brown-out.
+- **The card.** An industrial card is still the safer choice, in case the
+  battery runs flat.
+
+The LittleFS recommendation below is kept for the record.
+
 *Recommendation (2026-11-26): LittleFS for `data`, plus a SIDP "format
 data" request.*
 

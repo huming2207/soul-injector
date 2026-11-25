@@ -150,6 +150,16 @@ build `CONFIG_SI_JS_NETWORK`).
 | About one USB request in 300 got no answer (host timeout 5 s): it arrived after DTR but before the busy service task accepted the connection, and was flushed. Now kept for the session. 30 runs + status, 200 incident lists during incident writes: none lost. | sidp_client 7009216, soul-injector 909fd6a |
 | Added: one log line per script runtime with the arena peak and free heap. | soul-injector adc3bdd |
 
+Found in the code review afterwards; built, test_app cases added, **not yet
+run on the board** (the soak holds it; see the morning checklist):
+
+| What | Commit |
+| ---- | ------ |
+| A reset in the middle of an incident append made the whole incident unreadable ("length mismatch"): `init()` now trusts the header's total and truncates a partial last section. | soul-injector 937fc46 |
+| An incident's `events_before` included events of earlier sessions; now only the trap's own (events after arming). | soul-injector 5983410 |
+| A job script runtime that died between hooks (a spin or out of memory in `onProgress`) made the remaining hooks, `postProgram` included, silently skipped: the run passed without them. Now the next hook fails the run with "script ended between hooks: …". | soul-injector bfe2fcd |
+| `log.record()` with a value JSON can't hold (a BigInt) left it in the results, so every later `record()`/`check()` of the run threw; now every failure rolls back. | soul-injector 04b071b |
+
 None of the test_app additions has run in esp-emu (it isn't on this
 machine); they compile for the S31, and each fix was tried on the board.
 
@@ -213,6 +223,31 @@ again (wiped since 2026-11-13) and the WiFi password; 3.10, 4.1 (USB data
 cut), 4.2 (power cycle), 4.4 (auto run on detect) and 3.8 (reset button)
 need your hands. The MCP tests (3.15, 3.16) need the Claude Code restart.
 
+**Q8. Throttling in a trap holds the target.** Past 10 firings a second a
+watch is throttled and the core is held (documented). In a session that's
+right; in an unattended trap it stops a boot-looping target until someone
+looks. Keep it, or let traps throttle by skipping the capture and letting
+the core run?
+
+### Morning checklist
+
+1. Soak (4.13), armed 2026-11-25 23:45:08 as trap `soak` on `rare.bin`
+   (target fault counter was 1 at the start):
+   `sidp-agent trap status --port /dev/ttyACM0` (`starts_this_boot` should
+   still be 1, `state` running) and `sidp-agent incident list`. The last
+   incident's `data.status` bytes 8-11 are the target's own fault counter:
+   incidents should equal that counter minus 1, unless more than 12 came in
+   one hour (`incidents_suppressed`). The UART log is in
+   `si-wle5-debug/results/uart.log` (look for panics and "runtime ended").
+2. Then flash the current build (it has 937fc46, 5983410, bfe2fcd,
+   04b071b, not yet on the board): boot log "N incidents" should match
+   `incident list`; run `js/run-case.sh hw-progdie crash.bin` (expect
+   "failed at post-program … script ended between hooks"), `hw-ops` and
+   the 50-run loop again.
+3. Hands needed: 3.8 reset button, 3.10 target power, 4.1 USB data cut,
+   4.2 power cycle, 4.4 auto run on detect; WiFi password for 1.5, 3.13,
+   3.15; Claude Code restart for the MCP tests 3.15 and 3.16.
+
 ### Smaller (not fixed yet)
 
 - `test()` starts with the core halted in the flash algorithm (DHCSR
@@ -227,7 +262,6 @@ need your hands. The MCP tests (3.15, 3.16) need the Claude Code restart.
   `UNSUPPORTED`.
 - `onFail`'s `err.message` is "Error: …" (the name in the message).
 - A pinned script that doesn't match says "not the image this job pins".
-- An incident's `events_before` includes events from earlier sessions.
 - Trap status shows `incidents_per_hour: 0` for "the default, 12".
 - `gpio: conflict found for GPIO[9]` on every SWD init (BOOT pin set up
   twice). Cosmetic.

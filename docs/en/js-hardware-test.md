@@ -192,7 +192,7 @@ clean EN resets during incident writes didn't collapse it, but each leaked
 about 14 KiB (5676 → 5472 KiB free while the incidents stayed capped at 32):
 clusters a cut write left allocated, which FatFs never reclaims. A trap
 that runs for days on a bench that loses power will fill `/data` this way,
-and then the device can't take a new job. Options: back to 512 + Safety (uploads ~15 KiB/s again); LittleFS
+and then the device can't take a new job. Options: back to 512 + Safety (slower than the old 15 KiB/s, see below); LittleFS
 for `/data` (power-fail safe, a bigger change); and in any case a way to
 recover: detect a damaged store at boot and reformat, or a SIDP
 "format data" request. Which do you want?
@@ -211,6 +211,62 @@ the same to the job. Neither 512-byte Safety mode nor LittleFS has this
 failure. A smaller step that only covers incidents: keep them in their own
 raw partition as a ring (no directory to lose). I haven't changed anything
 here; it's your call.
+
+*Recommendation (2026-11-26): LittleFS for `data`, plus a SIDP "format
+data" request.*
+
+- **Back to 512-byte sectors doesn't help by itself.** Before Rev 8 the
+  setting was 512 with `CONFIG_WL_SECTOR_MODE_PERF`, not Safety. The old
+  15 KiB/s was measured in that mode. It has the same window: to change one
+  512-byte sector it erases the whole 4 KB block (8 sectors) and writes it
+  back from RAM. Safety mode (`WL_Ext_Safe.cpp`) closes the window. It first
+  copies the block to a spare sector and records a state sector, and puts the
+  block back at mount. That costs about three erases per 512 bytes written,
+  so it would be slower than 15 KiB/s (not measured) with about three times
+  the wear. It also leaves the leak. FatFs writes the FAT, the directory
+  entry and the data as separate sectors with no transaction, so a cut write
+  still leaves clusters allocated that nothing points to. FatFs has no check
+  that would get them back, so `/data` would still fill up slowly on a bench
+  that loses power.
+- **A journal of our own: no.** FatFs doesn't tell the disk layer where an
+  update starts and ends (only `f_sync`/`f_close`). A journal under it would
+  be a copy-on-write sector map written and tested by us, which is what
+  LittleFS already is.
+- **LittleFS** (`joltwallet/littlefs`, in the IDF component registry):
+  - Metadata is copy-on-write with commits. After a cut, a file is as it was
+    at its last sync or close. `rename` is atomic, so "upload to `.part`, then
+    rename" replaces a job all or nothing.
+  - Blocks are allocated by scanning what is reachable, so nothing leaks.
+  - It does its own wear levelling on the raw partition in 4 KB blocks.
+    There's no WL layer and no erase-then-rewrite of a live block, so uploads
+    should be at least as fast as now (to be measured).
+  - USB mass storage is off (`CONFIG_TINYUSB_MSC_ENABLED=n`), so nothing
+    needs the PC to read a FAT image.
+  - Code to change:
+    - the mount in `bootstrap_fsm.cpp`;
+    - `esp_vfs_fat_info` in `asset_store.cpp` and `sidp_service.cpp`;
+    - `esp_vfs_fat_create_contiguous_file` for the upload's `.part` file in
+      `asset_store.cpp` (LittleFS can't preallocate, so the free-space check
+      becomes explicit);
+    - the partition subtype. `data` gets formatted once, as with the 4 KB
+      change.
+  - Costs:
+    - a few KB of RAM per open file;
+    - an occasional metadata compaction stall of tens of ms;
+    - slow listings with many files in one directory (incidents are capped
+      at 32).
+- **Either way, a way out:** mount failure already reformats. Add a SIDP
+  request that formats `data` for a store that mounts but is wrong, so a
+  device in the field never needs a UART.
+- **`log` (on9rstore) can stay FAT for now.** Its files are created once at
+  full size and then only overwritten in place, so the FAT and directories
+  don't change after creation. A cut loses the 4 KB block being written.
+  Still to check: whether on9rstore recovers when that block is part of
+  `manifest.db`. It gets the same reset test.
+- **Test before calling it done:** `esp_reset_faults.py`-style random EN
+  resets, 100+ each, during job pushes and during incident writes. The
+  result should be no loss beyond the file being written, and free space
+  that stays the same.
 
 **Q2. A passed run can leave the target halted.** `release_transport()`
 only tri-states the pins. A `postProgram` that halts, or uses

@@ -82,6 +82,13 @@ let it run, or reset it), takes a capture, and then calls the handler, whose
 return value can resume or reset a held core. The agent sees every firing as
 an event.
 
+A core found stopped by a fault, a breakpoint, a watchpoint or an external
+halt when a session or trap starts (DFSR still holds the cause), such as a
+fault that came while the Soul Injector restarted under a trap, counts as
+if it happened then: once the first script's top level is done, so its
+watches are in place, it fires the matching watch (or a `stop` event). A
+core halted only by a debugger's halt request is left alone.
+
 ## Traps
 
 A session lasts as long as the agent's connection. For a bug that takes

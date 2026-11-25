@@ -621,6 +621,33 @@ static void trap_tests()
               inc_log.find(" O44:{\"action\":\"resume\",\"handler\":\"none\"") != std::string::npos && !m.halted,
           "trap: reflex none records and lets it run", inc_log.c_str());
     h->end_session(m);
+
+    // A fault while nobody watched (the probe restarting under a trap): the core
+    // waits at the vector catch with DFSR.VCATCH set. The first look reports it,
+    // after the module's watches are in.
+    inc_log.clear();
+    m.halted = true;
+    m.dfsr = 9; // VCATCH | HALTED
+    m.regs[16] = 3;
+    h->begin_session(cfg);
+    r = run_mod("trap", m);
+    serve_for(m, 100);
+    check(r.outcome == script_outcome::ok && inc_log.find("\"on\":\"fault\"") != std::string::npos &&
+              inc_log.find("\"first_action\":\"resume\"") != std::string::npos && !m.halted,
+          "trap: a fault from before it started is recorded", inc_log.c_str());
+    h->end_session(m);
+
+    // Halted by a halt request only (DFSR.HALTED): someone's halt, not a stop.
+    inc_log.clear();
+    m.halted = true;
+    m.dfsr = 1;
+    h->begin_session(cfg);
+    r = run_mod("trap", m);
+    serve_for(m, 100);
+    check(inc_log.empty() && m.halted, "trap: a core a debugger halted is left alone", inc_log.c_str());
+    m.halted = false;
+    m.dfsr = 0;
+    h->end_session(m);
 }
 
 static void test_task(void *)

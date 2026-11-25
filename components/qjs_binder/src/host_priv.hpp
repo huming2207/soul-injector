@@ -96,6 +96,7 @@ namespace qjs_binder::priv
         uint32_t vc;               // vector catch bits set
         bool vc_dirty;
         bool known;                // halted/lockup below are current
+        bool after_op;             // known was cleared by our own op: a stop found next is ours
         bool halted;
         bool lockup;
         bool ignore_reset;         // the next S_RESET_ST is our own
@@ -285,6 +286,7 @@ namespace qjs_binder::priv
     bool ends_runtime(JSValueConst e);
 
     bool session_alloc();
+    bool result_pending(); // a run or eval was started and its result hasn't come
     bool init_agent_module(JSContext *ctx);
     bool add_agent_global(JSContext *ctx, JSValueConst global);
     void run_session_runtime();

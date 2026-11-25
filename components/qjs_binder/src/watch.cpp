@@ -26,6 +26,7 @@ namespace qjs_binder::priv
     static constexpr uint32_t DFSR_DWTTRAP = 1u << 2;
     static constexpr uint32_t DFSR_VCATCH = 1u << 3;
     static constexpr uint32_t DFSR_EXTERNAL = 1u << 4;
+    static constexpr uint32_t DFSR_STOP_CAUSES = DFSR_BKPT | DFSR_DWTTRAP | DFSR_VCATCH | DFSR_EXTERNAL; // not HALTED: a halt request
     static constexpr uint32_t VC_CORERESET = 1u << 0;
     static constexpr uint32_t VC_FAULTS = 0x7F0; // MMERR NOCPERR CHKERR STATERR BUSERR INTERR HARDERR
 
@@ -830,6 +831,7 @@ namespace qjs_binder::priv
             }
             if (t.reset() == ESP_OK) {
                 e.known = false;
+                e.after_op = true;
                 e.ignore_reset = true;
                 e.vc_dirty = true;
                 return "reset";
@@ -1004,11 +1006,15 @@ namespace qjs_binder::priv
             return;
         }
         e.next_poll_us = now + POLL_US;
+        if (!e.known && !e.after_op && result_pending()) {
+            return; // the first look waits for the module's watches, or a stop found then is only a stop event
+        }
 
         core_state st = {};
         esp_err_t ret = t.poll_core(&st);
         if (ret != ESP_OK) {
             e.known = false;
+            e.after_op = false; // a stop found once it answers again isn't ours
             if (++e.fails >= LOST_AFTER && !e.lost) {
                 e.lost = true;
                 emit_target("not responding", ret);
@@ -1026,11 +1032,23 @@ namespace qjs_binder::priv
         bool reset = st.reset_seen || e.reset_latch;
         e.reset_latch = false;
         if (!e.known) {
+            // The first look, or the first since the target answered again: a core
+            // halted by a vector catch, a BKPT, a DWT match or EDBGRQ stopped with
+            // nobody watching (DFSR keeps the cause until it's cleared), e.g. a
+            // fault while the probe restarted under a trap. Report it, or the target
+            // stays stopped and the trap records nothing. After our own op (a call,
+            // flash work, a reset) the stop is ours.
+            const bool unseen = !e.after_op && st.halted && (st.dfsr & DFSR_STOP_CAUSES) != 0;
             e.known = true;
-            e.halted = st.halted;
+            e.after_op = false;
+            e.halted = st.halted && !unseen;
             e.lockup = st.lockup;
             e.ignore_reset = false;
-            return;
+            if (!unseen) {
+                return;
+            }
+            ESP_LOGI(TAG, "target found stopped (DFSR 0x%lx), reporting it", (unsigned long)st.dfsr);
+            reset = false; // S_RESET_ST from before we looked
         }
         if (reset && e.ignore_reset) {
             reset = false;
@@ -1087,6 +1105,7 @@ namespace qjs_binder::priv
         case OP_RESET:
         case OP_REINIT:
             e.known = false;
+            e.after_op = true;
             e.ignore_reset = true;
             e.vc_dirty = true;
             break;
@@ -1094,6 +1113,7 @@ namespace qjs_binder::priv
         case OP_FLASH_ERASE:
         case OP_FLASH_WRITE:
             e.known = false;
+            e.after_op = true;
             e.vc_dirty = true;
             break;
         case OP_WRITE32:
@@ -1102,6 +1122,7 @@ namespace qjs_binder::priv
                 e.vc_dirty = true;
             } else if (addr == DHCSR) {
                 e.known = false;
+                e.after_op = true;
             }
             break;
         default:

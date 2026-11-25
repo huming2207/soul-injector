@@ -797,6 +797,12 @@ namespace qjs_binder
         watch_after_op(r.op, r.addr, ret);
     }
 
+    bool priv::result_pending()
+    {
+        const uint32_t want = g.want_token.load() & ~CLAIMED;
+        return want != 0 && want != g.done_token;
+    }
+
     void js_host::session_service(js_target &target, uint32_t wait_ms)
     {
         if (!g.session) {

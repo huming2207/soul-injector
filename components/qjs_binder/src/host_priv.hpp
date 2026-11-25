@@ -300,6 +300,7 @@ namespace qjs_binder::priv
     void watch_cb(JSContext *ctx, void *arg);
     void watch_poll(js_target &t);
     void watch_verdict(const req &r, js_target &t);
+    void watch_before_op(uint8_t op, uint32_t addr, js_target &t);
     void watch_after_op(uint8_t op, uint32_t addr, esp_err_t ret);
     void watch_reset_engine();
     void watch_disarm(js_target &t);

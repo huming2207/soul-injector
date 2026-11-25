@@ -87,7 +87,11 @@ halt when a session or trap starts (DFSR still holds the cause), such as a
 fault that came while the Soul Injector restarted under a trap, counts as
 if it happened then: once the first script's top level is done, so its
 watches are in place, it fires the matching watch (or a `stop` event). A
-core halted only by a debugger's halt request is left alone.
+core halted only by a debugger's halt request is left alone. The cause is
+cleared only when the stop is dealt with (resumed or reset), so a stop
+still held when the session ends, or whose handler hadn't answered when the
+Soul Injector restarted, fires again in the next session or trap start (a
+trap records it again).
 
 ## Traps
 

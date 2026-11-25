@@ -648,6 +648,24 @@ static void trap_tests()
     m.halted = false;
     m.dfsr = 0;
     h->end_session(m);
+
+    // A firing cut short (the probe restarted while the handler was busy): the
+    // cause stays in DFSR until the stop is dealt with, so the next start finds it.
+    h->begin_session(cfg);
+    r = run_mod("stuck", m);
+    serve_for(m, 20);
+    m.halted = true;
+    m.dfsr = 2;
+    serve_for(m, 30); // fired, the handler hasn't answered
+    h->end_session(m);
+    check(m.halted && m.dfsr == 2, "trap: an unresolved stop keeps its cause", m.log);
+    inc_log.clear();
+    h->begin_session(cfg);
+    r = run_mod("trap", m);
+    serve_for(m, 200);
+    check(inc_log.find("W:bp") == 0 && inc_log.find(" O") != std::string::npos && !m.halted,
+          "trap: a stop whose firing was cut short is found again", inc_log.c_str());
+    h->end_session(m);
 }
 
 static void test_task(void *)

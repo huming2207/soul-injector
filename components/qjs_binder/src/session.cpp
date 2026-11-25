@@ -793,6 +793,7 @@ namespace qjs_binder
         default:
             break;
         }
+        watch_before_op(r.op, r.addr, t);
         esp_err_t ret = execute(r, &t, nullptr);
         watch_after_op(r.op, r.addr, ret);
     }

@@ -818,6 +818,7 @@ namespace qjs_binder::priv
         engine &e = g.eng;
         switch (v) {
         case V_RESUME:
+            t.clear_stop_cause(); // the stop is dealt with (see watch_poll)
             if (t.resume() == ESP_OK) {
                 e.halted = false;
                 return "resume";
@@ -829,6 +830,7 @@ namespace qjs_binder::priv
                 *note = "reset needs a session started with --allow-reset";
                 return "hold";
             }
+            t.clear_stop_cause();
             if (t.reset() == ESP_OK) {
                 e.known = false;
                 e.after_op = true;
@@ -1038,7 +1040,11 @@ namespace qjs_binder::priv
             // fault while the probe restarted under a trap. Report it, or the target
             // stays stopped and the trap records nothing. After our own op (a call,
             // flash work, a reset) the stop is ours.
-            const bool unseen = !e.after_op && st.halted && (st.dfsr & DFSR_STOP_CAUSES) != 0;
+            const bool stop_cause = st.halted && (st.dfsr & DFSR_STOP_CAUSES) != 0;
+            const bool unseen = !e.after_op && stop_cause;
+            if (e.after_op && stop_cause) {
+                t.clear_stop_cause(); // ours: a call or the flash algorithm ends at a BKPT
+            }
             e.known = true;
             e.after_op = false;
             e.halted = st.halted && !unseen;
@@ -1060,14 +1066,17 @@ namespace qjs_binder::priv
             uint8_t on;
             const char *cause;
             classify(st, t, &on, &cause);
-            t.clear_stop_cause();
+            // DFSR keeps the cause until the stop is dealt with (resumed or reset,
+            // watch_before_op): if the probe restarts before that, its next first
+            // look finds the stop again instead of a core that seems halted by hand.
             if (on == ON_RESET) {
                 reset = false; // the same reset, caught at its vector
             }
             e.lockup = st.lockup;
             fire(on, cause, true, true, st.dfsr, t);
         } else if (!st.halted && e.halted) {
-            e.halted = false; // the script resumed it
+            e.halted = false; // resumed by something else (a DHCSR write)
+            t.clear_stop_cause();
         }
         if (!st.halted && st.lockup && !e.lockup) {
             e.lockup = true;
@@ -1085,6 +1094,16 @@ namespace qjs_binder::priv
             } else {
                 emit_target("reset", ESP_OK);
             }
+        }
+    }
+
+    void watch_before_op(uint8_t op, uint32_t addr, js_target &t)
+    {
+        // An op that lets a stopped core go (or resets it) deals with the stop.
+        const bool goes = op == OP_RESUME || op == OP_RESET || op == OP_REINIT || op == OP_CALL || op == OP_FLASH_WRITE ||
+                          op == OP_FLASH_ERASE || ((op == OP_WRITE32 || op == OP_RMW32) && addr == DHCSR);
+        if (goes && g.eng.known && g.eng.halted) {
+            t.clear_stop_cause();
         }
     }
 

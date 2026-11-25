@@ -474,6 +474,18 @@ static void session_tests()
         sr = h->last_script_result();
         check(ok && !done && given_up && sr.outcome == script_outcome::pending && h->session_running(),
               "session: start, a top level that goes on is pending", sr.error);
+        check(!h->module_failed(), "session: a module still running hasn't failed");
+
+        // A top level that fails after it started leaves the runtime running; a trap
+        // must still see it (module_failed) to restart the module.
+        p = piece("latefail", &len);
+        ok = h->session_start(p, len, &token) == ESP_OK && token != 0;
+        end = esp_timer_get_time() + 2000000;
+        while (ok && !h->session_poll_result(token, esp_timer_get_time() >= end, m)) {
+            h->session_service(m, 5);
+        }
+        serve_for(m, 50);
+        check(ok && h->module_failed() && h->session_running(), "session: a module that fails late is seen");
     }
     r = eval("spin", m);
     check(r.outcome == script_outcome::stopped && r.error.find("yield") != std::string::npos, "session: spin is stopped",

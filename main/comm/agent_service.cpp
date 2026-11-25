@@ -851,6 +851,15 @@ void agent_service::trap_service()
                 trap.backoff_ms = std::clamp(trap.backoff_ms * 2, BACKOFF_MIN_MS, BACKOFF_MAX_MS);
                 trap_retry("the module's runtime ended, restarting it", trap.backoff_ms);
             }
+        } else if (js->module_failed()) {
+            // Its top level threw after it started: whatever loop it ran has stopped,
+            // though the runtime (and its watches) would go on looking armed.
+            if (++trap.failures >= MAX_FAILURES) {
+                trap_fail("the module kept failing, see the result events");
+            } else {
+                trap.backoff_ms = std::clamp(trap.backoff_ms * 2, BACKOFF_MIN_MS, BACKOFF_MAX_MS);
+                trap_retry("the module's top level failed, restarting it", trap.backoff_ms);
+            }
         }
         return;
     }

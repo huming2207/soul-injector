@@ -204,6 +204,11 @@ namespace qjs_binder
 
         bool session_running() const;
 
+        // The runtime's module (session_run/session_start) ended its top level with
+        // an error, maybe long after it started: whatever loop it ran is gone, the
+        // runtime and its watches aren't. Cleared when a new runtime starts.
+        bool module_failed() const;
+
         bool target_lost() const;
 
         bool refuses(const uint8_t sha256[32]) const; // the device crashed while it ran, this boot

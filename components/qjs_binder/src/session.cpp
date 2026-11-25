@@ -332,6 +332,7 @@ namespace qjs_binder
         JSValueConst v = argc ? argv[0] : JS_UNDEFINED;
         if (magic) {
             if (!ends_runtime(v)) {
+                g.module_failed = g.module_failed || !is_eval;
                 result_error(ctx, token, v);
             }
         } else if (is_eval) {
@@ -349,6 +350,7 @@ namespace qjs_binder
         if (JS_IsException(r)) {
             JSValue e = JS_GetException(ctx);
             if (!ends_runtime(e)) { // else the runtime's end answers
+                g.module_failed = g.module_failed || !is_eval;
                 result_error(ctx, token, e);
             }
             JS_FreeValue(ctx, e);
@@ -693,6 +695,7 @@ namespace qjs_binder
         g.note_busy = false;
         g.stop_wanted = false;
         g.rt_ending = false;
+        g.module_failed = false;
         g.first_kind = kind;
         g.first_token = token;
         g.first_blob = blob;
@@ -1037,6 +1040,11 @@ namespace qjs_binder
         return g.session;
     }
 
+    bool js_host::module_failed() const
+    {
+        return g.module_failed;
+    }
+
     bool js_host::session_running() const
     {
         return g.session && g.rt_started;
@@ -1131,6 +1139,7 @@ namespace qjs_binder
     void js_host::end_session(js_target &) {}
     bool js_host::in_session() const { return false; }
     bool js_host::session_running() const { return false; }
+    bool js_host::module_failed() const { return false; }
     bool js_host::target_lost() const { return false; }
     bool js_host::refuses(const uint8_t *) const { return false; }
     script_result js_host::last_script_result() const { return {script_outcome::error, false, "", "no scripts", ""}; }

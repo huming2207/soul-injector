@@ -228,6 +228,7 @@ namespace qjs_binder::priv
         const char *owner_note;      // owner: the last run/eval failed before reaching the JS task
         script_outcome owner_outcome;
         std::atomic<bool> rt_ending; // JS task: the session runtime's loop has returned
+        std::atomic<bool> module_failed; // JS task: the module's top level threw or rejected (this runtime)
         script_outcome res_outcome;
         bool res_truncated;
         char *res_value;             // RESULT_VALUE_MAX + 1, PSRAM

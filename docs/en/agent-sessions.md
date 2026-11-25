@@ -109,8 +109,10 @@ sidp-agent trap disarm --port /dev/ttyACM0
 
 - Arming replaces the armed trap, and only takes when the target answers and
   the module's top level runs.
-- The module starts again from the top after a restart, after yielding, and
-  after the target stopped answering. Keep what it remembers small.
+- The module starts again from the top after a restart, after yielding,
+  after the target stopped answering, and when its top level throws (with a
+  growing pause; after five failures in a row the trap gives up, `failed`).
+  Keep what it remembers small.
 - While a trap is armed, an agent can read its status, events, captures and
   incidents, but can't open a session; disarm it first.
 - The device keeps 32 incidents in 512 KB and deletes the oldest first

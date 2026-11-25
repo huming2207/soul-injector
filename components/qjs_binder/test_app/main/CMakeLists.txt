@@ -22,9 +22,10 @@ add_dependencies(${COMPONENT_LIB} stm_qbc)
 target_add_binary_data(${COMPONENT_LIB} "${stm_qbc}" BINARY)
 
 set(sess_qbc "${CMAKE_CURRENT_BINARY_DIR}/session.bin")
+file(GLOB sess_src CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/session/*.js" "${CMAKE_CURRENT_LIST_DIR}/session/*.mjs")
 add_custom_command(OUTPUT "${sess_qbc}"
-    COMMAND "${python}" "${CMAKE_CURRENT_LIST_DIR}/session_bc.py" "${tool}" "${CMAKE_CURRENT_LIST_DIR}/session.js" "${sess_qbc}"
-    DEPENDS "${CMAKE_CURRENT_LIST_DIR}/session.js" "${CMAKE_CURRENT_LIST_DIR}/session_bc.py" "${tool}"
+    COMMAND "${python}" "${CMAKE_CURRENT_LIST_DIR}/session_bc.py" "${tool}" "${CMAKE_CURRENT_LIST_DIR}/session" "${sess_qbc}"
+    DEPENDS ${sess_src} "${CMAKE_CURRENT_LIST_DIR}/session_bc.py" "${tool}"
     VERBATIM)
 add_custom_target(sess_qbc DEPENDS "${sess_qbc}")
 add_dependencies(${COMPONENT_LIB} sess_qbc)

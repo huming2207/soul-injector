@@ -53,6 +53,9 @@ Under `/data`:
 - The images the job programs.
 - `<name>.part`: an upload in progress. Upload progress is kept in memory, so
   these are deleted when the device restarts.
+- `trap/`: the armed trap's module and settings, and `inc/`: the incidents
+  traps recorded, at most 512 KB of them by default. See
+  [Agent sessions](agent-sessions.md#traps).
 
 The production log is kept separately under `/log`.
 

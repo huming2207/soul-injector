@@ -116,16 +116,37 @@ esp_err_t job_controller::request_run(uint32_t *run_id_out)
     return ret;
 }
 
+bool job_controller::auto_run_ready_locked()
+{
+    return !running && trigger == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT && fw_asset_manager::instance()->has_job() &&
+           prog_log::instance()->check_space() == ESP_OK;
+}
+
+bool job_controller::auto_run_waits_for_debug()
+{
+    lock();
+    bool ret = debugging && auto_run_ready_locked();
+    unlock();
+    return ret;
+}
+
 bool job_controller::begin_auto_run()
 {
     lock();
-    bool start = !running && !debugging && trigger == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT && fw_asset_manager::instance()->has_job() &&
-                 prog_log::instance()->check_space() == ESP_OK;
+    bool start = !debugging && auto_run_ready_locked();
     if (start) {
         start_run_locked(si_manage_Trigger_TRIGGER_AUTO_ON_DETECT);
     }
     unlock();
     return start;
+}
+
+bool job_controller::is_running()
+{
+    lock();
+    bool ret = running;
+    unlock();
+    return ret;
 }
 
 esp_err_t job_controller::begin_debug()

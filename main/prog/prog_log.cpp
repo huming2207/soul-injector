@@ -84,12 +84,21 @@ esp_err_t prog_log::set_time(uint64_t utc_ms)
         anchor.uncertainty_us = 1000000; // NTP through the host plus the USB round trip
         ret = store->append_time_anchor(anchor);
         time_set = ret == ESP_OK;
+        if (time_set) {
+            anchor_us = anchor.monotonic_us;
+            anchor_utc_ms = utc_ms;
+        }
     }
 
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "set_time: failed: 0x%x %s", ret, esp_err_to_name(ret));
     }
     return ret;
+}
+
+uint64_t prog_log::utc_ms() const
+{
+    return time_set ? anchor_utc_ms + (esp_timer_get_time() - anchor_us) / 1000 : 0;
 }
 
 void prog_log::convert_boot_record(si_manage_LogEntry &entry)

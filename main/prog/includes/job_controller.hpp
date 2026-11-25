@@ -70,9 +70,13 @@ public:
 
     void get_status(si_manage_JobStatus &status);
 
+    bool is_running();
+
     // ---- Programming task ----
     /** Claim an automatic run after a target was plugged in; refused while the log cannot take its record. */
     bool begin_auto_run();
+
+    bool auto_run_waits_for_debug();
 
     bool cancel_requested() const
     {
@@ -87,6 +91,7 @@ private:
     void lock();
     void unlock();
     void start_run_locked(si_manage_Trigger run_trigger);
+    bool auto_run_ready_locked();
     void record_run(esp_err_t ret);
     esp_err_t save_trigger(si_manage_Trigger new_trigger);
     static si_manage_Stage to_stage(flasher::pg_state failed_state);

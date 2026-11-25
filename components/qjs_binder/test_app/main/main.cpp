@@ -311,7 +311,7 @@ static void session_tests()
     size_t ext0 = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     mock_target m;
     m.regs[15] = 0x08000123;
-    session_config cfg = {{false, false, false}, true, on_notify};
+    session_config cfg = {{false, false, false}, true, on_notify, nullptr};
     check(h->begin_session(cfg) == ESP_OK && h->in_session(), "session: begins");
     check(h->begin_session(cfg) == ESP_ERR_INVALID_STATE, "session: only one at a time");
     run_info info = {"ops", "", "mock", false};
@@ -472,6 +472,78 @@ static void session_tests()
     char d[48];
     snprintf(d, sizeof(d), "heap %+ld/%+ld", di, de);
     check(di == 0 && de == 0, "session: heap unchanged", d);
+}
+
+static std::string inc_log;
+static uint32_t inc_next = 40;
+static bool inc_capture;
+
+static uint32_t mock_open(const incident_open &o)
+{
+    inc_log += o.watch ? "W:" : "S:";
+    inc_log += o.name;
+    inc_log += o.cause_json;
+    inc_capture = o.capture && o.capture_len > 16 && memcmp(o.capture, "SICP", 4) == 0;
+    return ++inc_next;
+}
+
+static void mock_add(uint32_t id, incident_part part, const char *json, size_t len)
+{
+    inc_log += part == incident_part::data ? " D" : " O";
+    inc_log += std::to_string(id) + ":";
+    inc_log.append(json, len);
+    inc_log += " ";
+}
+
+static void trap_tests()
+{
+    auto *h = js_host::instance();
+    mock_target m;
+    session_config cfg = {{false, false, false}, true, on_notify, nullptr};
+    h->begin_session(cfg);
+    sres r = eval("incident", m);
+    check(r.value == "0" && find_event("incident", "\"name\":\"bad-crc\",\"incident\":0,\"data\":{\"n\":3}"),
+          "trap: no incidents in a plain session, still an event", r.value.c_str());
+    h->end_session(m);
+
+    static const incident_hooks hooks = {mock_open, mock_add};
+    cfg.incidents = &hooks;
+    h->begin_session(cfg);
+    r = eval("incident", m);
+    check(r.value == "41" && inc_log == "S:bad-crc{\"kind\":\"script\",\"name\":\"bad-crc\"} D41:{\"n\":3} ",
+          "trap: agent.incident records one", inc_log.c_str());
+    r = eval("incidentbig", m);
+    check(r.outcome == script_outcome::error && r.error.find("8191") != std::string::npos, "trap: incident data has a limit",
+          r.error.c_str());
+    r = eval("incidentname", m);
+    check(r.outcome == script_outcome::error, "trap: incident needs a name", r.error.c_str());
+    r = eval("incident", m);
+    check(r.value == "42", "trap: the buffer is free again after an error", r.error.c_str());
+
+    inc_log.clear();
+    r = run_mod("trap", m);
+    serve_for(m, 20);
+    m.halted = true;
+    m.dfsr = 2;
+    serve_for(m, 200);
+    bool watch_ev = find_event("watch", "\"pc\":\"0x00000000\",\"incident\":43");
+    check(watch_ev && !m.halted, "trap: watch event names its incident", inc_log.c_str());
+    check(inc_capture && inc_log.find("W:bp{\"kind\":\"watch\",\"watch\":") == 0 && inc_log.find("\"first_action\":\"hold\"") != std::string::npos,
+          "trap: a firing opens an incident with its capture", inc_log.c_str());
+    check(inc_log.find(" D43:{\"hist\":[1,2,3]} ") != std::string::npos && inc_log.find(" O43:{\"action\":\"resume\"") != std::string::npos,
+          "trap: handler data and outcome are added", inc_log.c_str());
+    ev_seen = 0;
+    check(find_event("emit", "{\"name\":\"inc\",\"data\":{\"id\":43}}"), "trap: the handler sees incidentId");
+
+    inc_log.clear();
+    m.halted = true;
+    m.dfsr = 8;
+    m.regs[16] = 3;
+    serve_for(m, 100);
+    check(inc_log.find("\"on\":\"fault\"") != std::string::npos && inc_log.find("\"first_action\":\"resume\"") != std::string::npos &&
+              inc_log.find(" O44:{\"action\":\"resume\",\"handler\":\"none\"") != std::string::npos && !m.halted,
+          "trap: reflex none records and lets it run", inc_log.c_str());
+    h->end_session(m);
 }
 
 static void test_task(void *)
@@ -704,6 +776,7 @@ static void test_task(void *)
     }
 
     session_tests();
+    trap_tests();
 
     printf("BINDER phase 1: %d failed. Now panicking in the middle of a run.\n", fails);
     if (fails) {

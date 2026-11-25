@@ -428,7 +428,7 @@ void sidp_service::task_handler(void *ctx)
             svc->run_session(usb);
             ESP_LOGI(TAG, "USB connection closed");
         } else if (!svc->serve_network()) {
-            vTaskDelay(pdMS_TO_TICKS(ACCEPT_POLL_MS));
+            agent_service::instance()->idle(ACCEPT_POLL_MS);
         }
     }
 }
@@ -450,7 +450,7 @@ void sidp_service::run_session(sidp::transport_intf &transport)
         ESP_LOGE(TAG, "run_session: no memory for the debug session");
     }
 
-    agent_service::instance()->close(); // so does an agent session; it never holds the target with GDB
+    agent_service::instance()->connection_closed(); // so does an agent session; a trap carries on
     // A measurement belongs to its connection.
     si_power_StopResponse stopped = si_power_StopResponse_init_zero;
     power_profiler::instance()->stop(stopped);
@@ -731,6 +731,9 @@ sidp::status_t sidp_service::op_job_get(pb_ostream_t &out)
 sidp::status_t sidp_service::op_job_run_once(pb_ostream_t &out)
 {
     si_manage_JobRunOnceResponse response = si_manage_JobRunOnceResponse_init_zero;
+    if (!agent_service::instance()->make_way_for_run()) {
+        return sidp::STATUS_TRAP_ARMED;
+    }
     auto ret = job_controller::instance()->request_run(&response.run_id);
     if (ret == job_controller::ERR_LOG_FULL) {
         return sidp::STATUS_LOG_FULL;

@@ -34,6 +34,8 @@ namespace qjs_binder::priv
         OP_WRITE_REG,
         OP_WATCH_ACTION, // a watch handler's verdict: addr watch, a verdict, b fire, timeout_ms handler status
         OP_DONE,         // load/hook settled; in a session seq is the run/eval token
+        OP_INCIDENT,
+        OP_INCIDENT_DATA,
     };
 
     static constexpr uint8_t SYNC = 0xff;
@@ -83,6 +85,7 @@ namespace qjs_binder::priv
         uint8_t reflex;
         int8_t slot;               // capture slot, -1 for none
         bool held;                 // the owner waits for the verdict
+        uint32_t incident;
         bool halted;
         char cause[16];
         char name[24];
@@ -168,6 +171,10 @@ namespace qjs_binder::priv
         uint8_t *xfer;
         bool xfer_busy;              // JS task
         uint32_t xfer_seq;
+        char *note;
+        size_t note_len;
+        char note_name[24];
+        std::atomic<bool> note_busy;
 
         qjs_esp_loop_t *loop;        // under loop_lock when written
         JSModuleDef *mod;
@@ -291,6 +298,9 @@ namespace qjs_binder::priv
     void async_done(JSContext *ctx, void *arg);
     void async_reset(JSContext *ctx);
     void xfer_seen(uint32_t seq);
+    bool note_claim(JSContext *ctx, JSValueConst data, const char *what);
+    void incident_from_script(const req &r);
+    void incident_data(const req &r);
 
     bool init_misc_modules(JSContext *ctx, bool session);
     void progress_cb(JSContext *ctx, void *arg);

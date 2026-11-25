@@ -36,6 +36,11 @@ public:
     /** Gives up on a target that no longer answers: ends the SWD session and frees the target. */
     void abandon();
 
+    using yield_fn = void (*)(); // asks whoever holds the target to let go, if it may
+    void set_yield_hook(yield_fn fn) { yield_hook = fn; }
+
+    bool is_connected() const { return connected; }
+
 private:
     sidp_swd_backend() = default;
 
@@ -67,6 +72,7 @@ private:
     static const constexpr uint32_t RESET_TIMEOUT_MS = 1000;
 
     bool connected = false;
+    yield_fn yield_hook = nullptr;
     esp_pm_lock_handle_t pm_lock = nullptr;
     uint32_t mask_bits = 0;
     sidp::target_profile_t profile = sidp::PROFILE_ARMV6M;

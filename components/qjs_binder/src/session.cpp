@@ -39,7 +39,8 @@ namespace qjs_binder
         g.events = static_cast<ev_slot *>(ps_alloc(EVENTS * sizeof(ev_slot)));
         g.res_value = static_cast<char *>(ps_alloc(RESULT_VALUE_MAX + 1));
         g.res_stack = static_cast<char *>(ps_alloc(RESULT_STACK_MAX + 1));
-        bool ok = g.watch_lock && g.ev_lock && g.events && g.res_value && g.res_stack;
+        g.note = static_cast<char *>(ps_alloc(INCIDENT_DATA_MAX + 1));
+        bool ok = g.watch_lock && g.ev_lock && g.events && g.res_value && g.res_stack && g.note;
         for (auto &c : g.caps) {
             c.data = static_cast<uint8_t *>(ps_alloc(CAPTURE_SIZE));
             ok = ok && c.data;
@@ -521,6 +522,92 @@ namespace qjs_binder
         return JS_NewBool(ctx, emit("emit", json, 0, true));
     }
 
+    bool priv::note_claim(JSContext *ctx, JSValueConst data, const char *what)
+    {
+        bool expect = false;
+        if (!g.note_busy.compare_exchange_strong(expect, true)) {
+            JS_ThrowTypeError(ctx, "%s: busy, the last incident is still being recorded (await agent.incident())", what);
+            return false;
+        }
+        g.note_len = 0;
+        if (JS_IsUndefined(data)) {
+            g.note[0] = '\0';
+            return true;
+        }
+        bool cut = false;
+        size_t n = to_json(ctx, data, g.note, INCIDENT_DATA_MAX + 1, &cut);
+        if (cut) {
+            g.note_busy = false;
+            JS_ThrowRangeError(ctx, "%s: over %u bytes of JSON", what, (unsigned)INCIDENT_DATA_MAX);
+            return false;
+        }
+        g.note_len = strcmp(g.note, "undefined") == 0 ? 0 : n;
+        return true;
+    }
+
+    static JSValue js_incident(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        size_t name_len = 0;
+        const char *name = JS_ToCStringLen(ctx, &name_len, argv[0]);
+        if (!name) {
+            return JS_EXCEPTION;
+        }
+        if (name_len == 0 || name_len >= sizeof(g.note_name)) {
+            JS_FreeCString(ctx, name);
+            return JS_ThrowRangeError(ctx, "agent.incident: the name must be 1-%u bytes", (unsigned)sizeof(g.note_name) - 1);
+        }
+        if (!note_claim(ctx, argc > 1 ? argv[1] : JS_UNDEFINED, "agent.incident")) {
+            JS_FreeCString(ctx, name);
+            return JS_EXCEPTION;
+        }
+        strlcpy(g.note_name, name, sizeof(g.note_name));
+        JS_FreeCString(ctx, name);
+        req r = {};
+        r.op = OP_INCIDENT;
+        JSValue p = async_call(ctx, r);
+        if (JS_IsException(p)) {
+            g.note_busy = false;
+        }
+        return p;
+    }
+
+    void priv::incident_from_script(const req &r)
+    {
+        uint32_t id = 0;
+        if (g.cfg.incidents) {
+            char cause[96];
+            size_t n = strlcpy(cause, "{\"kind\":\"script\",\"name\":", sizeof(cause));
+            n += json_str(cause + n, sizeof(cause) - n - 1, g.note_name);
+            strlcpy(cause + n, "}", sizeof(cause) - n);
+            incident_open o = {false, 0, g.note_name, cause, nullptr, 0};
+            id = g.cfg.incidents->open(o);
+            if (id && g.note_len) {
+                g.cfg.incidents->add(id, incident_part::data, g.note, g.note_len);
+            }
+        }
+        char json[EVENT_JSON_MAX + 1];
+        size_t n = strlcpy(json, "{\"name\":", sizeof(json));
+        n += json_str(json + n, sizeof(json) - n, g.note_name);
+        n += snprintf(json + n, sizeof(json) - n, ",\"incident\":%lu", (unsigned long)id);
+        if (g.note_len && n + g.note_len + 10 < sizeof(json)) {
+            n += snprintf(json + n, sizeof(json) - n, ",\"data\":%s", g.note);
+        } else if (g.note_len) {
+            n += snprintf(json + n, sizeof(json) - n, ",\"data_bytes\":%u", (unsigned)g.note_len);
+        }
+        strlcpy(json + n, "}", sizeof(json) - n);
+        g.note_busy = false;
+        emit("incident", json, 0, false);
+        post_async(r.slot, r.seq, ESP_OK, id);
+    }
+
+    void priv::incident_data(const req &r)
+    {
+        if (g.cfg.incidents && r.addr && g.note_len) {
+            g.cfg.incidents->add(r.addr, incident_part::data, g.note, g.note_len);
+        }
+        g.note_busy = false;
+    }
+
     static JSValue js_watches(JSContext *ctx, JSValueConst, int, JSValueConst *)
     {
         return list_watches(ctx);
@@ -537,6 +624,7 @@ namespace qjs_binder
 
     static const JSCFunctionListEntry agent_funcs[] = {
         JS_CFUNC_DEF("emit", 2, js_emit),
+        JS_CFUNC_DEF("incident", 2, js_incident),
         JS_CFUNC_DEF("watches", 0, js_watches),
         JS_CFUNC_DEF("permissions", 0, js_permissions),
     };
@@ -601,6 +689,7 @@ namespace qjs_binder
         xQueueReset(g.res_q);
         xSemaphoreTake(g.ended, 0);
         clear_pending();
+        g.note_busy = false;
         g.stop_wanted = false;
         g.rt_ending = false;
         g.first_kind = kind;
@@ -683,6 +772,12 @@ namespace qjs_binder
             return;
         case OP_WATCH_ACTION:
             watch_verdict(r, t);
+            return;
+        case OP_INCIDENT:
+            incident_from_script(r);
+            return;
+        case OP_INCIDENT_DATA:
+            incident_data(r);
             return;
         case OP_POLL32:
         case OP_WAIT_HALT:
@@ -910,6 +1005,21 @@ namespace qjs_binder
         return g.session;
     }
 
+    bool js_host::session_running() const
+    {
+        return g.session && g.rt_started;
+    }
+
+    bool js_host::target_lost() const
+    {
+        return g.session && g.eng.lost;
+    }
+
+    bool js_host::refuses(const uint8_t sha256[32]) const
+    {
+        return is_quarantined(sha256);
+    }
+
     script_result js_host::last_script_result() const
     {
         if (g.out_pending) {
@@ -982,6 +1092,9 @@ namespace qjs_binder
     void js_host::session_service(js_target &, uint32_t wait_ms) { vTaskDelay(pdMS_TO_TICKS(wait_ms) ? pdMS_TO_TICKS(wait_ms) : 1); }
     void js_host::end_session(js_target &) {}
     bool js_host::in_session() const { return false; }
+    bool js_host::session_running() const { return false; }
+    bool js_host::target_lost() const { return false; }
+    bool js_host::refuses(const uint8_t *) const { return false; }
     script_result js_host::last_script_result() const { return {script_outcome::error, false, "", "no scripts", ""}; }
     size_t js_host::read_events(uint32_t, event_out *, size_t, uint32_t *newest, uint32_t *dropped)
     {

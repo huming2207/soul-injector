@@ -82,6 +82,44 @@ let it run, or reset it), takes a capture, and then calls the handler, whose
 return value can resume or reset a held core. The agent sees every firing as
 an event.
 
+## Traps
+
+A session lasts as long as the agent's connection. For a bug that takes
+hours or days to show up, the agent (`arm_trap`) or you can arm a *trap*
+instead: a module the Soul Injector keeps running with no computer attached,
+through disconnects and its own restarts. Each time one of its watches
+fires, or it calls `agent.incident()`, it saves an *incident* to the
+internal flash: what happened, the capture, the events just before, and any
+data the script attached.
+
+```sh
+sidp-agent trap arm hunt.js --name hunt --port /dev/ttyACM0
+sidp-agent trap status --port /dev/ttyACM0
+sidp-agent incident list --port /dev/ttyACM0
+sidp-agent incident show 12 --elf build/app.elf --port /dev/ttyACM0
+sidp-agent trap disarm --port /dev/ttyACM0
+```
+
+| `trap arm` option | Does |
+| ----------------- | ---- |
+| `--name` | The trap's name, in its status and incidents. |
+| `--mode yield\|exclusive` | `yield` (the default): GDB attaching or a programming run pauses the trap, and it starts again 3 s after they finish. `exclusive`: they are refused while the trap is armed. |
+| `--incidents-per-hour` | More are only counted. 0 for the device's default (12). |
+| `--allow-*`, `--connect-under-reset` | As for sessions; the trap keeps them. |
+
+- Arming replaces the armed trap, and only takes when the target answers and
+  the module's top level runs.
+- The module starts again from the top after a restart, after yielding, and
+  after the target stopped answering. Keep what it remembers small.
+- While a trap is armed, an agent can read its status, events, captures and
+  incidents, but can't open a session; disarm it first.
+- The device keeps 32 incidents in 512 KB and deletes the oldest first
+  (Kconfig `SI_AGENT_INCIDENTS_MAX`, `SI_AGENT_INCIDENTS_KB`). Incidents
+  have the time when a computer set the clock since the device started;
+  otherwise the boot count and uptime.
+- A trap keeps the Soul Injector at full CPU speed while it holds the
+  target.
+
 ## Limits
 
 - A session's scripts run in the same arena as job scripts, with the same
@@ -99,6 +137,13 @@ The protocol is described in sidp_client's
 
 ## Test status
 
-The firmware side is tested in esp-emu with a mock target
-(`components/qjs_binder/test_app`), and the MCP server against a simulated
-device. Neither has been tried on a real board yet.
+The script side of sessions and traps is tested in esp-emu with a mock target
+(`components/qjs_binder/test_app`), and the MCP server and trap tools
+against a simulated device. Neither has been tried on a real board yet, and
+the trap's storage, restarts and yielding have only been built, not run.
+
+## Planned
+
+- TODO: SD card support, for more room than the internal flash gives:
+  incidents, longer logs and the trace buffers of a later phase. Until then
+  incidents get a small part of the internal flash.

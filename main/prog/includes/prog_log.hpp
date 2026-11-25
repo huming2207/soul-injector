@@ -49,6 +49,8 @@ public:
     /** Set the clock for this boot; later calls in the same boot are ignored. */
     esp_err_t set_time(uint64_t utc_ms);
 
+    uint64_t utc_ms() const; // 0 until set_time() this boot
+
     /** Encode the entries after @p after_id that fit in @p out as LogReadResponse. */
     esp_err_t read(uint64_t after_id, pb_ostream_t &out);
 
@@ -66,6 +68,8 @@ private:
     on9rstore *store = nullptr;
     wl_handle_t wl_handle = WL_INVALID_HANDLE;
     bool time_set = false; // SIDP service task only
+    int64_t anchor_us = 0;
+    uint64_t anchor_utc_ms = 0;
     std::atomic<bool> write_failed = false;
 
     /** on9rstore entry type of an encoded RunRecord. */

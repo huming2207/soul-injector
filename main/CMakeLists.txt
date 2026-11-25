@@ -22,6 +22,7 @@ set(SI_MAIN_SRCS
     "comm/quectel_dte.cpp" "comm/quectel_dte.hpp"
     "comm/sidp_service.cpp" "comm/sidp_service.hpp"
     "comm/agent_service.cpp" "comm/agent_service.hpp"
+    "comm/incident_store.cpp" "comm/incident_store.hpp"
     "power/power_profiler.cpp" "power/power_profiler.hpp"
     "bootstrap_fsm.cpp" "bootstrap_fsm.hpp"
     "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"

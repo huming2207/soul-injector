@@ -10,6 +10,7 @@
 #include "esp_sleep.h"
 #include "esp_vfs_fat.h"
 #include "esp_timer.h"
+#include "agent_service.hpp"
 #include "asset_store.hpp"
 #include "fw_asset_manager.hpp"
 #include "http_downloader.hpp"
@@ -246,7 +247,9 @@ void bootstrap_fsm::run_fsm_task()
 
     // job_controller has already claimed a requested run; a plugged-in
     // target only runs when the job is armed for automatic runs.
-    if ((bits & BIT_RUN_REQUEST) == 0 && !job_controller::instance()->begin_auto_run()) {
+    auto *jobs = job_controller::instance();
+    if ((bits & BIT_RUN_REQUEST) == 0 && !jobs->begin_auto_run() &&
+        !(jobs->auto_run_waits_for_debug() && agent_service::instance()->yield_for_run(TRAP_YIELD_WAIT_MS) && jobs->begin_auto_run())) {
         show_auto_run_refused();
         return;
     }

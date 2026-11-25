@@ -436,6 +436,41 @@ namespace qjs_binder::priv
         return out;
     }
 
+    static void send_data(JSContext *ctx, JSValueConst data, const fire_msg &m)
+    {
+        if (!m.incident || JS_IsUndefined(data)) {
+            return;
+        }
+        if (!note_claim(ctx, data, "watch handler data")) {
+            JSValue e = JS_GetException(ctx);
+            handler_failed(ctx, e, m);
+            JS_FreeValue(ctx, e);
+            return;
+        }
+        req r = {};
+        r.op = OP_INCIDENT_DATA;
+        r.slot = SYNC;
+        r.addr = m.incident;
+        if (xQueueSend(g.req_q, &r, pdMS_TO_TICKS(50)) != pdTRUE) {
+            g.note_busy = false;
+            ESP_LOGW(TAG, "incident data lost, the owner's queue is full");
+        }
+    }
+
+    static uint8_t take_result(JSContext *ctx, JSValueConst v, const fire_msg &m, uint8_t *status)
+    {
+        if (!JS_IsObject(v) || JS_IsArray(v) || JS_IsFunction(ctx, v)) {
+            return verdict_of(ctx, v, status);
+        }
+        JSValue data = JS_GetPropertyStr(ctx, v, "data");
+        send_data(ctx, data, m);
+        JS_FreeValue(ctx, data);
+        JSValue action = JS_GetPropertyStr(ctx, v, "action");
+        uint8_t out = verdict_of(ctx, action, status);
+        JS_FreeValue(ctx, action);
+        return out;
+    }
+
     static JSValue on_handler_settled(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv, int magic, JSValueConst *data)
     {
         fire_msg m = {};
@@ -455,7 +490,7 @@ namespace qjs_binder::priv
             return JS_UNDEFINED;
         }
         uint8_t status;
-        uint8_t verdict = verdict_of(ctx, v, &status);
+        uint8_t verdict = take_result(ctx, v, m, &status);
         send_verdict(m, verdict, status);
         return JS_UNDEFINED;
     }
@@ -475,6 +510,7 @@ namespace qjs_binder::priv
         JS_SetPropertyStr(ctx, ev, "held", JS_NewBool(ctx, m.held));
         JS_SetPropertyStr(ctx, ev, "pc", JS_NewUint32(ctx, m.pc));
         JS_SetPropertyStr(ctx, ev, "captureId", JS_NewUint32(ctx, m.capture));
+        JS_SetPropertyStr(ctx, ev, "incidentId", JS_NewUint32(ctx, m.incident));
         if (m.slot >= 0) {
             capture_slot &c = g.caps[m.slot];
             if (c.id == m.capture) {
@@ -504,7 +540,7 @@ namespace qjs_binder::priv
         }
         if (!JS_IsPromise(r)) {
             uint8_t status;
-            uint8_t verdict = verdict_of(ctx, r, &status);
+            uint8_t verdict = take_result(ctx, r, m, &status);
             JS_FreeValue(ctx, r);
             send_verdict(m, verdict, status);
             return;
@@ -578,12 +614,43 @@ namespace qjs_binder::priv
         if (throttled) {
             n += snprintf(json + n, sizeof(json) - n, ",\"throttled\":true");
         }
+        if (m.incident) {
+            n += snprintf(json + n, sizeof(json) - n, ",\"incident\":%lu", (unsigned long)m.incident);
+        }
         if (note) {
             n += snprintf(json + n, sizeof(json) - n, ",\"note\":");
             n += json_str(json + n, sizeof(json) - n - 1, note);
         }
         snprintf(json + n, sizeof(json) - n, "}");
         emit_event("watch", json, m.capture, false);
+        if (m.incident && g.cfg.incidents) {
+            char out[160];
+            size_t k = snprintf(out, sizeof(out), "{\"action\":\"%s\",\"handler\":\"%s\",\"throttled\":%s,\"note\":", action,
+                                handler, throttled ? "true" : "false");
+            k += json_str(out + k, sizeof(out) - k - 1, note ? note : "");
+            k += strlcpy(out + k, "}", sizeof(out) - k);
+            g.cfg.incidents->add(m.incident, incident_part::outcome, out, std::min(k, sizeof(out) - 1));
+        }
+    }
+
+    static uint32_t open_incident(const fire_msg &m, const char *action)
+    {
+        if (!g.cfg.incidents) {
+            return 0;
+        }
+        char cause[192];
+        size_t n = snprintf(cause, sizeof(cause), "{\"kind\":\"watch\",\"watch\":%u,\"name\":", m.id);
+        n += json_str(cause + n, sizeof(cause) - n, m.name);
+        n += snprintf(cause + n, sizeof(cause) - n,
+                      ",\"on\":\"%s\",\"cause\":\"%s\",\"reflex\":\"%s\",\"first_action\":\"%s\",\"halted\":%s,\"fire\":%lu",
+                      ON_NAMES[m.on], m.cause, REFLEX_NAMES[m.reflex], action, m.halted ? "true" : "false", (unsigned long)m.fire);
+        if (m.halted) {
+            n += snprintf(cause + n, sizeof(cause) - n, ",\"pc\":\"0x%08lx\"", (unsigned long)m.pc);
+        }
+        strlcpy(cause + n, "}", sizeof(cause) - n);
+        const capture_slot *c = m.slot >= 0 && g.caps[m.slot].id == m.capture ? &g.caps[m.slot] : nullptr;
+        incident_open o = {true, m.id, m.name, cause, c ? c->data : nullptr, c ? c->len : 0};
+        return g.cfg.incidents->open(o);
     }
 
     static size_t begin_sec(uint8_t *p, size_t at, uint8_t type, uint8_t kind)
@@ -727,7 +794,7 @@ namespace qjs_binder::priv
         case H_THREW:
             return "threw";
         case H_BAD_VALUE:
-            return "returned something other than 'hold', 'resume' or 'reset'";
+            return "returned something other than 'hold', 'resume', 'reset' or {action, data}";
         default:
             return "none";
         }
@@ -812,6 +879,8 @@ namespace qjs_binder::priv
         } else if (m.reflex == REFLEX_RESET) {
             action = apply(V_RESET, t, &note);
         }
+
+        m.incident = open_incident(m, action);
 
         bool call = d.has_handler && !throttled && g.alive;
         if (call) {

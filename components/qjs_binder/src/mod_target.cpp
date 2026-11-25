@@ -45,7 +45,7 @@ namespace qjs_binder::priv
     {
         static const char *names[] = {"read32", "write32", "rmw32",  "halt", "readMem",    "writeMem",    "waitHalt",   "reset",
                                       "reinit", "poll32",  "delay",  "call", "flash.read", "flash.write", "flash.erase",
-                                      "resume", "readReg", "writeReg", "watch"};
+                                      "resume", "readReg", "writeReg", "watch", "done", "agent.incident", "incident data"};
         return op < sizeof(names) / sizeof(names[0]) ? names[op] : "?";
     }
 
@@ -116,7 +116,7 @@ namespace qjs_binder::priv
             JSValue e = target_error(ctx, ESP_ERR_NOT_ALLOWED, "NOT_ALLOWED", what);
             if (!JS_IsException(e)) {
                 char msg[96];
-                snprintf(msg, sizeof(msg), "%s: NOT_ALLOWED, the session was started without %s", what, flag);
+                snprintf(msg, sizeof(msg), "%s: NOT_ALLOWED, the %s was started without %s", what, g.cfg.incidents ? "trap" : "session", flag);
                 JS_SetPropertyStr(ctx, e, "message", JS_NewString(ctx, msg));
             }
             return JS_Throw(ctx, e);

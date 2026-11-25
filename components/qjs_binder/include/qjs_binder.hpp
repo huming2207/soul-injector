@@ -81,10 +81,27 @@ namespace qjs_binder
         bool reset; // reset(), reinit(), 'reset' reflexes and verdicts
     };
 
+    enum class incident_part : uint8_t { data, outcome };
+
+    struct incident_open {
+        bool watch;
+        uint16_t watch_id;
+        const char *name;
+        const char *cause_json;
+        const uint8_t *capture;
+        size_t capture_len;
+    };
+
+    struct incident_hooks {        // both run on the owner task
+        uint32_t (*open)(const incident_open &inc); // 0: not recorded
+        void (*add)(uint32_t id, incident_part part, const char *json, size_t len);
+    };
+
     struct session_config {
         permissions perms;
         bool fault_regs;                     // the target has CFSR, HFSR... (ARMv7-M and up)
         void (*notify)(uint32_t newest_seq); // new events; any task, must not block
+        const incident_hooks *incidents;
     };
 
     enum class script_outcome : uint8_t { ok, error, pending, stopped };
@@ -102,6 +119,7 @@ namespace qjs_binder
     static constexpr size_t RESULT_VALUE_MAX = 4095;
     static constexpr size_t RESULT_ERROR_MAX = 191;
     static constexpr size_t RESULT_STACK_MAX = 1023;
+    static constexpr size_t INCIDENT_DATA_MAX = 8191;
 
     struct event_out {
         uint32_t seq;
@@ -176,6 +194,12 @@ namespace qjs_binder
         void end_session(js_target &target);
 
         bool in_session() const;
+
+        bool session_running() const;
+
+        bool target_lost() const;
+
+        bool refuses(const uint8_t sha256[32]) const; // the device crashed while it ran, this boot
 
         script_result last_script_result() const;
 

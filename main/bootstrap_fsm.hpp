@@ -73,5 +73,6 @@ private:
     static const constexpr gpio_num_t DET_IO_PIN = static_cast<gpio_num_t>(CONFIG_SI_TARGET_DETECT_PIN);
     static const constexpr gpio_num_t PLUG_DET_PIN = static_cast<gpio_num_t>(CONFIG_SI_USB_PLUG_DET_PIN);
     static const constexpr char DATA_PARTITION_PATH[] = "/data";
+    static const constexpr uint32_t TRAP_YIELD_WAIT_MS = 2000;
     static const constexpr char DATA_PARTITION_LABEL[] = "data";
 };

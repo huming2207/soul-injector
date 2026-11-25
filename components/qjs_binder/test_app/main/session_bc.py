@@ -1,29 +1,18 @@
 #!/usr/bin/env python3
-"""Split session.js at '//--- name [module]' lines, compile each piece, bundle them: name NUL, u32 length, container."""
 import os
 import struct
 import subprocess
 import sys
 import tempfile
 
-tool, src, out = sys.argv[1:4]
-pieces, cur = [], None
-for line in open(src, encoding='utf-8'):
-    if line.startswith('//--- '):
-        words = line[6:].split()
-        cur = [words[0], 'module' in words[1:], []]
-        pieces.append(cur)
-    elif cur:
-        cur[2].append(line)
-
+tool, src_dir, out = sys.argv[1:4]
 blob = b''
 with tempfile.TemporaryDirectory() as tmp:
-    for name, module, lines in pieces:
-        js, qbc = os.path.join(tmp, name + '.js'), os.path.join(tmp, name + '.qbc')
-        with open(js, 'w', encoding='utf-8') as f:
-            f.write(''.join(lines))
-        cmd = [sys.executable, tool, 'compile', js, '-o', qbc, '--name', name]
-        if not module:
+    for file in sorted(os.listdir(src_dir)):
+        name, ext = os.path.splitext(file)
+        qbc = os.path.join(tmp, name + '.qbc')
+        cmd = [sys.executable, tool, 'compile', os.path.join(src_dir, file), '-o', qbc, '--name', name]
+        if ext == '.js':
             cmd.append('--script')
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         data = open(qbc, 'rb').read()

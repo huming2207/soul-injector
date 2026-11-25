@@ -144,7 +144,8 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
     auto ret = load_target();
     ret = ret ?: claim_target();
     if (ret != ESP_OK) {
-        return ret;
+        // A programming run has the target: the session answers BUSY for INVALID_STATE
+        return ret == job_controller::ERR_RUNNING ? ESP_ERR_INVALID_STATE : ret;
     }
 
     ret = params.connect_under_reset ? connect_under_reset(params.halt_after_attach)

@@ -162,7 +162,12 @@ namespace qjs_binder
 
         esp_err_t begin_run(const uint8_t *blob, size_t len, const uint8_t *pinned_sha256, const run_info &info);
 
-        bool has_hook(hook h) const;
+        bool has_hook(hook h) const; // exported, and the runtime can still run it
+
+        // The run's module exported it, whether or not its runtime is still alive:
+        // a hook that's due but can't run any more (the runtime died in between)
+        // must fail the run, not be skipped.
+        bool exports_hook(hook h) const;
 
         esp_err_t run_hook(hook h, js_target &target, uint32_t timeout_ms, cancel_fn cancelled);
 

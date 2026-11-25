@@ -69,6 +69,8 @@ namespace qjs_binder
         return esp_timer_get_time();
     }
 
+    static constexpr char ENDED_BETWEEN[] = "script ended between hooks: ";
+
     static void set_err(const char *fmt, const char *arg = "")
     {
         snprintf(g.err, sizeof(g.err), fmt, arg);
@@ -350,6 +352,9 @@ namespace qjs_binder
             send_done(why == QJS_ESP_STOP_REQUESTED ? ESP_ERR_INVALID_STATE
                       : why == QJS_ESP_STOP_ERROR   ? ESP_FAIL
                                                     : ESP_ERR_TIMEOUT);
+        } else if (why != QJS_ESP_STOP_REQUESTED) { // not end_run(): it died in a callback, e.g. onProgress
+            snprintf(g.err, sizeof(g.err), "%s%s", ENDED_BETWEEN, stop_text(why));
+            ESP_LOGE(TAG, "%s", g.err);
         }
 
         xSemaphoreTake(g.loop_lock, portMAX_DELAY);
@@ -702,6 +707,11 @@ namespace qjs_binder
         return g.running && g.alive && !g.dead && g.hooks[(int)h];
     }
 
+    bool js_host::exports_hook(hook h) const
+    {
+        return g.running && g.hooks[(int)h];
+    }
+
     esp_err_t js_host::run_hook(hook h, js_target &target, uint32_t timeout_ms, cancel_fn cancelled)
     {
         if (!g.running || g.dead) {
@@ -716,7 +726,9 @@ namespace qjs_binder
         bool posted = g.loop && g.alive && qjs_esp_loop_post(g.loop, call_hook, nullptr, pdMS_TO_TICKS(100)) == ESP_OK;
         xSemaphoreGive(g.loop_lock);
         if (!posted) {
-            set_err("script isn't running");
+            if (strncmp(g.err, ENDED_BETWEEN, strlen(ENDED_BETWEEN)) != 0) { // else keep why it ended
+                set_err("script isn't running");
+            }
             return ESP_ERR_INVALID_STATE;
         }
         return serve(&target, g.cur_timeout_ms, cancelled);
@@ -826,6 +838,7 @@ namespace qjs_binder
     esp_err_t js_host::begin_run(const char *, const uint8_t *, const run_info &) { return ESP_ERR_NOT_SUPPORTED; }
     esp_err_t js_host::begin_run(const uint8_t *, size_t, const uint8_t *, const run_info &) { return ESP_ERR_NOT_SUPPORTED; }
     bool js_host::has_hook(hook) const { return false; }
+    bool js_host::exports_hook(hook) const { return false; }
     esp_err_t js_host::run_hook(hook, js_target &, uint32_t, cancel_fn) { return ESP_ERR_NOT_SUPPORTED; }
     esp_err_t js_host::run_on_fail(const char *, const char *, js_target &, uint32_t, cancel_fn) { return ESP_ERR_NOT_SUPPORTED; }
     void js_host::end_run() {}

@@ -66,9 +66,11 @@ namespace
     esp_err_t run_script_hook(qjs_binder::hook h, target_backend &backend)
     {
         auto *js = qjs_binder::js_host::instance();
-        if (!js->has_hook(h)) {
+        if (!js->exports_hook(h)) {
             return ESP_OK;
         }
+        // Exported but its runtime is gone (stopped in an earlier callback, out of
+        // memory): run_hook() fails "script isn't running", and so does the run.
         backend_target target(backend);
         return js->run_hook(h, target, fw_asset_manager::instance()->hook_timeout_ms(), cancel_requested);
     }
@@ -244,7 +246,7 @@ void offline_flasher::on_self_test()
     ESP_LOGI(TAG, "Run self test");
 
     const si::config::target_config &cfg = fw_asset_manager::instance()->config();
-    if (has_script() && qjs_binder::js_host::instance()->has_hook(qjs_binder::hook::test)) {
+    if (has_script() && qjs_binder::js_host::instance()->exports_hook(qjs_binder::hook::test)) {
         if (cfg.test_count > 0) {
             ESP_LOGW(TAG, "Self test: the script's test() replaces the job's %u self tests", (unsigned)cfg.test_count);
         }

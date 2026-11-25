@@ -683,6 +683,20 @@ static void test_task(void *)
         check(o.pre == ESP_ERR_TIMEOUT && o.pre_ms >= 300 && o.pre_ms < 1000, "forever: hook timeout", d);
         heap_same("forever");
     }
+    // A runtime that dies between the hooks (here in onProgress) must fail the
+    // next hook: postProgram used to be skipped and the run passed.
+    {
+        mock_target m;
+        void (*between)() = [] {
+            js_host::instance()->progress("program", 50);
+            vTaskDelay(pdMS_TO_TICKS(500));
+        };
+        outcome o = run("progdie", m, 2000, nullptr, false, between);
+        const char *err = h->last_error();
+        check(o.pre == ESP_OK && o.post == ESP_ERR_INVALID_STATE && strstr(err, "between hooks") && strstr(err, "yielding"),
+              "a runtime that dies between hooks fails the next one", err);
+        heap_same("progdie");
+    }
     // QuickJS-NG's "out of memory" is uncatchable; it used to leave the hook
     // waiting for its timeout instead of failing it.
     for (const char *name : {"oom", "oomlate"}) {

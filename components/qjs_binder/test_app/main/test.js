@@ -75,6 +75,11 @@ export async function preProgram(ctx) {
         const k = [];
         for (;;) k.push(new Uint8Array(65536));
     }
+    case 'progdie': // the runtime dies in a progress callback, between the hooks
+        job.onProgress(() => {
+            for (;;) {}
+        });
+        return;
     case 'oomlate': { // after one: the async function dies without settling its promise
         await t.delay(1);
         const k = [];

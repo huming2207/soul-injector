@@ -13,6 +13,8 @@
   and `post_prog.yaml` step format and execution rules.
 - [Job scripts](job-scripts.md) — JavaScript `preProgram`/`postProgram` hooks
   instead of the procedure YAML: compiling, `si:target`, limits.
+- [Agent sessions](agent-sessions.md) — let an LLM agent watch and drive a
+  Cortex-M target over MCP: permissions, watches, events, captures.
 
 ## Operations
 

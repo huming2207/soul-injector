@@ -72,6 +72,7 @@ private:
     void handle_frame(sidp::transport_intf &transport, sidp::sidp_session &session, std::span<const uint8_t> frame);
     sidp::status_t dispatch(uint16_t opcode, std::span<const uint8_t> payload, pb_ostream_t &out);
     void send_response(sidp::transport_intf &transport, const sidp::msg_header_t &request, sidp::status_t status, size_t payload_len);
+    void send_frame(sidp::transport_intf &transport, const sidp::msg_header_t &request, sidp::status_t status, size_t payload_len, uint8_t *buf);
 
     sidp::status_t op_device_info(pb_ostream_t &out);
     sidp::status_t op_set_time(std::span<const uint8_t> payload);

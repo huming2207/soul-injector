@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include <agent.pb.h>
 #include <esp_app_desc.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -21,6 +22,7 @@
 
 #include <atomic>
 
+#include "agent_service.hpp"
 #include "asset_store.hpp"
 #include "job_controller.hpp"
 #include "net_config.hpp"
@@ -53,6 +55,26 @@ static esp_err_t send_power_event(std::span<const uint8_t> frame)
     return transport != nullptr ? transport->write_message(frame) : ESP_ERR_INVALID_STATE;
 }
 
+static void send_agent_notice(uint32_t newest_seq) // expendable: EVENT_READ has the events
+{
+    auto *transport = active_transport.load();
+    uint8_t buf[sizeof(sidp::msg_header_t) + si_agent_EventNotify_size] = {};
+    si_agent_EventNotify notice = {newest_seq};
+    pb_ostream_t out = pb_ostream_from_buffer(buf + sizeof(sidp::msg_header_t), si_agent_EventNotify_size);
+    if (transport == nullptr || !pb_encode(&out, si_agent_EventNotify_fields, &notice)) {
+        return;
+    }
+    sidp::msg_header_t header = {};
+    header.version = sidp::PROTOCOL_VERSION;
+    header.kind = sidp::KIND_LOG_STREAM;
+    header.opcode = sidp::OP_AGENT_EVENT;
+    memcpy(buf, &header, sizeof(header));
+    std::span<uint8_t> message(buf, sizeof(sidp::msg_header_t) + out.bytes_written);
+    if (sidp::crc32_hasher::set_message_crc(message)) {
+        transport->write_message_log(message);
+    }
+}
+
 esp_err_t sidp_service::init(const char *_serial)
 {
     serial = _serial;
@@ -78,6 +100,8 @@ esp_err_t sidp_service::init(const char *_serial)
     if (ret != ESP_OK && ret != ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGW(TAG, "init: power profiler unavailable: %s", esp_err_to_name(ret));
     }
+
+    agent_service::instance()->init(send_agent_notice); // without PSRAM, agent requests get STATUS_NO_SCRIPTS
 
     // Debug requests use SWD, so this shares the flasher's core. It sits above the
     // flasher in priority so that requests are still answered during a run.
@@ -426,6 +450,7 @@ void sidp_service::run_session(sidp::transport_intf &transport)
         ESP_LOGE(TAG, "run_session: no memory for the debug session");
     }
 
+    agent_service::instance()->close(); // so does an agent session; it never holds the target with GDB
     // A measurement belongs to its connection.
     si_power_StopResponse stopped = si_power_StopResponse_init_zero;
     power_profiler::instance()->stop(stopped);
@@ -452,9 +477,13 @@ void sidp_service::run_session(sidp::transport_intf &transport)
 
 void sidp_service::serve_connection(sidp::transport_intf &transport, sidp::sidp_session &session)
 {
+    auto *agent = agent_service::instance();
     while (!transport.needs_disconnect() && !session.needs_disconnect()) {
         // A running target has to be checked often so that a stop is reported promptly.
-        const uint32_t timeout_ms = session.get_state() == sidp::TARGET_RUNNING ? RUNNING_POLL_MS : READ_TIMEOUT_MS;
+        uint32_t timeout_ms = session.get_state() == sidp::TARGET_RUNNING ? RUNNING_POLL_MS : READ_TIMEOUT_MS;
+        if (agent->active()) {
+            timeout_ms = agent_service::POLL_MS; // watches poll the target
+        }
 
         uint8_t *frame = nullptr;
         size_t frame_len = 0;
@@ -467,6 +496,7 @@ void sidp_service::serve_connection(sidp::transport_intf &transport, sidp::sidp_
         }
 
         session.handle_poll();
+        agent->service();
         if (other_link_wins(transport)) {
             return;
         }
@@ -495,6 +525,15 @@ void sidp_service::handle_frame(sidp::transport_intf &transport, sidp::sidp_sess
     }
 
     constexpr size_t prefix_len = sizeof(sidp::msg_header_t) + sizeof(sidp::response_prefix_t);
+    auto *agent = agent_service::instance();
+    if (agent_service::is_agent_opcode(header.opcode) && !agent->frame_buffer().empty()) {
+        auto buf = agent->frame_buffer(); // responses up to a whole frame
+        pb_ostream_t out = pb_ostream_from_buffer(buf.data() + prefix_len, buf.size() - prefix_len);
+        auto status = agent->handle(header.opcode, frame.subspan(sizeof(sidp::msg_header_t)), out);
+        send_frame(transport, header, status, status == sidp::STATUS_OK ? out.bytes_written : 0, buf.data());
+        return;
+    }
+
     pb_ostream_t out = pb_ostream_from_buffer(tx_buf + prefix_len, TX_BUF_SIZE - prefix_len);
     auto status = dispatch(header.opcode, frame.subspan(sizeof(sidp::msg_header_t)), out);
     send_response(transport, header, status, status == sidp::STATUS_OK ? out.bytes_written : 0);
@@ -540,25 +579,34 @@ sidp::status_t sidp_service::dispatch(uint16_t opcode, std::span<const uint8_t> 
     case sidp::OP_LOGIN:
         return op_login(payload, out);
     default:
+        if (agent_service::is_agent_opcode(opcode)) {
+            return agent_service::instance()->handle(opcode, payload, out); // no PSRAM buffers: says why
+        }
         return sidp::STATUS_UNSUPPORTED;
     }
 }
 
 void sidp_service::send_response(sidp::transport_intf &transport, const sidp::msg_header_t &request, sidp::status_t status, size_t payload_len)
 {
-    auto &header = *reinterpret_cast<sidp::msg_header_t *>(tx_buf);
+    send_frame(transport, request, status, payload_len, tx_buf);
+}
+
+void sidp_service::send_frame(sidp::transport_intf &transport, const sidp::msg_header_t &request, sidp::status_t status, size_t payload_len,
+                              uint8_t *buf)
+{
+    auto &header = *reinterpret_cast<sidp::msg_header_t *>(buf);
     header.version = sidp::PROTOCOL_VERSION;
     header.kind = sidp::KIND_RESPONSE;
     header.opcode = request.opcode;
     header.request_id = request.request_id;
-    auto &prefix = *reinterpret_cast<sidp::response_prefix_t *>(tx_buf + sizeof(sidp::msg_header_t));
+    auto &prefix = *reinterpret_cast<sidp::response_prefix_t *>(buf + sizeof(sidp::msg_header_t));
     prefix.status = status;
 
     if (status != sidp::STATUS_OK) {
         ESP_LOGW(TAG, "request %lu op 0x%04x: status %ld", request.request_id, request.opcode, (long)status);
     }
 
-    std::span<uint8_t> response(tx_buf, sizeof(sidp::msg_header_t) + sizeof(sidp::response_prefix_t) + payload_len);
+    std::span<uint8_t> response(buf, sizeof(sidp::msg_header_t) + sizeof(sidp::response_prefix_t) + payload_len);
     if (!sidp::crc32_hasher::set_message_crc(response) || transport.write_message(response) != ESP_OK) {
         // The transport latches itself closed; serve_connection() then exits.
         ESP_LOGE(TAG, "send_response: cannot queue response");

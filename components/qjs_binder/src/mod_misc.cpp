@@ -208,9 +208,22 @@ namespace qjs_binder::priv
 
 #define ADD(ctx, name, tab) add_module<tab, sizeof(tab) / sizeof(tab[0])>(ctx, name)
 
-    bool init_misc_modules(JSContext *ctx)
+    bool init_misc_modules(JSContext *ctx, bool session)
     {
+        if (session) {
+            return ADD(ctx, "si:crypto", crypto_funcs) && init_agent_module(ctx);
+        }
         return ADD(ctx, "si:crypto", crypto_funcs) && ADD(ctx, "si:log", log_funcs) && ADD(ctx, "si:job", job_funcs);
+    }
+
+    bool add_misc_globals(JSContext *ctx, JSValueConst global)
+    {
+        JSValue o = JS_NewObject(ctx);
+        if (JS_IsException(o) || JS_SetPropertyFunctionList(ctx, o, crypto_funcs, sizeof(crypto_funcs) / sizeof(crypto_funcs[0])) < 0) {
+            JS_FreeValue(ctx, o);
+            return false;
+        }
+        return JS_SetPropertyStr(ctx, global, "crypto", o) >= 0 && add_agent_global(ctx, global);
     }
 } // namespace qjs_binder::priv
 

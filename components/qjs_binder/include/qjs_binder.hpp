@@ -13,6 +13,13 @@ namespace qjs_binder
     static constexpr size_t XFER_MAX = 4096;
     static constexpr size_t RESULTS_MAX = 359;
 
+    struct core_state {
+        bool halted;
+        bool lockup;
+        bool reset_seen; // the core was reset since the last poll (S_RESET_ST)
+        uint32_t dfsr;   // why it halted (Cortex-M DFSR), when halted
+    };
+
     class js_target
     {
     public:
@@ -62,6 +69,46 @@ namespace qjs_binder
         virtual esp_err_t resume() { return ESP_ERR_NOT_SUPPORTED; }
         virtual esp_err_t read_reg(uint32_t id, uint32_t *val) { return ESP_ERR_NOT_SUPPORTED; } // id: DCRSR REGSEL
         virtual esp_err_t write_reg(uint32_t id, uint32_t val) { return ESP_ERR_NOT_SUPPORTED; }
+
+        virtual esp_err_t poll_core(core_state *st) { return ESP_ERR_NOT_SUPPORTED; } // agent sessions from here on
+        virtual esp_err_t set_vector_catch(uint32_t vc) { return ESP_ERR_NOT_SUPPORTED; } // DEMCR VC_* bits, others kept
+        virtual esp_err_t clear_stop_cause() { return ESP_ERR_NOT_SUPPORTED; } // DFSR
+    };
+
+    struct permissions {
+        bool write; // memory and core register writes, call()
+        bool flash; // flash.erase(), flash.write()
+        bool reset; // reset(), reinit(), 'reset' reflexes and verdicts
+    };
+
+    struct session_config {
+        permissions perms;
+        bool fault_regs;                     // the target has CFSR, HFSR... (ARMv7-M and up)
+        void (*notify)(uint32_t newest_seq); // new events; any task, must not block
+    };
+
+    enum class script_outcome : uint8_t { ok, error, pending, stopped };
+
+    struct script_result {
+        script_outcome outcome;
+        bool truncated;
+        const char *value; // eval: the result as JSON
+        const char *error;
+        const char *stack;
+    };
+
+    static constexpr size_t EVENT_KIND_MAX = 11;
+    static constexpr size_t EVENT_JSON_MAX = 767;
+    static constexpr size_t RESULT_VALUE_MAX = 4095;
+    static constexpr size_t RESULT_ERROR_MAX = 191;
+    static constexpr size_t RESULT_STACK_MAX = 1023;
+
+    struct event_out {
+        uint32_t seq;
+        uint64_t uptime_us;
+        uint32_t capture_id;
+        char kind[EVENT_KIND_MAX + 1];
+        char json[EVENT_JSON_MAX + 1];
     };
 
     enum class hook : uint8_t {
@@ -115,6 +162,26 @@ namespace qjs_binder
         void progress(const char *stage, int pct);
 
         const char *last_error() const;
+
+        esp_err_t begin_session(const session_config &cfg); // the calling task owns the target until end_session()
+
+        esp_err_t session_run(const uint8_t *blob, size_t len, uint32_t timeout_ms, js_target &target); // replaces the runtime
+
+        esp_err_t session_eval(const uint8_t *blob, size_t len, uint32_t timeout_ms, js_target &target);
+
+        void session_stop(js_target &target);
+
+        void session_service(js_target &target, uint32_t wait_ms); // serve calls, watches; call it often
+
+        void end_session(js_target &target);
+
+        bool in_session() const;
+
+        script_result last_script_result() const;
+
+        size_t read_events(uint32_t after_seq, event_out *out, size_t max, uint32_t *newest_seq, uint32_t *dropped);
+
+        esp_err_t read_capture(uint32_t id, uint32_t offset, uint8_t *buf, size_t cap, size_t *len, uint32_t *total);
 
         js_host(js_host const &) = delete;
         void operator=(js_host const &) = delete;

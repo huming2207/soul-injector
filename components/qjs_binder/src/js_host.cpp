@@ -43,7 +43,28 @@ namespace qjs_binder
     static uint8_t quarantined[32];
     static bool have_quarantine;
 
-    static int64_t now_us()
+    bool priv::is_quarantined(const uint8_t sha256[32])
+    {
+        return have_quarantine && memcmp(quarantined, sha256, sizeof(quarantined)) == 0;
+    }
+
+    void priv::set_crash_mark(const uint8_t *sha256)
+    {
+        if (sha256) {
+            memcpy(crash_mark.sha256, sha256, sizeof(crash_mark.sha256));
+            crash_mark.magic = CRASH_MAGIC;
+        } else {
+            crash_mark.magic = 0;
+        }
+    }
+
+    bool priv::claim(uint8_t who)
+    {
+        uint8_t none = USER_NONE;
+        return g.user.compare_exchange_strong(none, who);
+    }
+
+    int64_t priv::now_us()
     {
         return esp_timer_get_time();
     }
@@ -53,7 +74,7 @@ namespace qjs_binder
         snprintf(g.err, sizeof(g.err), fmt, arg);
     }
 
-    static void record_error(JSContext *ctx, JSValueConst e)
+    void priv::record_error(JSContext *ctx, JSValueConst e)
     {
         const char *msg = JS_ToCString(ctx, e);
         JSValue stack = JS_IsError(e) ? JS_GetPropertyStr(ctx, e, "stack") : JS_UNDEFINED;
@@ -149,6 +170,9 @@ namespace qjs_binder
             n += snprintf(line + n, sizeof(line) - n, "%s%s", i ? " " : "", s ? s : "?");
             JS_FreeCString(ctx, s);
         }
+        if (g.session) {
+            session_console(level, line);
+        }
         if (level == 2) {
             ESP_LOGE("js", "%s", line);
         } else if (level == 1) {
@@ -166,13 +190,13 @@ namespace qjs_binder
         JS_CFUNC_MAGIC_DEF("error", 1, js_console, 2),
     };
 
-    static JSModuleDef *refuse_module(JSContext *ctx, const char *name, void *)
+    JSModuleDef *priv::refuse_module(JSContext *ctx, const char *name, void *)
     {
         JS_ThrowReferenceError(ctx, "no module '%s' here (bundle local files into the script)", name);
         return nullptr;
     }
 
-    static JSContext *new_context(JSRuntime *rt)
+    static JSContext *new_context(JSRuntime *rt, bool session)
     {
         JSContext *ctx = JS_NewContextRaw(rt);
         if (!ctx) {
@@ -181,7 +205,7 @@ namespace qjs_binder
         if (JS_AddIntrinsicBaseObjects(ctx) || JS_AddIntrinsicDate(ctx) || JS_AddIntrinsicRegExp(ctx) ||
             JS_AddIntrinsicJSON(ctx) || JS_AddIntrinsicMapSet(ctx) || JS_AddIntrinsicTypedArrays(ctx) ||
             JS_AddIntrinsicPromise(ctx) || JS_AddIntrinsicAToB(ctx) || JS_AddPerformance(ctx) ||
-            !init_target_module(ctx) || !init_misc_modules(ctx)) {
+            !init_target_module(ctx) || !init_misc_modules(ctx, session)) {
             JS_FreeContext(ctx);
             return nullptr;
         }
@@ -189,9 +213,14 @@ namespace qjs_binder
         JSValue console = JS_NewObject(ctx);
         JS_SetPropertyFunctionList(ctx, console, console_funcs, sizeof(console_funcs) / sizeof(console_funcs[0]));
         JS_SetPropertyStr(ctx, global, "console", console);
+        bool ok = !session || (add_target_globals(ctx, global) && add_misc_globals(ctx, global));
         JS_FreeValue(ctx, global);
+        if (!ok) {
+            JS_FreeContext(ctx);
+            return nullptr;
+        }
 #if CONFIG_SI_JS_NETWORK
-        if (g.network && !qjs_esp_init_module_ws(ctx, "esp:ws")) {
+        if (!session && g.network && !qjs_esp_init_module_ws(ctx, "esp:ws")) {
             JS_FreeContext(ctx);
             return nullptr;
         }
@@ -237,7 +266,7 @@ namespace qjs_binder
         settle(ctx, r);
     }
 
-    static const char *stop_text(qjs_esp_stop_t why)
+    const char *priv::stop_text(qjs_esp_stop_t why)
     {
         switch (why) {
         case QJS_ESP_STOP_DEADLINE:
@@ -258,7 +287,7 @@ namespace qjs_binder
             qjs_esp_arena_reset(g.arena); // leftovers are garbage
             rt = qjs_esp_new_runtime_in(g.arena);
         }
-        JSContext *ctx = rt ? (js_std_init_handlers(rt), new_context(rt)) : nullptr;
+        JSContext *ctx = rt ? (js_std_init_handlers(rt), new_context(rt, false)) : nullptr;
         qjs_esp_loop_t *loop = ctx ? qjs_esp_loop_new(ctx) : nullptr;
         if (!loop) {
             set_err("no room for the script runtime");
@@ -304,23 +333,32 @@ namespace qjs_binder
         qjs_esp_arena_reset(g.arena);
     }
 
+    JSContext *priv::new_session_context(JSRuntime *rt)
+    {
+        return new_context(rt, true);
+    }
+
     static void js_task(void *)
     {
         for (;;) {
             uint8_t cmd;
             xQueueReceive(g.cmd_q, &cmd, portMAX_DELAY);
-            run_script();
+            if (cmd == CMD_SESSION) {
+                run_session_runtime();
+            } else {
+                run_script();
+            }
             xSemaphoreGive(g.ended);
         }
     }
 
-    static TickType_t ms_ticks(uint32_t ms)
+    TickType_t priv::ms_ticks(uint32_t ms)
     {
         TickType_t t = pdMS_TO_TICKS(ms);
         return t ? t : 1;
     }
 
-    static void stop_loop()
+    void priv::stop_loop()
     {
         xSemaphoreTake(g.loop_lock, portMAX_DELAY);
         if (g.loop) {
@@ -416,7 +454,24 @@ namespace qjs_binder
         }
     }
 
-    static void execute(const req &r, js_target *t, cancel_fn cancelled)
+    void priv::post_async(uint8_t slot, uint32_t seq, esp_err_t ret, uint32_t val)
+    {
+        if (slot >= MAX_ASYNC) {
+            return;
+        }
+        async_slot &s = g.slots[slot];
+        xSemaphoreTake(g.loop_lock, portMAX_DELAY);
+        if (g.loop && s.used && s.seq == seq) {
+            s.ret = ret;
+            s.val = val;
+            if (qjs_esp_loop_post(g.loop, async_done, &s, pdMS_TO_TICKS(10)) != ESP_OK) {
+                ESP_LOGW(TAG, "JS queue full, async result dropped");
+            }
+        }
+        xSemaphoreGive(g.loop_lock);
+    }
+
+    esp_err_t priv::execute(const req &r, js_target *t, cancel_fn cancelled)
     {
         esp_err_t ret = ESP_ERR_INVALID_STATE; // load: no target
         uint32_t val = 0;
@@ -430,19 +485,10 @@ namespace qjs_binder
         if (r.slot == SYNC) {
             res x = {r.seq, ret, val};
             xQueueOverwrite(g.res_q, &x);
-            return;
+            return ret;
         }
-        if (r.slot >= MAX_ASYNC) {
-            return;
-        }
-        async_slot &s = g.slots[r.slot];
-        s.ret = ret;
-        s.val = val;
-        xSemaphoreTake(g.loop_lock, portMAX_DELAY);
-        if (g.loop && qjs_esp_loop_post(g.loop, async_done, &s, pdMS_TO_TICKS(10)) != ESP_OK) {
-            ESP_LOGW(TAG, "JS queue full, async result dropped");
-        }
-        xSemaphoreGive(g.loop_lock);
+        post_async(r.slot, r.seq, ret, val);
+        return ret;
     }
 
     static esp_err_t serve(js_target *t, uint32_t timeout_ms, cancel_fn cancelled)
@@ -513,7 +559,7 @@ namespace qjs_binder
         g.ended = xSemaphoreCreateBinary();
         g.loop_lock = xSemaphoreCreateMutex();
         g.xfer = (uint8_t *)heap_caps_malloc(XFER_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!g.arena || !g.cmd_q || !g.req_q || !g.res_q || !g.ended || !g.loop_lock || !g.xfer) {
+        if (!g.arena || !g.cmd_q || !g.req_q || !g.res_q || !g.ended || !g.loop_lock || !g.xfer || !session_alloc()) {
             ESP_LOGE(TAG, "init: out of memory, scripts are off");
             return ESP_ERR_NO_MEM;
         }
@@ -596,6 +642,10 @@ namespace qjs_binder
         strlcpy(g.job_name, info.job_name ? info.job_name : "", sizeof(g.job_name));
         strlcpy(g.variant, info.variant ? info.variant : "", sizeof(g.variant));
         strlcpy(g.family, info.family ? info.family : "", sizeof(g.family));
+        if (!claim(USER_RUN)) {
+            set_err("an agent session is using scripts");
+            return ESP_ERR_INVALID_STATE;
+        }
         g.script = blob;
         g.script_len = len;
         xQueueReset(g.req_q);
@@ -607,7 +657,7 @@ namespace qjs_binder
         g.running = true;
         g.hook_end_us = now_us() + LOAD_TIMEOUT_MS * 1000LL;
 
-        uint8_t cmd = 1;
+        uint8_t cmd = CMD_RUN;
         xQueueSend(g.cmd_q, &cmd, portMAX_DELAY);
         esp_err_t ret = serve(nullptr, LOAD_TIMEOUT_MS, nullptr);
         g.script = nullptr;
@@ -677,6 +727,7 @@ namespace qjs_binder
             }
         }
         crash_mark.magic = 0;
+        g.user = USER_NONE;
     }
 
     bool js_host::last_script(uint8_t sha256[32], bool *pinned) const

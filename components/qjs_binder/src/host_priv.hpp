@@ -32,12 +32,91 @@ namespace qjs_binder::priv
         OP_RESUME,
         OP_READ_REG,
         OP_WRITE_REG,
-        OP_DONE, // load/hook settled
+        OP_WATCH_ACTION, // a watch handler's verdict: addr watch, a verdict, b fire, timeout_ms handler status
+        OP_DONE,         // load/hook settled; in a session seq is the run/eval token
     };
 
     static constexpr uint8_t SYNC = 0xff;
     static constexpr int MAX_ASYNC = 4;
     static constexpr int HOOKS = 4;
+    static constexpr int WATCHES = 4;     // one per watch_on
+    static constexpr int WATCH_MEM = 4;   // capture.mem ranges
+    static constexpr int CAPTURES = 4;
+    static constexpr size_t CAPTURE_SIZE = 16384;
+    static constexpr size_t CAPTURE_DATA_MAX = 12288; // stack + mem per watch
+    static constexpr int EVENTS = 64;
+
+    enum watch_on : uint8_t { ON_FAULT, ON_HALT, ON_LOCKUP, ON_RESET };
+    enum reflex_t : uint8_t { REFLEX_HALT, REFLEX_NONE, REFLEX_RESET };
+    enum verdict_t : uint8_t { V_HOLD, V_RESUME, V_RESET };
+    enum handler_status : uint8_t { H_OK, H_THREW, H_BAD_VALUE, H_NONE };
+
+    struct watch_def {
+        bool used;
+        bool regs;
+        bool fault;
+        bool has_handler;
+        uint8_t reflex;
+        uint8_t n_mem;
+        uint16_t id;
+        uint16_t stack;
+        struct {
+            uint32_t addr, len;
+        } mem[WATCH_MEM];
+        uint32_t handler_timeout_ms;
+        char name[24];
+    };
+
+    struct capture_slot {
+        uint32_t id;               // 0: empty
+        uint32_t len;
+        std::atomic<bool> js_busy; // the JS task is reading it
+        uint8_t *data;             // CAPTURE_SIZE, PSRAM
+    };
+
+    struct fire_msg {
+        uint32_t fire;
+        uint32_t capture;
+        uint32_t pc;
+        uint16_t id;
+        uint8_t on;
+        uint8_t reflex;
+        int8_t slot;               // capture slot, -1 for none
+        bool held;                 // the owner waits for the verdict
+        bool halted;
+        char cause[16];
+        char name[24];
+    };
+
+    struct engine {                // owner task only
+        uint32_t gen;              // watch_gen applied
+        uint32_t vc;               // vector catch bits set
+        bool vc_dirty;
+        bool known;                // halted/lockup below are current
+        bool halted;
+        bool lockup;
+        bool ignore_reset;         // the next S_RESET_ST is our own
+        bool reset_latch;          // a waitHalt poll saw S_RESET_ST
+        bool lost;
+        uint8_t fails;
+        int64_t next_poll_us;
+        bool waiting;              // a held target waits for a verdict
+        fire_msg w;
+        int64_t w_until_us;
+        uint32_t fires;
+        int64_t window_us[WATCHES];
+        uint16_t window_n[WATCHES];
+        uint32_t captures;         // ids handed out
+        int next_slot;
+    };
+
+    struct ev_slot {
+        uint32_t seq;
+        uint32_t capture_id;
+        uint64_t uptime_us;
+        char kind[EVENT_KIND_MAX + 1];
+        char json[EVENT_JSON_MAX + 1];
+    };
 
     struct req {
         uint8_t op;
@@ -51,6 +130,13 @@ namespace qjs_binder::priv
         uint32_t timeout_ms;
         uint32_t interval_ms;
         esp_err_t ret;   // OP_DONE
+    };
+
+    struct pending_op {
+        bool used;
+        req r;
+        int64_t until_us;
+        int64_t next_us;
     };
 
     struct res {
@@ -118,6 +204,44 @@ namespace qjs_binder::priv
 
         bool running;
         int64_t hook_end_us;         // async ops stop here
+
+        std::atomic<uint8_t> user;   // USER_*: a job run and a session exclude each other
+        bool session;                // owner sets it before any session runtime starts
+        session_config cfg;
+        bool rt_started;             // owner: a session runtime was started and not reaped
+        std::atomic<bool> stop_wanted; // owner stopped the runtime on purpose
+        uint8_t first_kind;          // what a new session runtime runs first: FIRST_*
+        uint8_t *first_blob;         // heap copy, the JS task frees it
+        size_t first_len;
+        uint32_t first_token;
+        uint32_t token;              // owner: last run/eval token
+        std::atomic<uint32_t> want_token; // whose result goes to the res_ buffers
+        uint32_t done_token;         // owner: last OP_DONE seen
+        bool out_pending;            // owner: the last run/eval is still going
+        const char *owner_note;      // owner: the last run/eval failed before reaching the JS task
+        script_outcome owner_outcome;
+        std::atomic<bool> rt_ending; // JS task: the session runtime's loop has returned
+        script_outcome res_outcome;
+        bool res_truncated;
+        char *res_value;             // RESULT_VALUE_MAX + 1, PSRAM
+        char res_error[RESULT_ERROR_MAX + 1];
+        char *res_stack;             // RESULT_STACK_MAX + 1, PSRAM
+        pending_op pend[MAX_ASYNC];  // owner: async ops it steps
+
+        SemaphoreHandle_t watch_lock; // watches[] between the JS task and the owner
+        watch_def watches[WATCHES];
+        std::atomic<uint32_t> watch_gen;
+        uint16_t watch_ids;          // JS task
+        JSValue watch_fn[WATCHES];   // JS task
+        engine eng;
+        capture_slot caps[CAPTURES];
+
+        SemaphoreHandle_t ev_lock;
+        ev_slot *events;             // EVENTS, PSRAM ring
+        uint32_t ev_seq;             // newest
+        uint32_t ev_dropped;
+        float ev_tokens;             // console/emit rate limit
+        int64_t ev_refill_us;
         uint8_t sha256[32];
         bool have_sha;
         bool pinned;
@@ -125,17 +249,56 @@ namespace qjs_binder::priv
 
     extern state g;
 
+    enum first_t : uint8_t { FIRST_NONE, FIRST_MODULE, FIRST_EVAL };
+    enum cmd_t : uint8_t { CMD_RUN = 1, CMD_SESSION = 2 };
+    enum user_t : uint8_t { USER_NONE, USER_RUN, USER_SESSION };
+    bool claim(uint8_t who);
+    JSContext *new_session_context(JSRuntime *rt);
+    static constexpr uint32_t DHCSR = 0xE000EDF0;
+    static constexpr uint32_t DEMCR = 0xE000EDFC;
+
     JSModuleDef *init_target_module(JSContext *ctx);
+    bool add_target_globals(JSContext *ctx, JSValueConst global);
+    bool add_misc_globals(JSContext *ctx, JSValueConst global);
+    esp_err_t execute(const req &r, js_target *t, cancel_fn cancelled);
+    bool is_quarantined(const uint8_t sha256[32]);
+    void set_crash_mark(const uint8_t *sha256); // nullptr clears it
+    const char *stop_text(qjs_esp_stop_t why);
+    JSModuleDef *refuse_module(JSContext *ctx, const char *name, void *);
+    void post_async(uint8_t slot, uint32_t seq, esp_err_t ret, uint32_t val);
+    void stop_loop();
+    int64_t now_us();
+    TickType_t ms_ticks(uint32_t ms);
+    void record_error(JSContext *ctx, JSValueConst e);
+
+    bool session_alloc();
+    bool init_agent_module(JSContext *ctx);
+    bool add_agent_global(JSContext *ctx, JSValueConst global);
+    void run_session_runtime();
+    void session_console(int level, const char *line);
+    void emit_event(const char *kind, const char *json, uint32_t capture_id, bool limited);
+    size_t json_str(char *out, size_t cap, const char *s, size_t max_in = (size_t)-1);
+    size_t error_json(JSContext *ctx, JSValueConst e, const char *what, char *out, size_t cap);
+    JSValue new_watch(JSContext *ctx, JSValueConst spec, JSValueConst handler);
+    JSValue list_watches(JSContext *ctx);
+    void clear_watches_js(JSContext *ctx);
+    void watch_cb(JSContext *ctx, void *arg);
+    void watch_poll(js_target &t);
+    void watch_verdict(const req &r, js_target &t);
+    void watch_after_op(uint8_t op, uint32_t addr, esp_err_t ret);
+    void watch_reset_engine();
+    void watch_disarm(js_target &t);
     void async_done(JSContext *ctx, void *arg);
     void async_reset(JSContext *ctx);
     void xfer_seen(uint32_t seq);
 
-    bool init_misc_modules(JSContext *ctx);
+    bool init_misc_modules(JSContext *ctx, bool session);
     void progress_cb(JSContext *ctx, void *arg);
     JSValue target_error(JSContext *ctx, esp_err_t err, const char *code, const char *what);
     const char *code_of(esp_err_t err);
     JSValue async_call(JSContext *ctx, req &r);
-    JSValue check_owned(JSContext *ctx, const char *what);
+    JSValue check_owned(JSContext *ctx, uint8_t op);
+    const char *op_name(uint8_t op);
     int opt_u32(JSContext *ctx, JSValueConst opts, const char *name, uint32_t dflt, uint32_t *out);
     int get_bytes(JSContext *ctx, JSValueConst v, const uint8_t **p, size_t *len);
 } // namespace qjs_binder::priv

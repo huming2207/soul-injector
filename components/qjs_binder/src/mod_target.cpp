@@ -41,11 +41,11 @@ namespace qjs_binder::priv
         }
     }
 
-    static const char *op_name(uint8_t op)
+    const char *op_name(uint8_t op)
     {
         static const char *names[] = {"read32", "write32", "rmw32",  "halt", "readMem",    "writeMem",    "waitHalt",   "reset",
                                       "reinit", "poll32",  "delay",  "call", "flash.read", "flash.write", "flash.erase",
-                                      "resume", "readReg", "writeReg"};
+                                      "resume", "readReg", "writeReg", "watch"};
         return op < sizeof(names) / sizeof(names[0]) ? names[op] : "?";
     }
 
@@ -85,8 +85,42 @@ namespace qjs_binder::priv
         return true;
     }
 
-    JSValue check_owned(JSContext *ctx, const char *what)
+    static const char *needs(uint8_t op)
     {
+        switch (op) {
+        case OP_WRITE32:
+        case OP_RMW32:
+        case OP_WRITE_MEM:
+        case OP_WRITE_REG:
+        case OP_CALL:
+            return g.cfg.perms.write ? nullptr : "--allow-write";
+        case OP_FLASH_WRITE:
+        case OP_FLASH_ERASE:
+            return g.cfg.perms.flash ? nullptr : "--allow-flash";
+        case OP_RESET:
+        case OP_REINIT:
+            return g.cfg.perms.reset ? nullptr : "--allow-reset";
+        default:
+            return nullptr;
+        }
+    }
+
+    JSValue check_owned(JSContext *ctx, uint8_t op)
+    {
+        const char *what = op_name(op);
+        if (g.session) { // the owner serves calls for the whole session
+            const char *flag = needs(op);
+            if (!flag) {
+                return JS_UNDEFINED;
+            }
+            JSValue e = target_error(ctx, ESP_ERR_NOT_ALLOWED, "NOT_ALLOWED", what);
+            if (!JS_IsException(e)) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "%s: NOT_ALLOWED, the session was started without %s", what, flag);
+                JS_SetPropertyStr(ctx, e, "message", JS_NewString(ctx, msg));
+            }
+            return JS_Throw(ctx, e);
+        }
         if (!g.hook_active || g.loading) {
             return JS_Throw(ctx, target_error(ctx, ESP_ERR_INVALID_STATE, "NOT_OWNED", what));
         }
@@ -138,7 +172,7 @@ namespace qjs_binder::priv
     static JSValue sync_call(JSContext *ctx, req &r, JSValueConst opts, uint32_t *val)
     {
         const char *what = op_name(r.op);
-        if (JS_IsException(check_owned(ctx, what))) {
+        if (JS_IsException(check_owned(ctx, r.op))) {
             return JS_EXCEPTION;
         }
         uint32_t timeout_ms, retries;
@@ -199,7 +233,7 @@ namespace qjs_binder::priv
     JSValue async_call(JSContext *ctx, req &r)
     {
         const char *what = op_name(r.op);
-        if (JS_IsException(check_owned(ctx, what))) {
+        if (JS_IsException(check_owned(ctx, r.op))) {
             return JS_EXCEPTION;
         }
         int i = 0;
@@ -220,7 +254,9 @@ namespace qjs_binder::priv
         }
         r.slot = i;
         r.seq = ++g.seq;
+        g.slots[i] = {true, r.op, r.seq, funcs[0], funcs[1], ESP_OK, 0}; // before the owner can answer
         if (xQueueSend(g.req_q, &r, 0) != pdTRUE) {
+            g.slots[i].used = false;
             JS_FreeValue(ctx, funcs[0]);
             JS_FreeValue(ctx, funcs[1]);
             JS_FreeValue(ctx, p);
@@ -230,7 +266,6 @@ namespace qjs_binder::priv
             g.xfer_busy = true;
             g.xfer_seq = r.seq;
         }
-        g.slots[i] = {true, r.op, r.seq, funcs[0], funcs[1], ESP_OK, 0};
         return p;
     }
 
@@ -417,7 +452,7 @@ namespace qjs_binder::priv
             JS_ThrowRangeError(ctx, "at most %u bytes per call", (unsigned)XFER_MAX);
             return false;
         }
-        if (JS_IsException(check_owned(ctx, op_name(r.op))) || !xfer_free(ctx, op_name(r.op))) {
+        if (JS_IsException(check_owned(ctx, r.op)) || !xfer_free(ctx, op_name(r.op))) {
             return false;
         }
         memcpy(g.xfer, p, len);
@@ -484,7 +519,18 @@ namespace qjs_binder::priv
     {
         req r = {};
         r.op = magic;
+        if (magic == OP_WAIT_HALT && opt_u32(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, "timeoutMs", 1000, &r.timeout_ms)) {
+            return JS_EXCEPTION; // the timeout is for agent sessions; job runs use the backend's
+        }
         return async_call(ctx, r);
+    }
+
+    static JSValue js_watch(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
+    {
+        if (!g.session) {
+            return JS_ThrowTypeError(ctx, "watch: only in agent sessions");
+        }
+        return new_watch(ctx, argv[0], argc > 1 ? argv[1] : JS_UNDEFINED);
     }
 
     static JSValue js_delay(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)
@@ -542,10 +588,11 @@ namespace qjs_binder::priv
         JS_CFUNC_DEF("writeMem", 3, js_write_mem),
         JS_CFUNC_DEF("poll32", 4, js_poll32),
         JS_CFUNC_DEF("call", 3, js_call),
-        JS_CFUNC_MAGIC_DEF("waitHalt", 0, js_simple_async, OP_WAIT_HALT),
+        JS_CFUNC_MAGIC_DEF("waitHalt", 1, js_simple_async, OP_WAIT_HALT),
         JS_CFUNC_MAGIC_DEF("reset", 0, js_simple_async, OP_RESET),
         JS_CFUNC_MAGIC_DEF("reinit", 0, js_simple_async, OP_REINIT),
         JS_CFUNC_DEF("delay", 1, js_delay),
+        JS_CFUNC_DEF("watch", 2, js_watch),
     };
 
     static const JSCFunctionListEntry flash_funcs[] = {
@@ -566,6 +613,22 @@ namespace qjs_binder::priv
             return nullptr;
         }
         return m;
+    }
+
+    static bool add_object(JSContext *ctx, JSValueConst global, const char *name, const JSCFunctionListEntry *tab, size_t n)
+    {
+        JSValue o = JS_NewObject(ctx);
+        if (JS_IsException(o) || JS_SetPropertyFunctionList(ctx, o, tab, n) < 0) {
+            JS_FreeValue(ctx, o);
+            return false;
+        }
+        return JS_SetPropertyStr(ctx, global, name, o) >= 0;
+    }
+
+    bool add_target_globals(JSContext *ctx, JSValueConst global)
+    {
+        return add_object(ctx, global, "target", funcs, sizeof(funcs) / sizeof(funcs[0])) &&
+               add_object(ctx, global, "flash", flash_funcs, sizeof(flash_funcs) / sizeof(flash_funcs[0]));
     }
 
     JSModuleDef *init_target_module(JSContext *ctx)

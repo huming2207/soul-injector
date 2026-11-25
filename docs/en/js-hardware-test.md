@@ -147,6 +147,7 @@ build `CONFIG_SI_JS_NETWORK`).
 | `agent eval` had two `--timeout-ms`; clap panics in debug builds and one value was lost in release. The eval's is now `--wait-ms`; a test checks the CLI definition. | sidp_agent f90ff50 |
 | `agent run` didn't read events for 5 s and lost the first ~130 of a busy module silently. Now 1 s, and `{"kind":"missed"}` lines. | sidp_agent bce50df |
 | `qjs_esp_bc.py` raced itself in parallel builds (3 of 4 failed). | esp-quickjs-ng 0babcbf |
+| About one USB request in 300 got no answer (host timeout 5 s): it arrived after DTR but before the busy service task accepted the connection, and was flushed. Now kept for the session. 30 runs + status, 200 incident lists during incident writes: none lost. | sidp_client 7009216, soul-injector 909fd6a |
 | Added: one log line per script runtime with the arena peak and free heap. | soul-injector adc3bdd |
 
 None of the test_app additions has run in esp-emu (it isn't on this
@@ -164,7 +165,18 @@ could repair it; I erased the partition over UART (image kept in
 speed (your 2026-11-13 decision), and ESP-IDF's "Safety" sector mode exists
 only for 512-byte sectors, so a sector being rewritten is lost on a reset;
 FatFs isn't transactional either. In the field this is a power cut during a
-job push. Options: back to 512 + Safety (uploads ~15 KiB/s again); LittleFS
+job push.
+
+It happened a second time the same evening, from ESP resets (a reflash and a
+logger restart) while a trap wrote an incident every 1.6 s: the store held
+33 files (about 110 KB) but both FAT copies marked 1435 of 1437 clusters
+used, "4 KiB free", and job pushes and trap arming failed ("needs 6988
+bytes, 4096 free"). Image: `results/data-partition-corrupt-2.bin`. Then 15
+clean EN resets during incident writes didn't collapse it, but each leaked
+about 14 KiB (5676 → 5472 KiB free while the incidents stayed capped at 32):
+clusters a cut write left allocated, which FatFs never reclaims. A trap
+that runs for days on a bench that loses power will fill `/data` this way,
+and then the device can't take a new job. Options: back to 512 + Safety (uploads ~15 KiB/s again); LittleFS
 for `/data` (power-fail safe, a bigger change); and in any case a way to
 recover: detect a damaged store at boot and reformat, or a SIDP
 "format data" request. Which do you want?
@@ -190,12 +202,7 @@ port opens, 0 of 10 clean 100 ms pulses. Harmless on the bench; an EN glitch
 in the field would do the same. Worth checking the EN RC on Rev 8 and the S31
 errata. Anything you want me to try?
 
-**Q5. Rare lost request over USB.** Twice in about 900 connections the
-first request after connecting got no answer (host timeout 5 s, nothing in
-the device log), both right after a programming run had finished. Not
-reproduced in 300 + 120 back-to-back connections since. Shall I dig into the
-CDC transport (I'd add a debug counter for frames received vs answered), or
-leave it?
+**Q5.** (Lost USB requests: found and fixed, see above.)
 
 **Q6. Should `--session-end reset` need `--allow-reset`?** It works without
 it today; the person running the server chooses it, not the agent, so I left

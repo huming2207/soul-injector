@@ -707,9 +707,19 @@ sidp::status_t sidp_service::op_asset_write(std::span<const uint8_t> payload)
     return to_status(asset_store::instance()->write(offset, data.data(), data.size()));
 }
 
+// A job can't change under a trap, in either mode (the trap's target comes
+// from the job): the push is refused until the trap is disarmed.
+sidp::status_t sidp_service::job_change_status(esp_err_t ret)
+{
+    if (ret == job_controller::ERR_RUNNING && agent_service::instance()->trap_has_target()) {
+        return sidp::STATUS_TRAP_ARMED;
+    }
+    return to_status(ret);
+}
+
 sidp::status_t sidp_service::op_asset_commit()
 {
-    return to_status(job_controller::instance()->commit_asset());
+    return job_change_status(job_controller::instance()->commit_asset());
 }
 
 sidp::status_t sidp_service::op_job_set(std::span<const uint8_t> payload)
@@ -718,7 +728,7 @@ sidp::status_t sidp_service::op_job_set(std::span<const uint8_t> payload)
     if (!decode(payload, si_manage_JobSetRequest_fields, &request)) {
         return sidp::STATUS_INVALID_ARGUMENT;
     }
-    return to_status(job_controller::instance()->set_job(request.sha256, request.trigger));
+    return job_change_status(job_controller::instance()->set_job(request.sha256, request.trigger));
 }
 
 sidp::status_t sidp_service::op_job_get(pb_ostream_t &out)

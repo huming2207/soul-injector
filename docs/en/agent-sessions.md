@@ -126,6 +126,9 @@ sidp-agent trap disarm --port /dev/ttyACM0
   Keep what it remembers small.
 - While a trap is armed, an agent can read its status, events, captures and
   incidents, but can't open a session; disarm it first.
+- `job push` is refused while a trap has the target, in either mode
+  ("a trap is armed", status 43): the trap's target comes from the job.
+  Disarm, push, arm again.
 - The device keeps 32 incidents in 512 KB and deletes the oldest first
   (Kconfig `SI_AGENT_INCIDENTS_MAX`, `SI_AGENT_INCIDENTS_KB`). Incidents
   have the time when a computer set the clock since the device started;

@@ -96,6 +96,7 @@ private:
     static bool decode(std::span<const uint8_t> payload, const pb_msgdesc_t *fields, void *msg);
     static sidp::status_t encode(pb_ostream_t &out, const pb_msgdesc_t *fields, const void *msg);
     static sidp::status_t to_status(esp_err_t ret);
+    static sidp::status_t job_change_status(esp_err_t ret);
 
     const char *serial = "";
     uint8_t *tx_buf = nullptr; // Internal RAM; one response at a time

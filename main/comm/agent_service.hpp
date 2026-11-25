@@ -51,9 +51,12 @@ public:
 
     bool make_way_for_run(); // false: an exclusive trap keeps the target
 
+    bool trap_has_target() const { return trap_holds.load(); }
+
     bool yield_for_run(uint32_t wait_ms); // programming task
 
     static const constexpr uint32_t POLL_MS = 5;
+    static const constexpr uint32_t DEFAULT_THROTTLE_HOLD_MS = 10000; // TrapConfig.throttle_hold_ms 0
 
 private:
     agent_service() = default;

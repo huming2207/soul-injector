@@ -486,6 +486,11 @@ namespace qjs_binder
         return &h;
     }
 
+    engine_info js_host::engine() const
+    {
+        return {g.ready ? JS_GetVersion() : "", CONFIG_SI_JS_ARENA_KB, HAVE_NETWORK};
+    }
+
     esp_err_t js_host::init()
     {
         if (g.ready) {
@@ -735,6 +740,7 @@ namespace qjs_binder
         static js_host h;
         return &h;
     }
+    engine_info js_host::engine() const { return {"", 0, false}; }
     esp_err_t js_host::init() { return ESP_ERR_NOT_SUPPORTED; }
     esp_err_t js_host::begin_run(const char *, const uint8_t *, const run_info &) { return ESP_ERR_NOT_SUPPORTED; }
     esp_err_t js_host::begin_run(const uint8_t *, size_t, const uint8_t *, const run_info &) { return ESP_ERR_NOT_SUPPORTED; }

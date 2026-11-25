@@ -26,6 +26,7 @@
 #include "net_config.hpp"
 #include "power_profiler.hpp"
 #include "prog_log.hpp"
+#include "qjs_binder.hpp"
 #include "sidp_swd_backend.hpp"
 #include "swd_prog.hpp"
 
@@ -615,6 +616,10 @@ sidp::status_t sidp_service::op_device_info(pb_ostream_t &out)
         info.storage_free_kb = free_bytes / 1024;
     }
     prog_log::instance()->get_info(info);
+    const auto js = qjs_binder::js_host::instance()->engine();
+    strlcpy(info.js_version, js.version, sizeof(info.js_version));
+    info.js_arena_kb = js.version[0] ? js.arena_kb : 0;
+    info.js_network = js.version[0] && js.network;
     return encode(out, si_manage_DeviceInfo_fields, &info);
 }
 

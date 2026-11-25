@@ -78,10 +78,18 @@ namespace qjs_binder
         bool network;       // the job lets the script use esp:ws (CONFIG_SI_JS_NETWORK)
     };
 
+    struct engine_info {
+        const char *version; // QuickJS-NG version, "" when scripts can't run
+        uint32_t arena_kb;
+        bool network;        // CONFIG_SI_JS_NETWORK
+    };
+
     class js_host
     {
     public:
         static js_host *instance();
+
+        engine_info engine() const;
 
         esp_err_t init();
 

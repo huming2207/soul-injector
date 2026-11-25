@@ -45,19 +45,23 @@ run read (`RunRecord.script_sha256`), whether the job pinned it
 ## Compiling
 
 The device runs QuickJS bytecode, compiled on the PC by the same QuickJS
-version the firmware has:
+version the firmware has. `sidp-agent` compiles the script, uploads it and
+sets `Script` in the job:
 
 ```sh
-python components/esp-quickjs-ng/tools/qjs_esp_bc.py compile my-job.js -o my-job.qbc
+sidp-agent job push --port /dev/ttyACM0 --target target.yaml \
+    --script my-job.js --image firmware.bin=build/app.bin
 ```
+
+It refuses a device whose QuickJS-NG version (`js_version` in `DEVICE_INFO`,
+shown by `sidp-agent device info`) differs from the one it compiles for.
+`components/esp-quickjs-ng/tools/qjs_esp_bc.py compile my-job.js -o my-job.qbc`
+makes the same bytes; `--script` accepts its `.qbc` too.
 
 The script must be one ES module. Bundle local imports first (esbuild,
 `bun build`); imports like `si:target` are left to the device. The device
 only loads job scripts as bytecode, and scripts get no `eval` or
 `new Function`.
-
-`sidp-agent` doesn't compile or upload scripts yet; until it does, upload the
-`.qbc` as an asset and set `Script` in the job by hand.
 
 ## Hooks
 

@@ -40,7 +40,7 @@ session when the agent exits or calls `close_session`.
 | `--allow-write` | Scripts may write memory and core registers, and call target functions. |
 | `--allow-flash` | Scripts may erase and write flash, through the job's flash algorithm. |
 | `--allow-reset` | Scripts may reset the target. |
-| `--session-end asis\|resume\|reset` | How the target is left when the session ends. `asis` (the default) leaves a running target running and a halted one halted. |
+| `--session-end asis\|resume\|reset` | How the target is left when the session ends. `asis` (the default) leaves a running target running and a halted one halted. `resume` and `reset` also turn the target's debug off, so a `BKPT` in the firmware faults instead of halting it with nobody attached; `reset` catches the reset at its vector first, so no firmware runs with debug on. `reset` implies `--allow-reset`. |
 | `--connect-under-reset` | Connect with the target held in reset; it starts halted. |
 | `--elf FILE` | The target firmware, to name code addresses (`main+0x1c`) in events, registers and captures. |
 

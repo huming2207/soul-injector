@@ -373,8 +373,15 @@ void agent_service::release(uint8_t end)
     if (end == si_agent_SessionEnd_SESSION_END_RESUME) {
         action = sidp::DETACH_RESUME;
     } else if (end == si_agent_SessionEnd_SESSION_END_RESET) {
+        // Caught at the reset vector, then let go with debug off (DETACH_RESUME clears
+        // C_DEBUGEN): no firmware runs with debug on, where a BKPT would halt it for good.
         sidp::stop_detect_t stop{};
-        ret = backend()->reset(sidp::RESET_NRST, false, stop);
+        ret = backend()->reset(sidp::RESET_NRST, true, stop);
+        if (ret == ESP_ERR_TIMEOUT) {
+            ESP_LOGW(TAG, "release: the reset wasn't caught at its vector; letting the target go anyway");
+            ret = ESP_OK;
+        }
+        action = sidp::DETACH_RESUME;
     }
     ret = ret ?: backend()->detach(action);
     if (ret != ESP_OK) {

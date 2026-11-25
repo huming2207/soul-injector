@@ -37,6 +37,7 @@ static const constexpr uint32_t CPUID_PART_M4 = 0xC24;
 
 static const constexpr uint32_t DFSR_BKPT = 1u << 1;
 static const constexpr uint32_t DFSR_CLEAR_ALL = 0x1F;
+static const constexpr uint8_t DP_CTRL_STAT_ADDR = 0x04;
 
 static const constexpr uint32_t FP_CTRL_KEY = 1u << 1;
 static const constexpr uint32_t FP_CTRL_ENABLE = 1u << 0;
@@ -286,6 +287,8 @@ esp_err_t sidp_swd_backend::detach(sidp::detach_action_t action)
         if (ret == ESP_OK) {
             // Firmware may turn SWD off as soon as it runs, before this write is acknowledged.
             (void)swd_write_word(DHCSR_ADDR, DBGKEY);
+            // Drop the debug power-up requests, or some parts keep their debug domain on in sleep.
+            (void)swd_write_dp(DP_CTRL_STAT_ADDR, 0);
         }
     }
     if (ret != ESP_OK) {

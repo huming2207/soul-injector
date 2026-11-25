@@ -78,6 +78,8 @@ public:
     uint8_t ram[64] = {};
     uint8_t flash[16] = {};
 
+    uint32_t mem_end = 0; // reads that cross it fail like a bus fault; 0: none do
+
     esp_err_t read_mem(uint32_t addr, uint8_t *buf, size_t len) override
     {
         char s[32];
@@ -85,6 +87,9 @@ public:
         add(s);
         if (len > 4096) {
             return ESP_ERR_INVALID_SIZE;
+        }
+        if (mem_end && addr + len > mem_end) {
+            return ESP_FAIL;
         }
         for (size_t i = 0; i < len; i++) {
             buf[i] = ram[i % sizeof(ram)];
@@ -383,6 +388,21 @@ static void session_tests()
     uint32_t total = 0;
     check(cap && h->read_capture(cap, 0, buf, sizeof(buf), &got, &total) == ESP_OK && memcmp(buf, "SICP", 4) == 0 && total > 256,
           "session: capture readable");
+
+    // Stacks start at the top of RAM, so the default capture runs past its end;
+    // it used to lose the whole chunk that crossed it.
+    uint32_t sp = m.regs[13];
+    m.regs[13] = 0x2000ffc0; // thread mode: the capture starts at sp, 64 bytes below the end
+    m.mem_end = 0x20010000;
+    m.halted = true;
+    m.dfsr = 2;
+    mark = ev_seen;
+    serve_for(m, 200);
+    ev_seen = mark;
+    check(find_event("emit", "\"mem\":1,\"stack\":64}") && !m.halted, "session: stack capture keeps what's readable",
+          m.log);
+    m.mem_end = 0;
+    m.regs[13] = sp;
 
     m.halted = true;
     m.dfsr = 8;

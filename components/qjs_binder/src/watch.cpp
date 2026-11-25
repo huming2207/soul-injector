@@ -678,12 +678,17 @@ namespace qjs_binder::priv
         return padded;
     }
 
+    // Reads what it can: a stack near the top of RAM runs past its end, and
+    // the chunk that crosses it would otherwise lose its readable part too.
     static size_t read_into(js_target &t, uint32_t addr, uint32_t len, uint8_t *out)
     {
         size_t done = 0;
         while (done < len) {
             uint32_t n = std::min<uint32_t>(READ_CHUNK, len - done);
             if (t.read_mem(addr + done, out + done, n) != ESP_OK) {
+                while (done + 4 <= len && t.read_mem(addr + done, out + done, 4) == ESP_OK) {
+                    done += 4; // addr is word aligned: up to the first word that faults
+                }
                 break;
             }
             done += n;

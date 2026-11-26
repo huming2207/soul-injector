@@ -180,6 +180,7 @@ board 2026-11-26:
 | `log.record()` with a value JSON can't hold (a BigInt) left it in the results, so every later `record()`/`check()` of the run threw; now every failure rolls back. Board: `hw-log` passes, the run record has `before`, `after` and the check, nothing of the refused records. | soul-injector 04b071b |
 | Every `flash.erase`/`flash.write` restarted SWD, reset the target and wrote the algorithm again (0.55 s for 16 bytes; twice in agent sessions). Now it stays loaded for the rest of a run or session; a reuse checks the core is halted and not reset and the halt word and stack canary are unchanged, then writes the image in again (an algorithm may keep variables in its own image: the STM32WL one does, so read-back can't be used). A reset, resume, call, reinit, a write over its RAM or a failed call makes the next one reload. Board (`hw-algo`, new): 16-byte write 590 to 33 ms, 2 KB erase 597 to 60 ms, a plain run 3.42 to 2.36 s; after each of write over code, write over canary area, reset, resume: reload then reuse. Agent session the same (first op loads, a new session loads again). Test build with dropping off: zeroed halt word, flipped canary and a running target caught, a flipped code word repaired by the rewrite. `hw-ops`, `hw-plain`, `hw-halted-end`, `hw-sectors` pass. | soul-injector cd8d7d4 |
 | A trap incident was written on the SIDP service task (create, NVS commit, four appends: about 0.7 s), and every USB request and GDB packet waited behind it. Now queued and written by an `incidents` task, a new incident in one file open. Board (`rarequick.bin`, trap `--incidents-per-hour 3600`): 340-380 ms an incident instead of 650-700; `power info` (no file system) 358 ms worst case with the trap firing, as without it; `device info` (reads FAT free space) 998 to 487 ms worst case; incidents complete with `data` and `outcome`; writer stack peak 1.8 of 6 KB. | soul-injector 1091deb |
+| Q14: a trap starts about 3.5 s after power-up, so a target powered with the probe ran unwatched until then. A trap armed with `--connect-under-reset` now holds the target in reset from `app_main` until it attaches. Board (`crash.bin`, which faults 5 s after it starts): hold logged at 1.22 s, attach at 3.5-4.7 s with the PC at `Reset_Handler` (0x08000224); over 7 ESP restarts (esptool, debug UART) the target's boot count at attach equals the one at its previous fault (it ran only once released), and its fault 4 s later is an incident each time. First build: +4 to +6 target boots a restart, from light sleep isolating nRST and the switch before USB power was seen; fixed with a no-light-sleep lock while holding. A plain trap leaves the target alone across restarts; after `trap disarm`, no hold. | soul-injector 8dccb76, swd_esp cae5601, sidp_agent df2bef5 |
 
 Also 2026-11-26 on the new build: `hw-ops` passes, and 50 `hw-ops` runs in a
 row with `device info` after each: 50 pass, no request lost.
@@ -401,6 +402,17 @@ with `--connect-under-reset`, hold the target's nRST low from early boot
 until the trap has attached, so the target starts under watch (it then
 starts about 4 s late after every power-up, even with nothing wrong);
 (c) drop the 2 s start delay (saves 2 s, not the boot time). Which?
+
+Answered 2026-11-26 (night): (b), with the caveat documented. Done
+(soul-injector 8dccb76, swd_esp cae5601, sidp_agent df2bef5): a trap armed
+with `--connect-under-reset` makes the next boots hold the target in reset
+from `app_main` (1.2 s) until the trap attaches under reset (3.5-4.7 s), the
+core then at its reset vector with the watches in place. Caveats in
+agent-sessions.md ("Faults right after power-up"). Found on the way: light
+sleep before USB power is seen isolates the GPIOs, nRST and the switch
+floated and the target got out for each sleep (+4 target boots a restart);
+no light sleep while holding now. Board: see the Fixed row. Not yet tried:
+a real power cycle with it (needs you; Next).
 
 ### Morning checklist (2026-11-25, done 2026-11-26)
 

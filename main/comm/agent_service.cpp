@@ -1135,7 +1135,7 @@ uint32_t agent_service::on_incident_open(const qjs_binder::incident_open &inc)
 void agent_service::on_incident_add(uint32_t id, qjs_binder::incident_part part, const char *json, size_t len)
 {
     const uint8_t type = part == qjs_binder::incident_part::data ? incident_store::SEC_DATA : incident_store::SEC_OUTCOME;
-    incident_store::instance()->append(id, type, json, len);
+    incident_store::instance()->add(id, type, json, len);
 }
 
 uint32_t agent_service::incident_open(const qjs_binder::incident_open &inc)
@@ -1152,22 +1152,17 @@ uint32_t agent_service::incident_open(const qjs_binder::incident_open &inc)
     }
     trap.hour_count++;
 
-    auto *store = incident_store::instance();
     const incident_store::header h = {
         static_cast<uint8_t>(inc.watch ? 0 : 1), inc.watch_id, inc.name, trap.cfg.name, boot_count, (uint64_t)now, prog_log::instance()->utc_ms(),
     };
-    const uint32_t id = store->create(h);
-    if (id == 0) {
-        return 0;
-    }
-    store->append(id, incident_store::SEC_CAUSE, inc.cause_json, strlen(inc.cause_json));
     const size_t n = events_json(inc_events, INCIDENT_EVENTS_MAX);
-    store->append(id, incident_store::SEC_EVENTS, inc_events, n);
-    if (inc.capture != nullptr) {
-        store->append(id, incident_store::SEC_CAPTURE, inc.capture, inc.capture_len);
-    }
-    ESP_LOGI(TAG, "incident %lu written in %lld ms", (unsigned long)id, (now_us() - now) / 1000); // slow storage shows here
-    return id;
+    const incident_store::part parts[] = {
+        {incident_store::SEC_CAUSE, inc.cause_json, strlen(inc.cause_json)},
+        {incident_store::SEC_EVENTS, inc_events, n},
+        {incident_store::SEC_CAPTURE, inc.capture, inc.capture_len},
+    };
+    // Queued: the incidents task writes it (and logs how long that took).
+    return incident_store::instance()->open(h, parts, inc.capture != nullptr ? 3 : 2);
 }
 
 size_t agent_service::events_json(char *out, size_t cap)

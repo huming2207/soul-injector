@@ -11,16 +11,22 @@
 
 static_assert(fw_asset_manager::SHA256_LEN == asset_store::SHA256_LEN);
 
-esp_err_t fw_asset_manager::verify_image(const char *path, const uint8_t *pinned_sha256)
+esp_err_t fw_asset_manager::verify_image(const char *what, const char *path, const uint8_t *pinned_sha256)
 {
     uint8_t actual[asset_store::SHA256_LEN] = {};
     auto ret = asset_store::hash_file(path, actual);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "verify_image: cannot read %s", path);
+        ESP_LOGE(TAG, "verify: cannot read the %s %s", what, path);
         return ret;
     }
     if (memcmp(actual, pinned_sha256, sizeof(actual)) != 0) {
-        ESP_LOGE(TAG, "verify_image: %s is not the image this job pins", path);
+        // The first 8 bytes of each are enough to tell which push it was.
+        ESP_LOGE(TAG,
+                 "verify: the %s %s isn't the one the job pins (SHA-256 %02x%02x%02x%02x%02x%02x%02x%02x..., the job "
+                 "wants %02x%02x%02x%02x%02x%02x%02x%02x...): pushed again since the job was made?",
+                 what, path, actual[0], actual[1], actual[2], actual[3], actual[4], actual[5], actual[6], actual[7],
+                 pinned_sha256[0], pinned_sha256[1], pinned_sha256[2], pinned_sha256[3], pinned_sha256[4], pinned_sha256[5],
+                 pinned_sha256[6], pinned_sha256[7]);
         return ESP_ERR_INVALID_CRC;
     }
     return ESP_OK;
@@ -39,19 +45,19 @@ esp_err_t fw_asset_manager::verify_job_images(const si_job_Job &new_job)
     if (new_job.has_script && new_job.script.sha256.size == SHA256_LEN) {
         char path[sizeof(script_file)];
         make_script_path(new_job, path, sizeof(path));
-        auto ret = verify_image(path, new_job.script.sha256.bytes);
+        auto ret = verify_image("script", path, new_job.script.sha256.bytes);
         if (ret != ESP_OK) {
             return ret;
         }
     }
 
     if (new_job.target.has_cortex_m) {
-        return verify_image(FIRMWARE_PATH, new_job.target.cortex_m.firmware_sha256);
+        return verify_image("firmware", FIRMWARE_PATH, new_job.target.cortex_m.firmware_sha256);
     }
 
     const si_job_Esp32 &esp32 = new_job.target.esp32;
     for (pb_size_t i = 0; i < esp32.images_count; i++) {
-        auto ret = verify_image(esp32.images[i].path, esp32.images[i].sha256);
+        auto ret = verify_image("image", esp32.images[i].path, esp32.images[i].sha256);
         if (ret != ESP_OK) {
             return ret;
         }

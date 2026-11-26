@@ -102,7 +102,8 @@ private:
     /** Decode @p path and check its images; nothing is allocated on failure. */
     static esp_err_t decode(const char *path, decoded_job &out);
     void publish(const decoded_job &decoded, const uint8_t *sha256);
-    static esp_err_t verify_image(const char *path, const uint8_t *pinned_sha256);
+    /** `what`: "script", "firmware" or "image", for the log. */
+    static esp_err_t verify_image(const char *what, const char *path, const uint8_t *pinned_sha256);
     static esp_err_t verify_job_images(const si_job_Job &new_job);
     static void make_script_path(const si_job_Job &new_job, char *out, size_t len);
     static const si_job_Procedure *non_empty(bool present, const si_job_Procedure &procedure);

@@ -178,6 +178,7 @@ board 2026-11-26:
 | An incident's `events_before` included events of earlier sessions; now only the trap's own (events after arming). Board: pass, incident 440 holds only seq 24 (its own `console`), not the 23 events of the sessions before. | soul-injector 5983410 |
 | A job script runtime that died between hooks (a spin or out of memory in `onProgress`) made the remaining hooks, `postProgram` included, silently skipped: the run passed without them. Now the next hook fails the run with "script ended between hooks: …". Board: `hw-progdie` fails at the next exported hook (`test`): "Self test: script: script ended between hooks: script ran too long without yielding". | soul-injector bfe2fcd |
 | `log.record()` with a value JSON can't hold (a BigInt) left it in the results, so every later `record()`/`check()` of the run threw; now every failure rolls back. Board: `hw-log` passes, the run record has `before`, `after` and the check, nothing of the refused records. | soul-injector 04b071b |
+| Every `flash.erase`/`flash.write` restarted SWD, reset the target and wrote the algorithm again (0.55 s for 16 bytes; twice in agent sessions). Now it stays loaded for the rest of a run or session; a reuse checks the core is halted and not reset and the halt word and stack canary are unchanged, then writes the image in again (an algorithm may keep variables in its own image: the STM32WL one does, so read-back can't be used). A reset, resume, call, reinit, a write over its RAM or a failed call makes the next one reload. Board (`hw-algo`, new): 16-byte write 590 to 33 ms, 2 KB erase 597 to 60 ms, a plain run 3.42 to 2.36 s; after each of write over code, write over canary area, reset, resume: reload then reuse. Agent session the same (first op loads, a new session loads again). Test build with dropping off: zeroed halt word, flipped canary and a running target caught, a flipped code word repaired by the rewrite. `hw-ops`, `hw-plain`, `hw-halted-end`, `hw-sectors` pass. | soul-injector cd8d7d4 |
 
 Also 2026-11-26 on the new build: `hw-ops` passes, and 50 `hw-ops` runs in a
 row with `device info` after each: 50 pass, no request lost.
@@ -447,8 +448,6 @@ needs it grounded.
   firing every 2 s the device answered in 0.4 to 1.0 s. Moving the writes
   to their own task is a bigger change; it goes with Q1.
 
-- Every `flash.erase`/`flash.write` call reloads the flash algorithm and
-  costs about 0.55 s even for 16 bytes, mostly a 0.5 s wait in SWD init.
 - swd_esp `tests/test_init.py` didn't build since connect-under-reset; fixed
   with e7c9bd3.
 - Once, `sidp-agent trap status` failed with `SIDP I/O: Broken pipe` 1.1 s

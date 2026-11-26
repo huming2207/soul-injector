@@ -46,6 +46,23 @@ namespace
     constexpr char TRAP_MODULE[] = "/data/trap/module.bin";
     constexpr char NVS_NAMESPACE[] = "si_agent";
     constexpr char NVS_BOOTS_KEY[] = "boots";
+    constexpr char NVS_HOLD_KEY[] = "trap_hold"; // main.cpp reads it at boot: hold the target in reset
+
+    // Whether the next boot holds the target in reset for the armed trap.
+    void set_boot_hold(bool hold)
+    {
+        nvs_handle_t nvs;
+        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs) != ESP_OK) {
+            return;
+        }
+        uint8_t now = 0;
+        nvs_get_u8(nvs, NVS_HOLD_KEY, &now);
+        if (now != (hold ? 1 : 0)) {
+            nvs_set_u8(nvs, NVS_HOLD_KEY, hold ? 1 : 0);
+            nvs_commit(nvs);
+        }
+        nvs_close(nvs);
+    }
     constexpr uint32_t TRAP_TOP_LEVEL_MS = 5000;
     constexpr uint32_t BOOT_DELAY_MS = 2000;
     constexpr uint32_t HOLDOFF_MS = 3000;
@@ -665,6 +682,8 @@ void agent_service::load_trap()
 {
     FILE *f = fopen(TRAP_CONFIG, "rb");
     if (f == nullptr) {
+        set_boot_hold(false);
+        target_lines::end_boot_hold(); // a flag left from a trap that's gone
         return;
     }
     uint8_t buf[8 + si_agent_TrapConfig_size + 32];
@@ -676,7 +695,12 @@ void agent_service::load_trap()
         !decode({buf + 8, pb_len}, si_agent_TrapConfig_fields, &cfg)) {
         ESP_LOGE(TAG, "load_trap: %s is damaged, trap dropped", TRAP_CONFIG);
         erase_trap();
+        target_lines::end_boot_hold();
         return;
+    }
+    if (!cfg.connect_under_reset) {
+        set_boot_hold(false);
+        target_lines::end_boot_hold();
     }
     trap = {};
     trap.armed = true;
@@ -702,6 +726,8 @@ esp_err_t agent_service::save_trap(const uint8_t *module, size_t len)
     bool ok = write_whole(TRAP_MODULE, module, len) && write_whole(TRAP_CONFIG, buf, 8 + out.bytes_written + 32);
     if (!ok) {
         erase_trap();
+    } else {
+        set_boot_hold(trap.cfg.connect_under_reset);
     }
     return ok ? ESP_OK : ESP_FAIL;
 }
@@ -710,6 +736,7 @@ void agent_service::erase_trap()
 {
     unlink(TRAP_CONFIG);
     unlink(TRAP_MODULE);
+    set_boot_hold(false);
 }
 
 uint8_t *agent_service::load_module(size_t *len)
@@ -783,6 +810,11 @@ void agent_service::trap_disarm()
 
 void agent_service::trap_start()
 {
+    // A hold from boot ends with this start: let go under watch by the attach
+    // under reset, or, if the start fails on any path, released here.
+    struct end_hold_guard {
+        ~end_hold_guard() { target_lines::end_boot_hold(); }
+    } end_hold;
     run_wanted = false;
     auto *js = qjs_binder::js_host::instance();
     if (js->refuses(trap.sha256)) {
@@ -947,8 +979,8 @@ void agent_service::trap_probe(int64_t now)
     // not the attach (locked, asleep) keeps the backoff, so a connect-under-
     // reset trap doesn't reset it every second.
     trap.next_probe_us = now + PROBE_MS * 1000LL;
-    if (backend()->is_connected()) {
-        return; // GDB has the target; it claims it from this task, so this can't race
+    if (backend()->is_connected() || swd_reset_held()) {
+        return; // GDB has the target (it claims it from this task, so this can't race), or it's held from boot
     }
     probing = true; // a run waiting for the trap (yield_for_run) waits for this too
     if (job_controller::instance()->begin_debug() != ESP_OK) {

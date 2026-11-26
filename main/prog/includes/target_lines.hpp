@@ -22,6 +22,19 @@ public:
     /** Drive the target's nRST line (asserted: held in reset). */
     static void drive_nrst(bool asserted);
 
+    /**
+     * Early in boot, for a trap armed with --connect-under-reset: hold the
+     * target in reset, lines connected, until the trap attaches under reset
+     * (swd_connect_under_reset() lets it go) or end_boot_hold() is called.
+     */
+    static void hold_reset_from_boot();
+    /**
+     * Ends a hold from boot, if there is one: nRST released and the lines
+     * isolated. Called before anything else takes the target (a programming
+     * run, a plain attach) and when the trap's first start doesn't attach.
+     */
+    static void end_boot_hold();
+
 private:
     static void set_swdio_pulldowns(bool enable);
 };

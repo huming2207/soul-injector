@@ -132,6 +132,9 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
         return ESP_ERR_INVALID_STATE;
     }
 
+    if (!params.connect_under_reset) {
+        target_lines::end_boot_hold(); // a plain attach takes a target held from boot as it is
+    }
     auto ret = load_target();
     ret = ret ?: claim_target();
     if (ret != ESP_OK) {

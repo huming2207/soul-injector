@@ -58,6 +58,14 @@ connector. It is active high and pulled low, so the lines are open until
 firmware drives it. This allows current to be measured with the debug cable
 still attached. Target detect is not switched.
 
+The reset MOSFET's gate (`HOST_SW_RST`, GPIO11) isn't driven until the
+firmware runs, and `DBG_EN` is pulled low: from power-up until about 1.2 s
+later the target's reset line is free. A trap armed with
+`--connect-under-reset` holds it from then on (see
+[Agent sessions](agent-sessions.md)); holding it from power-up would need
+the gate and `DBG_EN` pulled on in hardware, which would also hold every
+target in reset while the Soul Injector is unpowered.
+
 ## Target detect
 
 `DETECT_CFG` (GPIO3, `CONFIG_SI_TARGET_DETECT_PIN`) is an input with the

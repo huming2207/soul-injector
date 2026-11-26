@@ -273,8 +273,8 @@ void bootstrap_fsm::run_fsm_task()
 
 bool bootstrap_fsm::swd_target_arrived()
 {
-    if (!job_controller::instance()->swd_poll_wanted()) {
-        return false; // no job, a run, or GDB, a session or a trap has the target: leave the lines alone
+    if (!job_controller::instance()->swd_poll_wanted() || swd_reset_held()) {
+        return false; // no job, a run, or GDB, a session or a trap has the target (or will): leave the lines alone
     }
     uint32_t idcode = 0;
     target_lines::connect();
@@ -324,6 +324,7 @@ void bootstrap_fsm::run_job()
     auto *flasher = offline_flasher::instance();
     int64_t start_us = esp_timer_get_time();
     esp_pm_lock_acquire(run_pm_lock);
+    target_lines::end_boot_hold(); // the run takes the target, as it is
     target_lines::connect();
 
     flasher->init();

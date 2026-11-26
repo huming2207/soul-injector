@@ -117,7 +117,8 @@ sidp-agent trap disarm --port /dev/ttyACM0
 | `--mode yield\|exclusive` | `yield` (the default): GDB attaching or a programming run pauses the trap, and it starts again 3 s after they finish. `exclusive`: they are refused while the trap is armed. |
 | `--incidents-per-hour` | More are only counted. 0 for the device's default (12). |
 | `--throttle-hold SECONDS\|forever` | A watch firing more than 10 times a second is throttled: the core is held and its handler isn't called. In a trap the hold lasts this long (default 10 s), then the trap lets the target run, so a boot loop doesn't stop the target until someone looks. The same limit applies to a target the trap finds halted by a halt request when it starts (a throttled hold from before the device restarted, a debugger's halt), which it otherwise wouldn't touch. `forever` holds it until someone resumes it. |
-| `--allow-*`, `--connect-under-reset` | As for sessions; the trap keeps them. |
+| `--allow-*` | As for sessions; the trap keeps them. |
+| `--connect-under-reset` | As for sessions, and the device also holds the target in reset from early in its own boot until the trap attaches, so after a power-up or a restart the target's first instruction runs under watch. See below. |
 
 - Arming replaces the armed trap, and only takes when the target answers and
   the module's top level runs.
@@ -136,6 +137,30 @@ sidp-agent trap disarm --port /dev/ttyACM0
   otherwise the boot count and uptime.
 - A trap keeps the Soul Injector at full CPU speed while it holds the
   target.
+
+### Faults right after power-up
+
+Without `--connect-under-reset` a trap starts about 3.5 s after the Soul
+Injector powers up (its boot, then a 2 s pause), and a target powered with
+it runs from the start: a fault in those seconds isn't recorded. With
+`--connect-under-reset`, the device holds the target in reset from early in
+its boot until the trap attaches, so the target starts at its reset vector
+with the trap's watches in place. The module must let it run
+(`target.resume()`): it attaches halted. Caveats:
+
+- The hold starts about 1.2 s after power-up, when the Soul Injector's
+  firmware starts. Until then nothing drives the reset line, and the target
+  runs; it is reset when the hold starts, and starts again under watch.
+- After every power-up or restart of the Soul Injector the target starts
+  about 3.5 to 4.5 s late, also when nothing is wrong.
+- A restart of the Soul Injector while it holds the target lets the target
+  run until the next hold.
+- If the trap can't attach (no job, the target doesn't answer, the module
+  fails to start) the hold ends and the target runs unwatched, rather than
+  staying in reset. A programming run, GDB or a session attaching ends the
+  hold too.
+- The Soul Injector doesn't light-sleep while it holds the target (that
+  would let the reset line float).
 
 ## Limits
 

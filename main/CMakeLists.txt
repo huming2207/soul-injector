@@ -109,3 +109,19 @@ idf_component_register(
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-deprecated-enum-enum-conversion" "-fpermissive")
+
+# si_build_info.h: the commit the firmware is built from. A target that always
+# runs, so the header follows commits and edits made after configure; the
+# script leaves the file alone when nothing changed.
+set(SI_BUILD_INFO_DIR "${CMAKE_CURRENT_BINARY_DIR}/si_build_info")
+set(SI_BUILD_INFO_H "${SI_BUILD_INFO_DIR}/si_build_info.h")
+idf_build_get_property(SI_PROJECT_DIR PROJECT_DIR)
+file(MAKE_DIRECTORY "${SI_BUILD_INFO_DIR}")
+add_custom_target(si_build_info
+    COMMAND ${CMAKE_COMMAND} -D "SRC_DIR=${SI_PROJECT_DIR}" -D "OUT=${SI_BUILD_INFO_H}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/build_info.cmake"
+    BYPRODUCTS "${SI_BUILD_INFO_H}"
+    COMMENT "Reading the firmware commit"
+    VERBATIM)
+add_dependencies(${COMPONENT_LIB} si_build_info)
+target_include_directories(${COMPONENT_LIB} PRIVATE "${SI_BUILD_INFO_DIR}")

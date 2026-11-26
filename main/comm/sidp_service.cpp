@@ -4,6 +4,7 @@
 
 #include <agent.pb.h>
 #include <esp_app_desc.h>
+#include <si_build_info.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_vfs_fat.h>
@@ -657,6 +658,9 @@ sidp::status_t sidp_service::op_device_info(pb_ostream_t &out)
     si_manage_DeviceInfo info = si_manage_DeviceInfo_init_zero;
     strlcpy(info.serial, serial, sizeof(info.serial));
     strlcpy(info.firmware_version, esp_app_get_description()->version, sizeof(info.firmware_version));
+    strlcpy(info.firmware_commit, SI_FW_COMMIT, sizeof(info.firmware_commit));
+    info.firmware_modified = SI_FW_MODIFIED;
+    strlcpy(info.hardware, CONFIG_SI_DEVICE_BUILD, sizeof(info.hardware));
 
     uint64_t total_bytes = 0, free_bytes = 0;
     if (esp_vfs_fat_info(asset_store::BASE_PATH, &total_bytes, &free_bytes) == ESP_OK) {

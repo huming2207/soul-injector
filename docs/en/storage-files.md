@@ -51,7 +51,7 @@ other product's job; the previous one is replaced.
 sidp-agent job run --port /dev/ttyACM0 --wait   # one run; non-zero exit unless it passed
 sidp-agent job status --port /dev/ttyACM0       # job, trigger, last result
 sidp-agent job cancel --port /dev/ttyACM0       # stop the run in progress
-sidp-agent device info --port /dev/ttyACM0      # serial, firmware, free storage
+sidp-agent device info --port /dev/ttyACM0      # serial, firmware, hardware, free storage
 ```
 
 A cancelled run stops between programming stages and may leave the target

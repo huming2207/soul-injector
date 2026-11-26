@@ -40,6 +40,23 @@ needs. Until Espressif releases upstream commit `74a7a4b`, run
 `#define FF_USE_EXPAND 1` in `components/fatfs/src/ffconf.h`; without it the
 build fails to link with `undefined reference to 'f_expand'`.
 
+## Firmware version
+
+`version.txt` holds the release version: year, month and the release count
+within that month, so `2026.11.0` is the first release of November 2026 and
+`2026.11.1` the next. Raise it for each release. The build also records the
+commit it was built from, and whether the tree had uncommitted changes then
+(read on every build, not only at configure time). `sidp-agent device info`
+shows all three, plus the board revision the firmware was built for:
+
+```text
+Firmware: 2026.11.0 (da2f5bd)
+Hardware: Rev 8
+```
+
+A build from a tree with uncommitted changes reads `(da2f5bd, modified)`:
+don't ship those. The same line is the first thing the firmware logs at boot.
+
 ## Flash layout
 
 `partitions.csv` assigns the 16 MB flash as follows:

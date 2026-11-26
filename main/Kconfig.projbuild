@@ -7,10 +7,12 @@ menu "Soul Injector Configuration"
             Device model name
 
     config SI_DEVICE_BUILD
-        string "Device version"
-        default "1.0.0"
+        string "Hardware revision"
+        default ""
         help
-            Device version number
+            Board revision this firmware is built for, e.g. "8" or "7.1".
+            sdkconfig.defaults.<rev> sets it; `sidp-agent device info` shows it.
+            The firmware release version is in version.txt, not here.
 
     config SI_DISP_ENABLE
         bool "Enable display support"

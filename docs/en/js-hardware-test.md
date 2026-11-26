@@ -53,7 +53,7 @@ early ESP-IDF startup and the chip restarts itself about 0.5 s later (see
 
 | # | Test | Pass when | Result |
 |---|------|-----------|--------|
-| 1.1 | `sidp-agent device info` | Shows Rev 8, `js_version` 0.18.0, a 2048 KB arena, network off | Pass. QuickJS-NG 0.18.0, 2048 KiB, network off. `device info` doesn't show the hardware revision |
+| 1.1 | `sidp-agent device info` | Shows Rev 8, `js_version` 0.18.0, a 2048 KB arena, network off | Pass. QuickJS-NG 0.18.0, 2048 KiB, network off. `device info` doesn't show the hardware revision (Q12; since 2026-11-26 it does: `Firmware: 2026.11.0 (da2f5bd, modified)`, `Hardware: Rev 8`) |
 | 1.2 | First boot after flashing | No panic; `data` and `log` mount; free internal and PSRAM heap at idle noted from the UART log | Pass, after the lockup-and-restart above. Idle: 139 KB internal RAM free (min 102 KB), 10.7 MB PSRAM |
 | 1.3 | Plain job without a script (crash.bin, `pre_prog.yaml`/`post_prog.yaml`) | Programs and verifies as before | Pass, without procedures (the root YAML sets RDP 1): 648 bytes, 3.4 s |
 | 1.4 | GDB over USB with `crash.gdb` | Same as Phase 3: lands in `hard_fault_report`, `fault.cfsr` bit 25; `stepi` about 7.5 ms | Pass. Same backtrace (`divide` ← `average` ← `crash` ← `main`, `by=0`); `stepi` 12.1 ms with the flash cache off (17 ms off, 7.5 ms on, on 2026-11-13) |
@@ -125,7 +125,7 @@ crash.elf ...`, then a restart of Claude Code so it loads).
 | 4.10 | Module that throws after starting | Restarted with backoff, gives up after 5 with a note; arming a module whose top level throws is refused with the error | Pass after a fix: a top level that throws is refused at arm; one that throws later was never restarted (trap stayed "running"), fixed (c42ff27): 5 starts, then `failed` |
 | 4.11 | UTC times | With the clock set (`log pull` sets it), incidents have UTC; after a restart with no computer, boot count and uptime | Pass. With the clock set, UTC; after a restart with no `log pull` since, incidents show "boot 111 +97.2 s" |
 | 4.12 | Disarm | Target left as it is; sessions work again; the device goes back to light sleep (PM lock released) | Pass for GDB and sessions after disarm. Light sleep: can't be seen while USB powers the device (light sleep is off then) |
-| 4.13 | Soak, 48 to 72 h: `rare.bin`, a trap keeping the last 64 state values, USB power only | One incident per fault (count against the target's own fault counter), no device restarts, `starts` stays 1, heap steady on the UART log | First 7 h pass (2026-11-25 23:45 to 06:40, build 41b1c31): 50 faults, 50 incidents (309-358; the target's fault counter in each capture equals its capture id, so none missed), 0 suppressed, `starts_this_boot` 1, no ESP restart (uptime 6.9 h), UART log has no errors or panics. The 32 newest kept (about 3.9 KB each). Heap isn't logged while a trap runs, so "heap steady" is only "no restart". Stopped there to try the review fixes. In the 50 minutes after that (ESP reflashed and restarted, trap back each time) one fault was **missed**: the target sat halted at the HardFault entry with DFSR VCATCH, counter 51, no incident. Fixed (a371cf9, c7f195c, below). **Started again 2026-11-26 08:24:01** on build bbdfb54+c7f195c, trap `soak` on `rare.bin`, target fault counter 78 at the start: incidents from then on should equal the counter's growth. Second run passes (08:24 to 10:41, 2 h 17 m): counter 78 to 98, 20 faults, 20 incidents (441-460), 0 suppressed, `starts_this_boot` 1. Stopped to flash the Q2/Q8 fixes. **Third run armed 2026-11-26 10:56:27** on build 941a50c, `rare.bin`, fault counter 103, newest incident 484 |
+| 4.13 | Soak, 48 to 72 h: `rare.bin`, a trap keeping the last 64 state values, USB power only | One incident per fault (count against the target's own fault counter), no device restarts, `starts` stays 1, heap steady on the UART log | First 7 h pass (2026-11-25 23:45 to 06:40, build 41b1c31): 50 faults, 50 incidents (309-358; the target's fault counter in each capture equals its capture id, so none missed), 0 suppressed, `starts_this_boot` 1, no ESP restart (uptime 6.9 h), UART log has no errors or panics. The 32 newest kept (about 3.9 KB each). Heap isn't logged while a trap runs, so "heap steady" is only "no restart". Stopped there to try the review fixes. In the 50 minutes after that (ESP reflashed and restarted, trap back each time) one fault was **missed**: the target sat halted at the HardFault entry with DFSR VCATCH, counter 51, no incident. Fixed (a371cf9, c7f195c, below). **Started again 2026-11-26 08:24:01** on build bbdfb54+c7f195c, trap `soak` on `rare.bin`, target fault counter 78 at the start: incidents from then on should equal the counter's growth. Second run passes (08:24 to 10:41, 2 h 17 m): counter 78 to 98, 20 faults, 20 incidents (441-460), 0 suppressed, `starts_this_boot` 1. Stopped to flash the Q2/Q8 fixes. Third run passes (10:56 to 11:32): counter 103 to 107, 4 faults, 4 incidents (485-488). Fourth run passes (12:01:24 to 21:24, 9 h 23 m, build 387df2b): counter 120 to 184, 64 faults, 64 incidents (489-552, capture ids 1-64), 0 suppressed, `starts_this_boot` 1, no ESP restart, no error or warning in the UART log, incident writes 624-714 ms. Ended by the version flash; the trap re-armed itself at boot (21:27, counter 184, next incident 553) and keeps running |
 
 Not covered on hardware: the crash quarantine across an ESP32 panic (no way
 to cause one on demand; covered in esp-emu), and `esp:ws` (Rev 8 doesn't
@@ -373,6 +373,13 @@ Rev 8 look the same. What I'd do: you set a release version (`0.4.0`) in
 modified)`, and `Hardware: Rev 8`, each from its own field so nothing gets
 cut. Say if you want it, and which version to start from.
 
+Answered 2026-11-26 (evening): `2026.11.0`; later releases are year, month
+and the release count within the month. Done: `version.txt` holds it;
+`DeviceInfo` gets `firmware_commit`, `firmware_modified` (read on every
+build) and `hardware` (`CONFIG_SI_DEVICE_BUILD`); `device info` and the MCP
+`device_info` show them, and the firmware logs the same line at boot. Board:
+`Firmware: 2026.11.0 (da2f5bd, modified)`, `Hardware: Rev 8`.
+
 **Q13. Target detect on the adaptor.** The input (GPIO3 on Rev 8) is
 active low with the internal pull-up: a target counts as connected when
 its harness grounds the detect pin. It reads "no target" with the
@@ -414,7 +421,9 @@ needs it grounded.
    ESP restart. **Fourth run armed 2026-11-26 12:01:24** on build 387df2b,
    `rare.bin`, fault counter 120 (the crash.bin test runs in between
    counted too), newest incident 488: incidents after 488 should equal the
-   counter's growth past 120.
+   counter's growth past 120. Passed (9 h 23 m, 64 faults, 64 incidents,
+   see 4.13). The trap re-armed itself after the 21:27 flash (build with
+   version 2026.11.0): counter 184, next incident 553.
 3. Needs your hand: press the adaptor's button with `--trigger falling`
    (the default: a run starts on the press) and with `--trigger rising` (on
    the release), and once during a run (dropped, no second run).

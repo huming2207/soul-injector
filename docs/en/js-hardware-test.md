@@ -321,6 +321,42 @@ Answered 2026-11-26:
   production fixture keeps working while a trap watches between runs);
   `--mode exclusive` refuses runs too.
 
+New 2026-11-26 (afternoon):
+
+**Q11. Erase sectors are taken to be `page_size` long (important for
+other targets).** The job compiler drops the target yaml's `sectors` list,
+and the device erases in `page_size` steps everywhere: `flash.erase`, and
+the erase before programming. That's right on the STM32WL (2 KB pages and
+sectors) and every part with uniform sectors equal to the page, but not
+on parts whose sectors are bigger than their program page or not uniform
+(STM32F2/F4/F7: 16, 64 and 128 KB sectors behind 1 KB pages in their
+probe-rs algorithms). There, `flash.erase(addr, 1024)` wipes the whole
+16 KB sector around `addr`, the serial page next to the firmware with it;
+programming still ends right but calls EraseSector 16 to 128 times per
+sector. Fix: carry `sectors` in the job (proto field, sidp_agent compiles
+it), and erase by the real sector map (refusing a `flash.erase` that
+isn't whole sectors of that map). It changes the main programming path,
+and nothing on the bench has non-uniform sectors. Do it now and test it
+on an F4 board when you have one, or wait until then?
+
+**Q12. Firmware version and hardware revision in `device info`.** The
+version is ESP-IDF's `git describe`, cut to the app descriptor's 31
+characters: `legacy-s3-yaml-115-g037457e-dirty` shows as `...-dir`, and the
+`legacy-s3-yaml` tag is old. The hardware revision isn't reported at all.
+My suggestion: a `version.txt` (or `project(VERSION ...)`) with the
+product version you release, the commit hash in its own `DeviceInfo`
+field (`firmware_commit`, "037457e" or "037457e-dirty"), and
+`hardware` ("8") from `CONFIG_SI_DEVICE_BUILD`. The version scheme is
+yours to choose.
+
+**Q13. Target detect on the adaptor.** The input (GPIO3 on Rev 8) is
+active low with the internal pull-up: a target counts as connected when
+its harness grounds the detect pin. It reads "no target" with the
+RAK3172, so the bench harness doesn't ground it; it's not a firmware
+fault. Which pin of the programming connector is it, and should the docs
+say so (`rev8-hardware.md` has no word on it)? Auto run on detect (4.4)
+needs it grounded.
+
 ### Morning checklist (2026-11-25, done 2026-11-26)
 
 1. Soak (4.13), armed 2026-11-25 23:45:08 as trap `soak` on `rare.bin`
@@ -347,14 +383,48 @@ Answered 2026-11-26:
    `running`), `sidp-agent incident list`; incidents after 484 should equal
    the counter's growth past 103 (the newest incident's `data.status` bytes
    8-11, or `tools/end_state.sh` after `trap disarm`). UART log:
-   `results/uart.log`.
+   `results/uart.log`. At 11:21: incidents 485-486, counter 105 (2 faults,
+   2 incidents), `starts_this_boot` 1, no restart or error in the UART log.
+2. **Waiting for a flash** (built for Rev 8 and 7.1, committed locally, not
+   pushed until they pass on the board). Flashing restarts the device and
+   ends the soak's run, so they wait until you stop it:
+   - soul-injector fe94651: `onFail`'s `err` is the hook's own error
+     (`name`, `message`, a TargetError's `code`), not one string with
+     "Error: " in front.
+   - soul-injector aecd581, sidp_agent 4d2ccb4: `readReg`/`writeReg` of
+     `s0`-`s31` or `fpscr` is `UNSUPPORTED` on a core without an FPU (it
+     returned a meaningless value).
+   - soul-injector d30211d, sidp_agent 3e29790: `flash.*` argument errors
+     (outside the flash, length 0, not whole sectors, a write length not a
+     multiple of 4) reject with a `RangeError` that says what's wrong,
+     checked from the job's config before the target is touched. Before,
+     they were `FAULT`, and in an agent session the flash algorithm was
+     loaded first, which reset the target. `flash.read` on Cortex-M is now
+     limited to the flash range, as documented.
+   - soul-injector 037457e: a pinned asset that doesn't match is logged as
+     the script, firmware or image it is, with both hashes.
+   - swd_esp 97d4685 (soul-injector 2a2e585): no `gpio: conflict found for
+     GPIO[9]` on every SWD init (the BOOT pin was configured twice).
+
+   Board check, after `trap disarm` and flashing `build-rev8`:
+   `js/run-case.sh hw-ops crash.bin` (the flash refusals are now checked as
+   RangeErrors, with no reset), `js/run-case.sh hw-fail-target crash.bin`
+   (run record: `failName` TargetError, `failCode` FAULT), an agent
+   `eval` of `target.halt(); target.readReg('s0')` (UNSUPPORTED), a pinned
+   job whose script was pushed again (the log line), and no GPIO[9] line in
+   the UART log. Then push, and arm the soak again.
 2. Q1 is decided (later hardware: battery and ext4 on SD); on Rev 8 don't
    reset the ESP while a trap writes incidents if the incidents matter.
 3. Postponed (Q7): 3.8 reset button, 3.10 target power, 4.1 USB data cut,
-   4.2 power cycle, 4.4 auto run, 4.9 target unplugged; WiFi for 1.5, 3.13,
-   3.15; `--elf` in the MCP server's args for the named-frame part of 3.16.
-   The MCP server needs a restart to pick up today's sidp-agent (the
-   `throttle_hold_ms` argument, the narrowed `Bytes`).
+   4.2 power cycle, 4.4 auto run (needs the detect pin grounded, Q13),
+   4.9 target unplugged; WiFi for 1.5, 3.13, 3.15.
+4. MCP: the named-frame part of 3.16 passed with today's sidp-agent run by
+   hand over stdio (`mcp --elf rare.elf`, incident 485). This background
+   session's own MCP server still runs the 07:36 binary: restarting the
+   CLI you type in doesn't restart it. To use the new one from Claude
+   Code, add `--elf` to the server's args
+   (`claude mcp add sidp -- sidp-agent mcp --port /dev/ttyACM0 --elf
+   ~/Projects/si-wle5-debug/rare.elf ...`) and start a new session.
 
 ### Smaller (not fixed yet)
 
@@ -367,19 +437,5 @@ Answered 2026-11-26:
 
 - Every `flash.erase`/`flash.write` call reloads the flash algorithm and
   costs about 0.55 s even for 16 bytes, mostly a 0.5 s wait in SWD init.
-- Argument errors in `flash.*` (6 bytes, outside the flash, an erase not
-  page aligned) come back as `FAULT`, like a target failure. An unaligned
-  erase is refused, not rounded; the docs say "erases whole sectors".
-- `readReg('s0')` on a core without an FPU returns a value instead of
-  `UNSUPPORTED`.
-- `onFail`'s `err.message` is "Error: …" (the name in the message).
-- A pinned script that doesn't match says "not the image this job pins".
-- Trap status shows `incidents_per_hour: 0` for "the default, 12".
-- `gpio: conflict found for GPIO[9]` on every SWD init (BOOT pin set up
-  twice). Cosmetic.
-- `device info` shows neither the hardware revision nor a build with
-  uncommitted changes.
-- The target-detect input reads "no target" though the RAK3172 is connected
-  and answers over SWD (adaptor wiring?).
 - swd_esp `tests/test_init.py` didn't build since connect-under-reset; fixed
   with e7c9bd3.

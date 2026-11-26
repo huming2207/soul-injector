@@ -388,7 +388,9 @@ void bootstrap_fsm::update_target_detect()
         si_manage_Trigger trigger = job_controller::instance()->get_trigger();
         bool run = (!state && trigger == si_manage_Trigger_TRIGGER_DETECT_FALLING) ||
                    (state && trigger == si_manage_Trigger_TRIGGER_DETECT_RISING);
-        ESP_LOGI(TAG, "Detect input %s%s", state ? "rose" : "fell", run ? ": run" : "");
+        // run_fsm_task drops an edge that came during a run; say so here, where it's seen.
+        const bool busy = run && job_controller::instance()->is_running();
+        ESP_LOGI(TAG, "Detect input %s%s", state ? "rose" : "fell", busy ? ": ignored, a run is in progress" : run ? ": run" : "");
         if (run) {
             xEventGroupSetBits(evt_group, BIT_DETECTED);
         }

@@ -151,6 +151,14 @@ namespace
             return ret ?: prog->erase_range(addr, len);
         }
 
+        esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len) override
+        {
+            auto access = op == flash_op::read    ? swd_prog::flash_access::read
+                          : op == flash_op::write ? swd_prog::flash_access::write
+                                                  : swd_prog::flash_access::erase;
+            return swd_prog::check_flash_args(access, addr, len, why, why_len);
+        }
+
         esp_err_t call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms, qjs_binder::cancel_fn cancelled,
                        uint32_t *r0) override
         {

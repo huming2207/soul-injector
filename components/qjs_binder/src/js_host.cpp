@@ -522,7 +522,7 @@ namespace qjs_binder
         }
     }
 
-    void priv::post_async(uint8_t slot, uint32_t seq, esp_err_t ret, uint32_t val)
+    void priv::post_async(uint8_t slot, uint32_t seq, esp_err_t ret, uint32_t val, const char *why)
     {
         if (slot >= MAX_ASYNC) {
             return;
@@ -532,6 +532,7 @@ namespace qjs_binder
         if (g.loop && s.used && s.seq == seq) {
             s.ret = ret;
             s.val = val;
+            strlcpy(s.why, why ? why : "", sizeof(s.why));
             if (qjs_esp_loop_post(g.loop, async_done, &s, pdMS_TO_TICKS(10)) != ESP_OK) {
                 ESP_LOGW(TAG, "JS queue full, async result dropped");
             }
@@ -543,7 +544,22 @@ namespace qjs_binder
     {
         esp_err_t ret = ESP_ERR_INVALID_STATE; // load: no target
         uint32_t val = 0;
-        for (int i = 0; t && i <= r.retries; i++) {
+        char why[sizeof(async_slot::why)] = "";
+        bool checked = true;
+        if (t && (r.op == OP_FLASH_READ || r.op == OP_FLASH_WRITE || r.op == OP_FLASH_ERASE)) {
+            // Arguments first: a bad call mustn't load the flash algorithm (which resets the target).
+            auto op = r.op == OP_FLASH_READ    ? js_target::flash_op::read
+                      : r.op == OP_FLASH_WRITE ? js_target::flash_op::write
+                                               : js_target::flash_op::erase;
+            ret = t->flash_check(op, r.addr, r.a, why, sizeof(why));
+            if (ret != ESP_ERR_INVALID_ARG) {
+                why[0] = '\0'; // another error fails the call as a TargetError
+            } else if (why[0] == '\0') {
+                strlcpy(why, "bad address or length", sizeof(why));
+            }
+            checked = ret == ESP_OK;
+        }
+        for (int i = 0; t && checked && i <= r.retries; i++) {
             ret = run_op(r, *t, cancelled, &val);
             if (ret == ESP_OK) {
                 break;
@@ -555,7 +571,7 @@ namespace qjs_binder
             xQueueOverwrite(g.res_q, &x);
             return ret;
         }
-        post_async(r.slot, r.seq, ret, val);
+        post_async(r.slot, r.seq, ret, val, why);
         return ret;
     }
 

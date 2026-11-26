@@ -127,6 +127,22 @@ public:
         return ESP_OK;
     }
 
+    esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len) override
+    {
+        if (len == 0) {
+            return ESP_ERR_INVALID_ARG; // no reason given: the host supplies one
+        }
+        if (addr < 0x08000000 || addr >= 0x08040000 || len > 0x08040000 - addr) {
+            strlcpy(why, "outside", why_len);
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (op == flash_op::erase && ((addr | len) & 0x7ff)) {
+            strlcpy(why, "not whole sectors", why_len);
+            return ESP_ERR_INVALID_ARG;
+        }
+        return ESP_OK;
+    }
+
     esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) override
     {
         char s[32];

@@ -262,7 +262,7 @@ namespace qjs_binder::priv
         }
         r.slot = i;
         r.seq = ++g.seq;
-        g.slots[i] = {true, r.op, r.seq, funcs[0], funcs[1], ESP_OK, 0}; // before the owner can answer
+        g.slots[i] = {true, r.op, r.seq, funcs[0], funcs[1], ESP_OK, 0, {}}; // before the owner can answer
         if (xQueueSend(g.req_q, &r, 0) != pdTRUE) {
             g.slots[i].used = false;
             JS_FreeValue(ctx, funcs[0]);
@@ -285,7 +285,10 @@ namespace qjs_binder::priv
         }
         s.used = false;
         JSValue v;
-        if (s.ret != ESP_OK) {
+        if (s.why[0]) {
+            JS_ThrowRangeError(ctx, "%s: %s", op_name(s.op), s.why);
+            v = JS_GetException(ctx);
+        } else if (s.ret != ESP_OK) {
             v = target_error(ctx, s.ret, code_of(s.ret), op_name(s.op));
         } else if (s.op == OP_FLASH_READ) {
             v = JS_NewUint8ArrayCopy(ctx, g.xfer, s.val); // val: bytes read
@@ -293,7 +296,7 @@ namespace qjs_binder::priv
             v = JS_NewUint32(ctx, s.val);
         }
         xfer_seen(s.seq); // buffer free from here
-        bool ok = s.ret == ESP_OK && !JS_IsException(v);
+        bool ok = s.ret == ESP_OK && !s.why[0] && !JS_IsException(v);
         JSValue r = JS_Call(ctx, ok ? s.resolve : s.reject, JS_UNDEFINED, 1, &v);
         JS_FreeValue(ctx, r);
         JS_FreeValue(ctx, v);

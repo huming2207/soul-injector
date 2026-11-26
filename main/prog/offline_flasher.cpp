@@ -30,6 +30,13 @@ namespace
         esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) override { return backend.flash_read(addr, buf, len); }
         esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) override { return backend.flash_write(addr, buf, len); }
         esp_err_t flash_erase(uint32_t addr, size_t len) override { return backend.flash_erase(addr, len); }
+        esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len) override
+        {
+            auto o = op == flash_op::read    ? target_backend::flash_op::read
+                     : op == flash_op::write ? target_backend::flash_op::write
+                                             : target_backend::flash_op::erase;
+            return backend.flash_check(o, addr, len, why, why_len);
+        }
         esp_err_t call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms, qjs_binder::cancel_fn cancelled,
                        uint32_t *r0) override
         {

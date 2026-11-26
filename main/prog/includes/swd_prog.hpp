@@ -71,7 +71,6 @@ private:
     esp_err_t run_algo_init(swd_def::init_mode mode);
     esp_err_t run_algo_uninit(swd_def::init_mode mode);
     esp_err_t ensure_layout();
-    esp_err_t check_flash_range(uint32_t addr, uint32_t len);
     static inline uint32_t next_multiple_of(uint32_t input, uint32_t of);
     inline esp_err_t perform_double_buffered_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset);
     inline esp_err_t perform_simple_program(FILE *file, uint32_t len, uint32_t page_size, uint32_t pc_program_page, uint32_t addr_offset);
@@ -87,6 +86,16 @@ public:
     esp_err_t program_file(const char *path, uint32_t *len_written = nullptr, uint32_t start_addr = UINT32_MAX);
     esp_err_t verify(const char *path, uint32_t start_addr = UINT32_MAX, size_t len = 0);
     esp_err_t self_test(uint32_t test_id, uint8_t *readout_buf, size_t readout_buf_len = 0, uint32_t *func_return_val = nullptr);
+
+    enum class flash_access { read, write, erase };
+    /**
+     * Checks a flash access against the job's flash algorithm alone (no
+     * target access): inside its flash range, whole sectors for an erase, a
+     * multiple of 4 bytes for a write. ESP_ERR_INVALID_ARG with the reason in
+     * `why` when the arguments are wrong; ESP_ERR_INVALID_STATE when the job
+     * has no flash range, page size or the algorithm function needed.
+     */
+    static esp_err_t check_flash_args(flash_access op, uint32_t addr, uint32_t len, char *why, size_t why_len);
 
     esp_err_t erase_range(uint32_t addr, uint32_t len);
     esp_err_t write_range(uint32_t addr, const uint8_t *buf, uint32_t len);

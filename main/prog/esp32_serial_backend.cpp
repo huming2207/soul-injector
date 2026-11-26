@@ -785,6 +785,28 @@ esp_err_t esp32_serial_backend::check_flash_range(const char *what, uint32_t add
     return ESP_OK;
 }
 
+esp_err_t esp32_serial_backend::flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len)
+{
+    if (!connected) {
+        ESP_LOGE(TAG, "flash: target not connected; flash access is only available after detect()");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (len == 0) {
+        snprintf(why, why_len, "length 0");
+    } else if (addr >= flash_limit || len > flash_limit - addr) {
+        snprintf(why, why_len, "0x%08lx+%u is outside the %lu bytes of flash", (unsigned long)addr, (unsigned)len,
+                 (unsigned long)flash_limit);
+    } else if (op == flash_op::write && ((addr & 3u) != 0 || (len & 3u) != 0 || len > sizeof(block))) {
+        snprintf(why, why_len, "0x%08lx+%u isn't 4-byte aligned or is over %u bytes", (unsigned long)addr, (unsigned)len,
+                 (unsigned)sizeof(block));
+    } else if (op == flash_op::erase && (addr | len) % 4096 != 0) {
+        snprintf(why, why_len, "0x%08lx+%u isn't whole 4 KB sectors", (unsigned long)addr, (unsigned)len);
+    } else {
+        return ESP_OK;
+    }
+    return ESP_ERR_INVALID_ARG;
+}
+
 esp_err_t esp32_serial_backend::flash_read(uint32_t addr, uint8_t *buf, size_t len)
 {
     auto ret = check_flash_range("flash_read", addr, len);

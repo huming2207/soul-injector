@@ -158,6 +158,7 @@ namespace qjs_binder::priv
         JSValue reject;
         esp_err_t ret;   // set by owner before posting
         uint32_t val;
+        char why[80];    // non-empty: the call's arguments were refused (RangeError)
     };
 
     struct state {
@@ -282,7 +283,7 @@ namespace qjs_binder::priv
     void set_crash_mark(const uint8_t *sha256); // nullptr clears it
     const char *stop_text(qjs_esp_stop_t why);
     JSModuleDef *refuse_module(JSContext *ctx, const char *name, void *);
-    void post_async(uint8_t slot, uint32_t seq, esp_err_t ret, uint32_t val);
+    void post_async(uint8_t slot, uint32_t seq, esp_err_t ret, uint32_t val, const char *why = nullptr);
     void stop_loop();
     int64_t now_us();
     TickType_t ms_ticks(uint32_t ms);

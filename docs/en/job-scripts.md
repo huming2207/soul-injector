@@ -154,12 +154,15 @@ the CPU is left halted where it stopped.
 
 | Call | Does |
 | ---- | ---- |
-| `erase(addr, len)` | Erases whole sectors. |
+| `erase(addr, len)` | Erases whole sectors: `addr` and `len` must fall on sector boundaries (it doesn't round). |
 | `write(addr, bytes)` | Programs at most 4096 bytes. |
 | `read(addr, len)` | Resolves with a `Uint8Array`, at most 4096 bytes. |
 
 All three return promises. Addresses are what the target uses: absolute on
-Cortex-M (`0x0803f800`), the flash offset on ESP32 (`0x3f0000`). They're
+Cortex-M (`0x0803f800`), the flash offset on ESP32 (`0x3f0000`). A call
+outside the flash, of length 0, or not aligned as below rejects with a
+`RangeError` that says what's wrong, before the target is touched; a
+`TargetError` means the target or the flash algorithm failed. They're
 meant for per-board data next to the firmware: serial numbers, keys,
 calibration.
 

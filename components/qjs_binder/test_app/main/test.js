@@ -132,6 +132,13 @@ export async function preProgram(ctx) {
         const c = await codeOf(() => flash.write(0x0803f800, new Uint8Array(4)));
         await p1;
         if (c !== 'BUSY') throw new Error(`second buffer call gave ${c}`);
+        // Refused before the target sees them (the log shows no FE/FW/FR for these).
+        const e = await codeOf(() => flash.erase(0x0803f801, 2048));
+        if (e !== 'RangeError: flash.erase: not whole sectors') throw new Error(`unaligned erase gave ${e}`);
+        const w = await codeOf(() => flash.write(0x08040000, new Uint8Array(4)));
+        if (w !== 'RangeError: flash.write: outside') throw new Error(`write outside gave ${w}`);
+        const n = await codeOf(() => flash.read(0x0803f800, 0));
+        if (n !== 'RangeError: flash.read: bad address or length') throw new Error(`empty read gave ${n}`);
         return;
     }
     case 'call': {

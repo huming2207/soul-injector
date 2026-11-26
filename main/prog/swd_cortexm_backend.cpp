@@ -259,6 +259,14 @@ esp_err_t swd_cortexm_backend::flash_erase(uint32_t addr, size_t len)
     return swd_prog::instance()->erase_range(addr, len);
 }
 
+esp_err_t swd_cortexm_backend::flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len)
+{
+    auto access = op == flash_op::read    ? swd_prog::flash_access::read
+                  : op == flash_op::write ? swd_prog::flash_access::write
+                                          : swd_prog::flash_access::erase;
+    return swd_prog::check_flash_args(access, addr, len, why, why_len);
+}
+
 esp_err_t swd_cortexm_backend::call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms,
                                     bool (*cancelled)(), uint32_t *r0)
 {

@@ -450,5 +450,5 @@ needs it grounded.
   connection). Not reproduced: 6 resets with `trap status` and `device
   info` back to back from the moment USB came up, 198 requests, none broke.
   The one failure there was `Permission denied` 10 ms after the port
-  appeared, before udev had set its mode: host side, but the agent could
-  retry an open that fails that way for a second or so.
+  appeared, before udev had set its mode: the agent now retries that for
+  up to 1 s (sidp_agent fb8a626; 8 more resets, 266 requests, none failed).

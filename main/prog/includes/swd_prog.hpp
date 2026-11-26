@@ -97,6 +97,15 @@ public:
      */
     static esp_err_t check_flash_args(flash_access op, uint32_t addr, uint32_t len, char *why, size_t why_len);
 
+    /** An FP register by DCRSR REGSEL (FPSCR, S0-S31): only there with an FPU. */
+    static bool is_fp_reg(uint32_t id) { return id == 0x21 || (id >= 0x40 && id <= 0x5F); }
+    /**
+     * Whether the attached core has a single precision FPU (MVFR0). Without
+     * one, DCRSR still answers for the FP registers, with values that mean
+     * nothing. One SWD read: callers ask once per attach and keep the answer.
+     */
+    static bool read_has_fpu();
+
     esp_err_t erase_range(uint32_t addr, uint32_t len);
     esp_err_t write_range(uint32_t addr, const uint8_t *buf, uint32_t len);
     esp_err_t call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms, bool (*cancelled)(), uint32_t *r0);

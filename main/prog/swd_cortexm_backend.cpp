@@ -20,11 +20,6 @@ static constexpr uint8_t DP_CTRL_STAT_ADDR = 0x04;
 static constexpr uint32_t END_PULSE_MS = 20;     // nRST low
 static constexpr uint32_t END_CATCH_MS = 500;    // for the core to stop at its reset vector
 
-static constexpr uint32_t MVFR0_ADDR = 0xE000EF40;
-static constexpr uint32_t REGSEL_FPSCR = 0x21;
-static constexpr uint32_t REGSEL_S0 = 0x40;
-static constexpr uint32_t REGSEL_S31 = 0x5F;
-
 static esp_err_t check_halted()
 {
     uint32_t dhcsr = 0;
@@ -32,19 +27,14 @@ static esp_err_t check_halted()
     return ret != ESP_OK ? ret : (dhcsr & S_HALT) ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
-// A core register access: halted, and an FP register (FPSCR, S0-S31) only on a
-// core with a single precision FPU. Without one DCRSR still answers, with a
-// value that means nothing. MVFR0 reads as 0 (or faults, on ARMv6-M) then.
-static esp_err_t check_core_reg(uint32_t id)
+esp_err_t swd_cortexm_backend::check_core_reg(uint32_t id)
 {
     esp_err_t ret = check_halted();
-    if (ret == ESP_OK && (id == REGSEL_FPSCR || (id >= REGSEL_S0 && id <= REGSEL_S31))) {
-        uint32_t mvfr0 = 0;
-        if (swd_read_word(MVFR0_ADDR, &mvfr0) != ESP_OK) {
-            (void)swd_clear_errors(); // ARMv6-M: no MVFR0
-            mvfr0 = 0;
+    if (ret == ESP_OK && swd_prog::is_fp_reg(id)) {
+        if (fpu == fpu_state::unknown) { // first FP register access of this run
+            fpu = swd_prog::read_has_fpu() ? fpu_state::yes : fpu_state::no;
         }
-        ret = (mvfr0 & 0xF0) != 0 ? ESP_OK : ESP_ERR_NOT_SUPPORTED;
+        ret = fpu == fpu_state::yes ? ESP_OK : ESP_ERR_NOT_SUPPORTED;
     }
     return ret;
 }
@@ -63,6 +53,7 @@ esp_err_t swd_cortexm_backend::begin_session()
     vTaskDelay(1);
 
     connected_under_reset = false;
+    fpu = fpu_state::unknown; // maybe another target than the last run's
     auto ret = swd_init_debug(pdMS_TO_TICKS(1000));
     if (ret == ESP_OK) {
         return ESP_OK;

@@ -908,6 +908,17 @@ esp_err_t swd_prog::ensure_layout()
     return init();
 }
 
+bool swd_prog::read_has_fpu()
+{
+    static constexpr uint32_t MVFR0_ADDR = 0xE000EF40;
+    uint32_t mvfr0 = 0;
+    if (swd_read_word(MVFR0_ADDR, &mvfr0) != ESP_OK) {
+        (void)swd_clear_errors(); // ARMv6-M has no MVFR0
+        return false;
+    }
+    return (mvfr0 & 0xF0) != 0; // single precision support
+}
+
 esp_err_t swd_prog::check_flash_args(flash_access op, uint32_t addr, uint32_t len, char *why, size_t why_len)
 {
     const si::config::flash_algorithm &fa = algo();

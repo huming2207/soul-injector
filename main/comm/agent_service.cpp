@@ -170,12 +170,18 @@ namespace
         esp_err_t read_reg(uint32_t id, uint32_t *val) override
         {
             esp_err_t ret = check_halted();
+            if (ret == ESP_OK && swd_prog::is_fp_reg(id) && !has_fpu) {
+                ret = ESP_ERR_NOT_SUPPORTED; // DCRSR would answer with junk
+            }
             return ret ?: swd_read_core_register(id, val);
         }
 
         esp_err_t write_reg(uint32_t id, uint32_t val) override
         {
             esp_err_t ret = check_halted();
+            if (ret == ESP_OK && swd_prog::is_fp_reg(id) && !has_fpu) {
+                ret = ESP_ERR_NOT_SUPPORTED; // DCRSR would answer with junk
+            }
             return ret ?: swd_write_core_register(id, val);
         }
 
@@ -198,6 +204,8 @@ namespace
         }
 
         esp_err_t clear_stop_cause() override { return swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL); }
+
+        bool has_fpu = false; // from attach (CAP_FPU), so FP register access costs no extra SWD read
     };
 
     agent_target target;
@@ -377,6 +385,7 @@ sidp::status_t agent_service::claim(const si_agent_Permissions &perms, bool conn
     cpu_id = info.cpu_id;
     profile = info.profile;
     fpu = (info.capabilities & sidp::CAP_FPU) != 0;
+    target.has_fpu = fpu; // probed once by attach
     return sidp::STATUS_OK;
 }
 

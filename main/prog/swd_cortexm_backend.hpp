@@ -54,6 +54,9 @@ private:
     swd_cortexm_backend() = default;
 
     esp_err_t free_core(bool reset);
+    esp_err_t check_core_reg(uint32_t id);
 
     bool connected_under_reset = false;
+    enum class fpu_state : uint8_t { unknown, yes, no };
+    fpu_state fpu = fpu_state::unknown; // read on the first FP register access of a run
 };

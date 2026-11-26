@@ -59,7 +59,7 @@ public:
     esp_err_t write_mem32(uint32_t addr, uint32_t val) override;
     esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) override;
     esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) override;
-    esp_err_t flash_erase(uint32_t addr, size_t len) override;
+    esp_err_t flash_erase(uint32_t addr, uint32_t count) override;
     esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len) override;
 
 private:

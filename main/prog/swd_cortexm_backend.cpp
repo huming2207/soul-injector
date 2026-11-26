@@ -245,9 +245,9 @@ esp_err_t swd_cortexm_backend::flash_write(uint32_t addr, const uint8_t *buf, si
     return swd_prog::instance()->write_range(addr, buf, len);
 }
 
-esp_err_t swd_cortexm_backend::flash_erase(uint32_t addr, size_t len)
+esp_err_t swd_cortexm_backend::flash_erase(uint32_t addr, uint32_t count)
 {
-    return swd_prog::instance()->erase_range(addr, len);
+    return swd_prog::instance()->erase_sectors(addr, count);
 }
 
 esp_err_t swd_cortexm_backend::flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len)

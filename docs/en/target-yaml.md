@@ -85,9 +85,18 @@ compute the absolute entry-point addresses.
 | `erased_byte_value`      | no       | Value of an erased byte, normally `0xff`. |
 | `program_page_timeout`   | no       | Program-page timeout in milliseconds. |
 | `erase_sector_timeout`   | no       | Erase-sector timeout in milliseconds. |
+| `sectors`                | no       | The erase sectors, as probe-rs lists them: entries of `size` and `address` (an offset from `address_range.start`), each covering whole sectors of its size up to the next entry or the end of the flash, the first at `0x0`. At most 16 entries; needs `address_range`. Without it, sectors are `page_size` long. |
 
-Additional `flash_properties` keys, such as `sectors`, are currently not parsed
-by the firmware.
+On a part whose sectors differ from its program page (STM32F4: 16, 64 and
+128 KB sectors, 1 KB pages), keep `sectors` from the probe-rs target file:
+`flash.erase` and the erase before programming go by it.
+
+```yaml
+      sectors:
+        - { size: 0x4000, address: 0x0 }      # 4 x 16 KB
+        - { size: 0x10000, address: 0x10000 } # 1 x 64 KB
+        - { size: 0x20000, address: 0x20000 } # 128 KB to the end
+```
 
 ### memory_map and RAM regions
 

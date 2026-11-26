@@ -58,11 +58,12 @@ namespace qjs_binder
 
         virtual esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) { return ESP_ERR_NOT_SUPPORTED; }
         virtual esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) { return ESP_ERR_NOT_SUPPORTED; }
-        virtual esp_err_t flash_erase(uint32_t addr, size_t len) { return ESP_ERR_NOT_SUPPORTED; }
+        virtual esp_err_t flash_erase(uint32_t addr, uint32_t count) { return ESP_ERR_NOT_SUPPORTED; }
 
         enum class flash_op : uint8_t { read, write, erase };
         /** Checks a flash.* call's arguments (range, alignment) before it
-         *  runs, without touching the target: ESP_OK, or ESP_ERR_INVALID_ARG
+         *  runs, without touching the target. `len` is bytes for read and
+         *  write, a count of erase sectors for erase (as in flash_erase): ESP_OK, or ESP_ERR_INVALID_ARG
          *  with what's wrong in `why` (the script gets a RangeError). Any other
          *  error fails the call as the operation itself would. */
         virtual esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len) { return ESP_OK; }

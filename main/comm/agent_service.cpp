@@ -144,11 +144,11 @@ namespace
             return ret ?: prog->write_range(addr, buf, len);
         }
 
-        esp_err_t flash_erase(uint32_t addr, size_t len) override
+        esp_err_t flash_erase(uint32_t addr, uint32_t count) override
         {
             auto *prog = swd_prog::instance();
             esp_err_t ret = prog->init();
-            return ret ?: prog->erase_range(addr, len);
+            return ret ?: prog->erase_sectors(addr, count);
         }
 
         esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len) override

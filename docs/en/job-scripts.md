@@ -154,24 +154,26 @@ the CPU is left halted where it stopped.
 
 | Call | Does |
 | ---- | ---- |
-| `erase(addr, len)` | Erases whole sectors: `addr` and `len` must fall on sector boundaries (it doesn't round). |
+| `erase(addr, count)` | Erases `count` sectors, the first one starting at `addr`. |
 | `write(addr, bytes)` | Programs at most 4096 bytes. |
 | `read(addr, len)` | Resolves with a `Uint8Array`, at most 4096 bytes. |
 
 All three return promises. Addresses are what the target uses: absolute on
 Cortex-M (`0x0803f800`), the flash offset on ESP32 (`0x3f0000`). A call
-outside the flash, of length 0, or not aligned as below rejects with a
+outside the flash, of length or count 0, or not aligned as below rejects with a
 `RangeError` that says what's wrong, before the target is touched; a
 `TargetError` means the target or the flash algorithm failed. They're
 meant for per-board data next to the firmware: serial numbers, keys,
 calibration.
 
 - **Cortex-M**: through the job's flash algorithm, inside its flash range.
-  Sectors are `page_size` long. `write` needs erased flash and a length the
+  Sectors are those of the target yaml's `sectors` (`page_size` long
+  without it), so `count` can cover sectors of different sizes; `addr`
+  must be the start of one. `write` needs erased flash and a length the
   flash can program (a multiple of 4, of 8 on STM32WL). Erase and write
   reload the flash algorithm first, which resets the target.
-- **ESP32**: through the flasher stub, only after detection. `erase` takes
-  whole 4 KB sectors; `write` erases the 4 KB sectors it covers itself, so
+- **ESP32**: through the flasher stub, only after detection. `erase` counts
+  4 KB sectors; `write` erases the 4 KB sectors it covers itself, so
   anything else in them is lost, and is MD5-checked like an image.
 
 ## si:crypto, si:log, si:job

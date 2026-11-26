@@ -449,20 +449,14 @@ esp_err_t swd_prog::erase_sector(uint32_t start_addr, uint32_t end_addr)
 {
     const si::config::flash_algorithm &fa = algo();
 
-    // NOTE: sector granularity follows page_size, matching the historical
-    // behaviour (get_sector_size used to return page_size).
-    if (!fa.page_size.has_value() || !fa.pc_erase_sector.has_value() || !fa.flash_start.has_value()) {
-        ESP_LOGE(TAG, "Missing config for EraseSector (page_size/pc_erase_sector/flash start)");
+    // Every sector of the job's sector map (page_size sectors without one)
+    // that holds a byte of [start_addr, end_addr).
+    uint32_t first = 0, first_size = 0;
+    if (!fa.pc_erase_sector.has_value() || end_addr <= start_addr || !fa.sector_at(start_addr, &first, &first_size)) {
+        ESP_LOGE(TAG, "erase_sector: no EraseSector, or 0x%08lx-0x%08lx isn't in the flash", start_addr, end_addr);
         return ESP_ERR_INVALID_STATE;
     }
-
-    uint32_t flash_sector_size = fa.page_size.value();
-    uint32_t sector_cnt = (end_addr - start_addr) / flash_sector_size;
-    ESP_LOGI(TAG, "End addr 0x%lx, start addr 0x%lx, sector size %lu", end_addr, start_addr, flash_sector_size);
-    if ((end_addr - start_addr) % flash_sector_size != 0 || sector_cnt < 1) {
-        ESP_LOGE(TAG, "Misaligned sector address");
-        return ESP_ERR_INVALID_ARG;
-    }
+    ESP_LOGI(TAG, "erase_sector: 0x%08lx-0x%08lx, first sector 0x%08lx (%lu bytes)", start_addr, end_addr, first, first_size);
 
     if (state != swd_def::FLASH_ALG_INITED) {
         ESP_LOGW(TAG, "Flash alg not initialised, doing now");
@@ -485,16 +479,11 @@ esp_err_t swd_prog::erase_sector(uint32_t start_addr, uint32_t end_addr)
         return ESP_ERR_INVALID_STATE;
     }
 
-    for (uint32_t idx = 0; idx < sector_cnt; idx += 1) {
-        swd_ret = swd_flash_syscall_exec(
-            &syscall, fa.pc_erase_sector.value(),               // ErasePage PC = 173
-            fa.flash_start.value() + (idx * flash_sector_size), // r0 = flash base addr
-            0, 0, 0,                                            // r1, r2 = ignored
-            FLASHALGO_RETURN_BOOL, nullptr
-        );
-
+    uint32_t idx = 0, sector = 0, size = 0;
+    for (uint32_t a = start_addr; a < end_addr && fa.sector_at(a, &sector, &size); a = sector + size, idx++) {
+        swd_ret = swd_flash_syscall_exec(&syscall, fa.pc_erase_sector.value(), sector, 0, 0, 0, FLASHALGO_RETURN_BOOL, nullptr);
         if (swd_ret != ESP_OK) {
-            ESP_LOGE(TAG, "Erase function returned an unknown error");
+            ESP_LOGE(TAG, "erase_sector: sector 0x%08lx failed: 0x%x", sector, swd_ret);
             return ESP_FAIL;
         }
 
@@ -931,15 +920,36 @@ esp_err_t swd_prog::check_flash_args(flash_access op, uint32_t addr, uint32_t le
         ESP_LOGE(TAG, "flash: the algorithm has no %s function", op == flash_access::erase ? "EraseSector" : "ProgramPage");
         return ESP_ERR_INVALID_STATE;
     }
-    const uint32_t start = fa.flash_start.value(), end = fa.flash_end.value(), sector = fa.page_size.value();
+    const uint32_t start = fa.flash_start.value(), end = fa.flash_end.value();
+    if (op == flash_access::erase) { // len counts sectors
+        uint32_t s = 0, size = 0;
+        if (len == 0) {
+            snprintf(why, why_len, "0 sectors");
+        } else if (!fa.sector_at(addr, &s, &size)) {
+            snprintf(why, why_len, "0x%08lx is outside the flash, 0x%08lx-0x%08lx", (unsigned long)addr, (unsigned long)start,
+                     (unsigned long)end);
+        } else if (s != addr) {
+            snprintf(why, why_len, "0x%08lx isn't the start of a sector (that one is 0x%08lx, %lu bytes)", (unsigned long)addr,
+                     (unsigned long)s, (unsigned long)size);
+        } else {
+            uint32_t a = addr, n = 0;
+            while (n < len && fa.sector_at(a, &s, &size)) {
+                a = s + size;
+                n++;
+            }
+            if (n == len) {
+                return ESP_OK;
+            }
+            snprintf(why, why_len, "%lu sectors from 0x%08lx run past the end of the flash (%lu fit)", (unsigned long)len,
+                     (unsigned long)addr, (unsigned long)n);
+        }
+        return ESP_ERR_INVALID_ARG;
+    }
     if (len == 0) {
         snprintf(why, why_len, "length 0");
     } else if (addr < start || addr >= end || len > end - addr) {
         snprintf(why, why_len, "0x%08lx+%lu is outside the flash, 0x%08lx-0x%08lx", (unsigned long)addr, (unsigned long)len,
                  (unsigned long)start, (unsigned long)end);
-    } else if (op == flash_access::erase && ((addr - start) % sector != 0 || len % sector != 0)) {
-        snprintf(why, why_len, "0x%08lx+%lu isn't whole %lu-byte sectors", (unsigned long)addr, (unsigned long)len,
-                 (unsigned long)sector);
     } else if (op == flash_access::write && len % 4 != 0) {
         snprintf(why, why_len, "length %lu isn't a multiple of 4", (unsigned long)len);
     } else {
@@ -948,26 +958,26 @@ esp_err_t swd_prog::check_flash_args(flash_access op, uint32_t addr, uint32_t le
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t swd_prog::erase_range(uint32_t addr, uint32_t len)
+esp_err_t swd_prog::erase_sectors(uint32_t addr, uint32_t count)
 {
-    char why[80] = "";
+    char why[96] = "";
     auto ret = ensure_layout();
-    ret = ret ?: check_flash_args(flash_access::erase, addr, len, why, sizeof(why));
+    ret = ret ?: check_flash_args(flash_access::erase, addr, count, why, sizeof(why));
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "erase_range: %s", why[0] ? why : esp_err_to_name(ret));
+        ESP_LOGE(TAG, "erase_sectors: %s", why[0] ? why : esp_err_to_name(ret));
         return ret;
     }
     const si::config::flash_algorithm &fa = algo();
-    const uint32_t sector = fa.page_size.value();
 
     ret = run_algo_init(swd_def::ERASE);
     if (ret != ESP_OK) {
         return ret;
     }
-    for (uint32_t a = addr; a - addr < len; a += sector) {
-        ret = swd_flash_syscall_exec(&syscall, fa.pc_erase_sector.value(), a, 0, 0, 0, FLASHALGO_RETURN_BOOL, nullptr);
+    uint32_t a = addr, s = 0, size = 0;
+    for (uint32_t n = 0; n < count && fa.sector_at(a, &s, &size); n++, a = s + size) {
+        ret = swd_flash_syscall_exec(&syscall, fa.pc_erase_sector.value(), s, 0, 0, 0, FLASHALGO_RETURN_BOOL, nullptr);
         if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "erase_range: sector 0x%08lx failed: 0x%x", a, ret);
+            ESP_LOGE(TAG, "erase_sectors: sector 0x%08lx failed: 0x%x", s, ret);
             state = swd_def::UNKNOWN;
             return ret;
         }

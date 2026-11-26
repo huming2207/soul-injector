@@ -109,11 +109,11 @@ public:
 
     virtual esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) { return ESP_ERR_NOT_SUPPORTED; }
     virtual esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) { return ESP_ERR_NOT_SUPPORTED; }
-    virtual esp_err_t flash_erase(uint32_t addr, size_t len) { return ESP_ERR_NOT_SUPPORTED; }
+    virtual esp_err_t flash_erase(uint32_t addr, uint32_t count) { return ESP_ERR_NOT_SUPPORTED; }
 
     enum class flash_op { read, write, erase };
     /** A flash_read/write/erase call's arguments, checked without touching the
-     *  target: ESP_ERR_INVALID_ARG with the reason in `why` when they're wrong.
+     *  target (`len`: bytes, or for erase a count of sectors): ESP_ERR_INVALID_ARG with the reason in `why` when they're wrong.
      *  Any other error is the call's own (no flash, not connected yet). */
     virtual esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len)
     {

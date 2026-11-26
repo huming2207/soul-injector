@@ -126,6 +126,33 @@ namespace
         return ESP_OK;
     }
 
+    // Same rules as sidp-agent: ascending ranges from offset 0, each covering
+    // whole sectors of its size, the last one up to flash_end.
+    esp_err_t validate_sectors(const si_job_FlashAlgorithm &algo)
+    {
+        const pb_size_t n = algo.sectors_count;
+        if (n == 0) {
+            return ESP_OK;
+        }
+        if (!algo.has_flash_start || !algo.has_flash_end || algo.flash_end <= algo.flash_start) {
+            ESP_LOGE(TAG, "algorithm '%s': sectors need the flash address range", algo.name);
+            return ESP_ERR_INVALID_STATE;
+        }
+        const uint32_t flash_len = algo.flash_end - algo.flash_start;
+        for (pb_size_t i = 0; i < n; i++) {
+            const si_job_SectorRange &r = algo.sectors[i];
+            const uint32_t next = i + 1 < n ? algo.sectors[i + 1].offset : flash_len;
+            bool ok = r.size != 0 && (i != 0 || r.offset == 0) && r.offset < next && next <= flash_len &&
+                      (next - r.offset) % r.size == 0;
+            if (!ok) {
+                ESP_LOGE(TAG, "algorithm '%s': sector range %u (offset 0x%lx, size 0x%lx) isn't whole sectors in order", algo.name,
+                         (unsigned)i, (unsigned long)r.offset, (unsigned long)r.size);
+                return ESP_ERR_INVALID_ARG;
+            }
+        }
+        return ESP_OK;
+    }
+
     esp_err_t validate_cortex_m(const si_job_Target &target, const algo_blob &blob)
     {
         const si_job_CortexM &cortex_m = target.cortex_m;
@@ -137,7 +164,8 @@ namespace
             ESP_LOGE(TAG, "algorithm '%s': page_size must be non-zero", cortex_m.algorithm.name);
             return ESP_ERR_INVALID_STATE;
         }
-        return validate_regions(target);
+        auto ret = validate_sectors(cortex_m.algorithm);
+        return ret ?: validate_regions(target);
     }
 
     esp_err_t validate_esp32(const si_job_Esp32 &esp32)
@@ -282,6 +310,11 @@ namespace
         dst.erased_byte_value = to_optional(src.has_erased_byte_value, src.erased_byte_value);
         dst.program_page_timeout_ms = to_optional(src.has_program_page_timeout_ms, src.program_page_timeout_ms);
         dst.erase_sector_timeout_ms = to_optional(src.has_erase_sector_timeout_ms, src.erase_sector_timeout_ms);
+        dst.sector_range_count = 0;
+        for (pb_size_t i = 0; i < src.sectors_count && i < flash_algorithm::MAX_SECTOR_RANGES; i++) {
+            dst.sectors[i] = {src.sectors[i].offset, src.sectors[i].size};
+            dst.sector_range_count++;
+        }
         dst.algo_bin = algo_bin;
         dst.algo_bin_len = algo_bin_len;
     }

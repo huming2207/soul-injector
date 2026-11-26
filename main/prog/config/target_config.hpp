@@ -112,8 +112,41 @@ namespace si::config
         std::optional<uint32_t> program_page_timeout_ms;
         std::optional<uint32_t> erase_sector_timeout_ms;
 
+        // Erase sectors (flash_properties.sectors): each range starts at
+        // `offset` from flash_start and runs to the next one, or flash_end,
+        // in sectors of `size`. None: uniform sectors of page_size.
+        struct sector_range {
+            uint32_t offset = 0;
+            uint32_t size = 0;
+        };
+        static constexpr size_t MAX_SECTOR_RANGES = 16;
+        sector_range sectors[MAX_SECTOR_RANGES] = {};
+        size_t sector_range_count = 0;
+
         const uint8_t *algo_bin = nullptr;
         size_t algo_bin_len = 0;
+
+        /**
+         * The erase sector holding `addr`: its first address and its size.
+         * False outside the flash range, or without a range and page size.
+         * The job decoder checked that the ranges cover whole sectors.
+         */
+        bool sector_at(uint32_t addr, uint32_t *start, uint32_t *size) const
+        {
+            if (!flash_start.has_value() || !flash_end.has_value() || !page_size.has_value() || page_size.value() == 0 ||
+                addr < flash_start.value() || addr >= flash_end.value()) {
+                return false;
+            }
+            const uint32_t off = addr - flash_start.value();
+            uint32_t base = 0, sz = page_size.value();
+            for (size_t i = 0; i < sector_range_count && sectors[i].offset <= off; i++) {
+                base = sectors[i].offset;
+                sz = sectors[i].size;
+            }
+            *start = flash_start.value() + base + (off - base) / sz * sz;
+            *size = sz;
+            return true;
+        }
     };
 
     /**

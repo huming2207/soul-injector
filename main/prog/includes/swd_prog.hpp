@@ -90,8 +90,9 @@ public:
     enum class flash_access { read, write, erase };
     /**
      * Checks a flash access against the job's flash algorithm alone (no
-     * target access): inside its flash range, whole sectors for an erase, a
-     * multiple of 4 bytes for a write. ESP_ERR_INVALID_ARG with the reason in
+     * target access): inside its flash range, a multiple of 4 bytes for a
+     * write. For an erase `len` counts sectors of the job's sector map, the
+     * first starting at `addr`. ESP_ERR_INVALID_ARG with the reason in
      * `why` when the arguments are wrong; ESP_ERR_INVALID_STATE when the job
      * has no flash range, page size or the algorithm function needed.
      */
@@ -106,7 +107,8 @@ public:
      */
     static bool read_has_fpu();
 
-    esp_err_t erase_range(uint32_t addr, uint32_t len);
+    /** Erases `count` sectors of the job's sector map, the first starting at `addr`. */
+    esp_err_t erase_sectors(uint32_t addr, uint32_t count);
     esp_err_t write_range(uint32_t addr, const uint8_t *buf, uint32_t len);
     esp_err_t call(uint32_t addr, const uint32_t args[4], uint32_t stack_top, uint32_t timeout_ms, bool (*cancelled)(), uint32_t *r0);
 

@@ -109,10 +109,10 @@ public:
         return ESP_OK;
     }
 
-    esp_err_t flash_erase(uint32_t addr, size_t len) override
+    esp_err_t flash_erase(uint32_t addr, uint32_t count) override
     {
         char s[32];
-        snprintf(s, sizeof(s), "FE%lx+%x", (unsigned long)addr, (unsigned)len);
+        snprintf(s, sizeof(s), "FE%lx*%u", (unsigned long)addr, (unsigned)count);
         add(s);
         memset(flash, 0xff, sizeof(flash));
         return ESP_OK;
@@ -132,12 +132,13 @@ public:
         if (len == 0) {
             return ESP_ERR_INVALID_ARG; // no reason given: the host supplies one
         }
-        if (addr < 0x08000000 || addr >= 0x08040000 || len > 0x08040000 - addr) {
+        uint64_t bytes = op == flash_op::erase ? (uint64_t)len * 0x800 : len; // erase: 2 KB sectors
+        if (addr < 0x08000000 || addr >= 0x08040000 || bytes > 0x08040000 - addr) {
             strlcpy(why, "outside", why_len);
             return ESP_ERR_INVALID_ARG;
         }
-        if (op == flash_op::erase && ((addr | len) & 0x7ff)) {
-            strlcpy(why, "not whole sectors", why_len);
+        if (op == flash_op::erase && (addr & 0x7ff)) {
+            strlcpy(why, "not a sector start", why_len);
             return ESP_ERR_INVALID_ARG;
         }
         return ESP_OK;
@@ -873,7 +874,7 @@ static void test_task(void *)
     {
         mock_target m;
         outcome o = run("flash", m);
-        const char *want = "FE803f800+800 FW803f800+4 FR803f800+4 FR803f800+2 FR803f800+4 ";
+        const char *want = "FE803f800*1 FW803f800+4 FR803f800+4 FR803f800+2 FR803f800+4 ";
         check(o.pre == ESP_OK && strcmp(m.log, want) == 0, "flash: erase/write/read, one buffer at a time", pre_err[0] ? pre_err : m.log);
         heap_same("flash");
     }

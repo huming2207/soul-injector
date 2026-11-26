@@ -791,6 +791,19 @@ esp_err_t esp32_serial_backend::flash_check(flash_op op, uint32_t addr, size_t l
         ESP_LOGE(TAG, "flash: target not connected; flash access is only available after detect()");
         return ESP_ERR_INVALID_STATE;
     }
+    if (op == flash_op::erase) { // len counts 4 KB sectors
+        if (len == 0) {
+            snprintf(why, why_len, "0 sectors");
+        } else if (addr % 4096 != 0 || addr >= flash_limit) {
+            snprintf(why, why_len, "0x%08lx isn't the start of a 4 KB sector in the %lu bytes of flash", (unsigned long)addr,
+                     (unsigned long)flash_limit);
+        } else if (len > (flash_limit - addr) / 4096) {
+            snprintf(why, why_len, "%u sectors from 0x%08lx run past the end of the flash", (unsigned)len, (unsigned long)addr);
+        } else {
+            return ESP_OK;
+        }
+        return ESP_ERR_INVALID_ARG;
+    }
     if (len == 0) {
         snprintf(why, why_len, "length 0");
     } else if (addr >= flash_limit || len > flash_limit - addr) {
@@ -799,8 +812,6 @@ esp_err_t esp32_serial_backend::flash_check(flash_op op, uint32_t addr, size_t l
     } else if (op == flash_op::write && ((addr & 3u) != 0 || (len & 3u) != 0 || len > sizeof(block))) {
         snprintf(why, why_len, "0x%08lx+%u isn't 4-byte aligned or is over %u bytes", (unsigned long)addr, (unsigned)len,
                  (unsigned)sizeof(block));
-    } else if (op == flash_op::erase && (addr | len) % 4096 != 0) {
-        snprintf(why, why_len, "0x%08lx+%u isn't whole 4 KB sectors", (unsigned long)addr, (unsigned)len);
     } else {
         return ESP_OK;
     }
@@ -852,16 +863,16 @@ esp_err_t esp32_serial_backend::flash_write(uint32_t addr, const uint8_t *buf, s
     return loader_err_to_esp(err);
 }
 
-esp_err_t esp32_serial_backend::flash_erase(uint32_t addr, size_t len)
+esp_err_t esp32_serial_backend::flash_erase(uint32_t addr, uint32_t count)
 {
-    auto ret = check_flash_range("flash_erase", addr, len);
+    static constexpr uint32_t SECTOR = 4096;
+    char why[96] = "";
+    auto ret = flash_check(flash_op::erase, addr, count, why, sizeof(why));
     if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "flash_erase: %s", why[0] ? why : esp_err_to_name(ret));
         return ret;
     }
-    if ((addr | len) % 4096 != 0) {
-        ESP_LOGE(TAG, "flash_erase: 0x%08lx+%u isn't whole 4 KB sectors", addr, (unsigned)len);
-        return ESP_ERR_INVALID_ARG;
-    }
+    const uint32_t len = count * SECTOR; // flash_check: fits in the flash
     esp_loader_error_t err = esp_loader_flash_erase_region(&loader, addr, len);
     if (err != ESP_LOADER_SUCCESS) {
         ESP_LOGE(TAG, "flash_erase: 0x%08lx+%u failed: %s", addr, (unsigned)len, loader_err_str(err));

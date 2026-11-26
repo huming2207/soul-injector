@@ -29,7 +29,7 @@ namespace
         esp_err_t write_mem(uint32_t addr, const uint8_t *buf, size_t len) override { return backend.write_mem(addr, buf, len); }
         esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) override { return backend.flash_read(addr, buf, len); }
         esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) override { return backend.flash_write(addr, buf, len); }
-        esp_err_t flash_erase(uint32_t addr, size_t len) override { return backend.flash_erase(addr, len); }
+        esp_err_t flash_erase(uint32_t addr, uint32_t count) override { return backend.flash_erase(addr, count); }
         esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len) override
         {
             auto o = op == flash_op::read    ? target_backend::flash_op::read

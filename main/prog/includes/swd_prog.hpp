@@ -60,6 +60,13 @@ private:
     uint32_t layout_generation = 0;   // config the layout is for
     bool have_layout = false;
 
+    // The algorithm load_flash_algorithm() wrote is still in target RAM, for
+    // config `resident_generation`, and nothing since could have changed it:
+    // the next flash operation may skip the reload (and its target reset)
+    // once reuse_flash_algorithm() has checked it.
+    bool algo_resident = false;
+    uint32_t resident_generation = 0;
+
 private:
     static const constexpr uint32_t halt_header = 0xBE00BE00; // Two breakpoint instructions.
                                                               // See https://github.com/probe-rs/probe-rs/pull/2883
@@ -68,6 +75,7 @@ private:
     swd_prog() = default;
     esp_err_t connect_and_halt();
     esp_err_t load_flash_algorithm();
+    esp_err_t reuse_flash_algorithm();
     esp_err_t run_algo_init(swd_def::init_mode mode);
     esp_err_t run_algo_uninit(swd_def::init_mode mode);
     esp_err_t ensure_layout();
@@ -106,6 +114,20 @@ public:
      * nothing. One SWD read: callers ask once per attach and keep the answer.
      */
     static bool read_has_fpu();
+
+    /**
+     * The flash algorithm stays loaded in target RAM between flash operations
+     * of one job run or agent session. Each reuse first checks the core is
+     * halted with no reset since and the halt header and stack canary are
+     * unchanged, then writes the image again (as fast as reading it back, and
+     * it may hold the algorithm's own variables). Callers drop it (forget_algorithm) when the
+     * target may have run or changed it: a reset, a resume, a call, a debug
+     * reconnect, a write over its RAM, and at the start and end of every run
+     * or session. The next operation then reloads it, resetting the target.
+     */
+    void forget_algorithm() { algo_resident = false; }
+    /** Whether [addr, addr+len) touches the RAM the loaded algorithm needs kept: header, code, data, stack canary. */
+    bool overlaps_algorithm(uint32_t addr, size_t len) const;
 
     /** Erases `count` sectors of the job's sector map, the first starting at `addr`. */
     esp_err_t erase_sectors(uint32_t addr, uint32_t count);

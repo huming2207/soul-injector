@@ -14,6 +14,8 @@
 
 #define TAG "swd_prog"
 
+static constexpr uint32_t DHCSR_ADDR = 0xE000EDF0; // DBG_HCSR is private to swd_host.c
+
 const si::config::flash_algorithm &swd_prog::algo()
 {
     return fw_asset_manager::instance()->config().algo;
@@ -40,6 +42,7 @@ esp_err_t swd_prog::connect_and_halt()
 
 esp_err_t swd_prog::load_flash_algorithm()
 {
+    algo_resident = false;
     swd_off();
     vTaskDelay(1);
     auto init_err = swd_init(pdMS_TO_TICKS(1000));
@@ -91,7 +94,63 @@ esp_err_t swd_prog::load_flash_algorithm()
 
     ESP_LOGI(TAG, "load_algo: OK");
     state = swd_def::FLASH_ALG_LOADED;
+    algo_resident = true;
+    resident_generation = fw_asset_manager::instance()->config().generation;
     return ESP_OK;
+}
+
+esp_err_t swd_prog::reuse_flash_algorithm()
+{
+    const si::config::flash_algorithm &fa = algo();
+    if (!algo_resident || state == swd_def::UNKNOWN || resident_generation != fw_asset_manager::instance()->config().generation ||
+        fa.load_address != code_start || fa.algo_bin_len != algo_bin_len) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    algo_resident = false; // until every step below passes
+
+    // Halted, and not reset since the last DHCSR read (S_RESET_ST is sticky
+    // until read; the algorithm calls read DHCSR after every call).
+    uint32_t dhcsr = 0;
+    auto ret = swd_read_word(DHCSR_ADDR, &dhcsr);
+    if (ret != ESP_OK || (dhcsr & S_HALT) == 0 || (dhcsr & (S_RESET_ST | S_LOCKUP)) != 0) {
+        ESP_LOGW(TAG, "reuse_algo: target not halted as left (DHCSR 0x%08lx, read 0x%x); loading again", (unsigned long)dhcsr, ret);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // The halt header and the stack canary lie outside the image, where only
+    // a write from someone else changes them.
+    uint32_t header = 0, canary = 0;
+    ret = swd_read_word(code_start - sizeof(uint32_t), &header);
+    ret = ret ?: swd_read_word(stack_bottom, &canary);
+    if (ret != ESP_OK || header != halt_header || canary != stack_canary) {
+        ESP_LOGW(TAG, "reuse_algo: halt header 0x%08lx, canary 0x%08lx changed since the algorithm was loaded (read 0x%x); loading again",
+                 (unsigned long)header, (unsigned long)canary, ret);
+        return ESP_ERR_INVALID_CRC;
+    }
+
+    // The image is written again whole: it may hold the algorithm's own
+    // variables (this STM32WL one keeps one in the padding after its code,
+    // below the yaml's data section), so reading it back can't tell a changed
+    // variable from damaged code. Writing it costs what reading it would, and
+    // leaves exactly what a reload does, minus the SWD restart and target reset.
+    ret = swd_write_memory(code_start, const_cast<uint8_t *>(fa.algo_bin), algo_bin_len);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "reuse_algo: rewriting the algorithm failed (0x%x); loading again", ret);
+        return ret;
+    }
+
+    state = swd_def::FLASH_ALG_LOADED;
+    algo_resident = true;
+    return ESP_OK;
+}
+
+bool swd_prog::overlaps_algorithm(uint32_t addr, size_t len) const
+{
+    if (!algo_resident || len == 0) {
+        return false;
+    }
+    const uint64_t start = code_start - sizeof(uint32_t), end = uint64_t(stack_bottom) + sizeof(uint32_t); // header .. canary
+    return addr < end && uint64_t(addr) + len > start;
 }
 
 esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
@@ -104,7 +163,9 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
     );
     uint32_t retry_cnt = 3;
     while (retry_cnt > 0) {
-        if (load_flash_algorithm() != ESP_OK) {
+        if (reuse_flash_algorithm() == ESP_OK) {
+            ESP_LOGI(TAG, "algo_init: algorithm still loaded, image rewritten");
+        } else if (load_flash_algorithm() != ESP_OK) {
             ESP_LOGE(TAG, "algo_init: Failed when loading flash algorithm");
             return ESP_FAIL;
         }
@@ -139,6 +200,7 @@ esp_err_t swd_prog::run_algo_init(swd_def::init_mode mode)
 
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "algo_init: Failed when init algorithm, returned %d, retrying...", ret);
+            forget_algorithm();
             init(stack_size); // Re-init SWD as well (so that target will reset)
             retry_cnt -= 1;
         } else {
@@ -439,6 +501,7 @@ esp_err_t swd_prog::self_test(uint32_t test_id, uint8_t *readout_buf, size_t rea
 
     if (swd_ret != ESP_OK) {
         ESP_LOGE(TAG, "Self-test function returned an unknown error");
+        state = swd_def::UNKNOWN;
         return ESP_FAIL;
     }
 
@@ -484,6 +547,7 @@ esp_err_t swd_prog::erase_sector(uint32_t start_addr, uint32_t end_addr)
         swd_ret = swd_flash_syscall_exec(&syscall, fa.pc_erase_sector.value(), sector, 0, 0, 0, FLASHALGO_RETURN_BOOL, nullptr);
         if (swd_ret != ESP_OK) {
             ESP_LOGE(TAG, "erase_sector: sector 0x%08lx failed: 0x%x", sector, swd_ret);
+            state = swd_def::UNKNOWN;
             return ESP_FAIL;
         }
 
@@ -1018,7 +1082,6 @@ esp_err_t swd_prog::write_range(uint32_t addr, const uint8_t *buf, uint32_t len)
 
 esp_err_t swd_prog::call(uint32_t addr, const uint32_t args[4], uint32_t stack_top_in, uint32_t timeout_ms, bool (*cancelled)(), uint32_t *r0)
 {
-    static constexpr uint32_t DHCSR_ADDR = 0xE000EDF0; // DBG_HCSR is private to swd_host.c
     const uint32_t bkpt = stack_top_in - 8; // returns here, stack below
     const si::config::target_config &cfg = fw_asset_manager::instance()->config();
     bool in_ram = false;
@@ -1029,6 +1092,7 @@ esp_err_t swd_prog::call(uint32_t addr, const uint32_t args[4], uint32_t stack_t
         ESP_LOGE(TAG, "call: stack top 0x%08lx isn't 8-aligned inside a RAM region of the job", stack_top_in);
         return ESP_ERR_INVALID_ARG;
     }
+    forget_algorithm(); // the target's own code runs, and may use any RAM
 
     auto ret = swd_halt_target();
     ret = ret ?: swd_wait_until_halted();

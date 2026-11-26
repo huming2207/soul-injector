@@ -94,7 +94,11 @@ namespace
     {
     public:
         esp_err_t read32(uint32_t addr, uint32_t *val) override { return swd_read_word(addr, val); }
-        esp_err_t write32(uint32_t addr, uint32_t val) override { return swd_write_word(addr, val); }
+        esp_err_t write32(uint32_t addr, uint32_t val) override
+        {
+            forget_algorithm_at(addr, sizeof(val));
+            return swd_write_word(addr, val);
+        }
 
         esp_err_t halt() override
         {
@@ -114,12 +118,14 @@ namespace
 
         esp_err_t reset() override // nRST, then it runs: what a job run's reset() does
         {
+            swd_prog::instance()->forget_algorithm();
             sidp::stop_detect_t stop{};
             return backend()->reset(sidp::RESET_NRST, false, stop);
         }
 
         esp_err_t reinit() override
         {
+            swd_prog::instance()->forget_algorithm();
             swd_off();
             vTaskDelay(1);
             esp_err_t ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
@@ -132,23 +138,22 @@ namespace
 
         esp_err_t write_mem(uint32_t addr, const uint8_t *buf, size_t len) override
         {
+            forget_algorithm_at(addr, len);
             return swd_write_memory(addr, const_cast<uint8_t *>(buf), len);
         }
 
         esp_err_t flash_read(uint32_t addr, uint8_t *buf, size_t len) override { return swd_read_memory(addr, buf, len); }
 
+        // The first one of a session loads the flash algorithm, which restarts
+        // SWD and resets the target; later ones reuse it while it checks out.
         esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) override
         {
-            auto *prog = swd_prog::instance();
-            esp_err_t ret = prog->init(); // the algorithm loader restarts SWD and resets the target
-            return ret ?: prog->write_range(addr, buf, len);
+            return swd_prog::instance()->write_range(addr, buf, len);
         }
 
         esp_err_t flash_erase(uint32_t addr, uint32_t count) override
         {
-            auto *prog = swd_prog::instance();
-            esp_err_t ret = prog->init();
-            return ret ?: prog->erase_sectors(addr, count);
+            return swd_prog::instance()->erase_sectors(addr, count);
         }
 
         esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len) override
@@ -165,7 +170,11 @@ namespace
             return swd_prog::instance()->call(addr, args, stack_top, timeout_ms, cancelled, r0);
         }
 
-        esp_err_t resume() override { return backend()->resume(sidp::RUN_CONTINUE, 0); }
+        esp_err_t resume() override
+        {
+            swd_prog::instance()->forget_algorithm();
+            return backend()->resume(sidp::RUN_CONTINUE, 0);
+        }
 
         esp_err_t read_reg(uint32_t id, uint32_t *val) override
         {
@@ -206,6 +215,14 @@ namespace
         esp_err_t clear_stop_cause() override { return swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL); }
 
         bool has_fpu = false; // from attach (CAP_FPU), so FP register access costs no extra SWD read
+
+    private:
+        static void forget_algorithm_at(uint32_t addr, size_t len)
+        {
+            if (swd_prog::instance()->overlaps_algorithm(addr, len)) {
+                swd_prog::instance()->forget_algorithm();
+            }
+        }
     };
 
     agent_target target;
@@ -363,6 +380,7 @@ sidp::status_t agent_service::claim(const si_agent_Permissions &perms, bool conn
         ESP_LOGW(TAG, "claim: attach failed: %s", esp_err_to_name(ret));
         return sidp::STATUS_SWD_ERROR;
     }
+    swd_prog::instance()->forget_algorithm(); // GDB, a run or another session may have had the target
 
     static const qjs_binder::incident_hooks hooks = {on_incident_open, on_incident_add};
     // A session's agent is there to resume a throttled watch; a trap lets it run after a while.
@@ -391,6 +409,7 @@ sidp::status_t agent_service::claim(const si_agent_Permissions &perms, bool conn
 
 void agent_service::release(uint8_t end)
 {
+    swd_prog::instance()->forget_algorithm();
     qjs_binder::js_host::instance()->end_session(target); // watches and vector catch first
     esp_err_t ret = ESP_OK;
     sidp::detach_action_t action = sidp::DETACH_KEEP_HALTED; // leaves a running target running

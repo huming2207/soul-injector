@@ -42,6 +42,7 @@ esp_err_t swd_cortexm_backend::check_core_reg(uint32_t id)
 esp_err_t swd_cortexm_backend::begin_session()
 {
     // Same bring-up sequence the old pre/post program handlers used.
+    swd_prog::instance()->forget_algorithm(); // anyone may have used the target since the last run
     swd_off();
     vTaskDelay(1);
     auto init_err = swd_init(pdMS_TO_TICKS(1000));
@@ -111,6 +112,7 @@ esp_err_t swd_cortexm_backend::self_test(const si::config::test_item &item, uint
 
 esp_err_t swd_cortexm_backend::release_transport()
 {
+    swd_prog::instance()->forget_algorithm();
     if (connected_under_reset) {
         // The session left the target halted at its reset vector.
         (void)swd_run_target();
@@ -125,6 +127,7 @@ esp_err_t swd_cortexm_backend::end_run(run_end how)
     if (how == run_end::as_is) {
         return release_transport();
     }
+    swd_prog::instance()->forget_algorithm();
 
     // Free the core from the debugger: a vector catch left set halts it at the
     // next reset or fault, and with C_DEBUGEN set a BKPT halts it for good.
@@ -194,12 +197,14 @@ esp_err_t swd_cortexm_backend::free_core(bool reset)
 
 esp_err_t swd_cortexm_backend::reset_target()
 {
+    swd_prog::instance()->forget_algorithm();
     swd_prog::trigger_nrst();
     return ESP_OK;
 }
 
 esp_err_t swd_cortexm_backend::reinit_debug()
 {
+    swd_prog::instance()->forget_algorithm();
     swd_off();
     vTaskDelay(1);
     return swd_init_debug(pdMS_TO_TICKS(1000));
@@ -222,6 +227,9 @@ esp_err_t swd_cortexm_backend::read_mem32(uint32_t addr, uint32_t *val)
 
 esp_err_t swd_cortexm_backend::write_mem32(uint32_t addr, uint32_t val)
 {
+    if (swd_prog::instance()->overlaps_algorithm(addr, sizeof(val))) {
+        swd_prog::instance()->forget_algorithm();
+    }
     return swd_write_word(addr, val);
 }
 
@@ -232,6 +240,9 @@ esp_err_t swd_cortexm_backend::read_mem(uint32_t addr, uint8_t *buf, size_t len)
 
 esp_err_t swd_cortexm_backend::write_mem(uint32_t addr, const uint8_t *buf, size_t len)
 {
+    if (swd_prog::instance()->overlaps_algorithm(addr, len)) {
+        swd_prog::instance()->forget_algorithm();
+    }
     return swd_write_memory(addr, const_cast<uint8_t *>(buf), len);
 }
 
@@ -266,6 +277,7 @@ esp_err_t swd_cortexm_backend::call(uint32_t addr, const uint32_t args[4], uint3
 
 esp_err_t swd_cortexm_backend::resume_target()
 {
+    swd_prog::instance()->forget_algorithm();
     return swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN); // debug stays on, unlike swd_run_target()
 }
 

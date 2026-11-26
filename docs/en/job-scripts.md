@@ -170,8 +170,16 @@ calibration.
   Sectors are those of the target yaml's `sectors` (`page_size` long
   without it), so `count` can cover sectors of different sizes; `addr`
   must be the start of one. `write` needs erased flash and a length the
-  flash can program (a multiple of 4, of 8 on STM32WL). Erase and write
-  reload the flash algorithm first, which resets the target.
+  flash can program (a multiple of 4, of 8 on STM32WL). The first erase
+  or write of a hook loads the flash algorithm, which restarts SWD and
+  resets the target (about 0.55 s); later ones reuse it while nothing can
+  have changed it (a 16-byte write then takes about 35 ms). A `reset()`,
+  `resume()`, `call()`, `reinit()`, or a write over the algorithm's RAM
+  (from its load address to the bottom of its stack) makes the next one
+  load it again. Each reuse first checks that the core is halted and
+  wasn't reset, and that the halt word before the algorithm and the canary
+  below its stack are unchanged, then writes the algorithm in again, so
+  what runs is always the job's copy with its variables fresh.
 - **ESP32**: through the flasher stub, only after detection. `erase` counts
   4 KB sectors; `write` erases the 4 KB sectors it covers itself, so
   anything else in them is lost, and is MD5-checked like an image.

@@ -158,6 +158,9 @@ build `CONFIG_SI_JS_NETWORK`).
 | `job push` under an armed trap said `BUSY` (Q10). Now "a trap is armed" (43), in either mode: disarm, push, arm again. `job run` still pauses a `yield` trap. Board: push refused with the message, run passed and paused the trap. | soul-injector c9fca6b, sidp_agent da99274 |
 | Plain arrays for bytes (Q3) stay refused, with a TypeError that says to use a `Uint8Array`; `api.d.ts` no longer declares `number[]`. Board: `crypto.sha256([1,2,3])` gives the new message. | soul-injector 76bbde2, sidp_agent 65eff79 |
 | `--session-end reset` now implies `--allow-reset` (Q6). Board: `target.reset()` in such a session works. | sidp_agent 160d0c2 |
+| With `--elf`, a capture named only the stacked PC and LR; the rest of the call chain was in the stack hex. `stack_code` now names the code addresses on the stack past the frame. Board (incident 485, through a new MCP server): `divide+0xe` ← `average+0x12` ← `crash+0x16` ← `main+0x88` ← `Reset_Handler+0x44`, as addr2line has it. | sidp_agent e7b0327 |
+| Trap status showed `0` for the default incident limit and throttle hold, which reads as "none"; now `"default"`. | sidp_agent ae71f6a |
+| `test()` starts with the core halted where the flash algorithm left it (DHCSR `0x00030003`); the docs now say to `reset()` first (reads work straight after it, no `reinit()` needed on the RAK3172). | soul-injector 8d20c44 |
 
 Found in the code review afterwards; test_app cases added; tried on the
 board 2026-11-26:
@@ -362,9 +365,6 @@ Answered 2026-11-26:
   firing every 2 s the device answered in 0.4 to 1.0 s. Moving the writes
   to their own task is a bigger change; it goes with Q1.
 
-- `test()` starts with the core halted in the flash algorithm (DHCSR
-  `0x00030003`): a script must `reset()` to see the new firmware run. The
-  docs don't say so.
 - Every `flash.erase`/`flash.write` call reloads the flash algorithm and
   costs about 0.55 s even for 16 bytes, mostly a 0.5 s wait in SWD init.
 - Argument errors in `flash.*` (6 bytes, outside the flash, an erase not

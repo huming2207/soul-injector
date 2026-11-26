@@ -82,7 +82,7 @@ All hooks are optional exports; each gets `ctx`:
 | Hook | Runs |
 | ---- | ---- |
 | `preProgram(ctx)` | After the backend session starts, before target detection. |
-| `test(ctx)` | After verify, instead of the job's `self_tests`. The CPU is reset after it passes (not on ESP32). |
+| `test(ctx)` | After verify, instead of the job's `self_tests`. The CPU starts halted where the flash algorithm left it, so the new firmware hasn't run yet: `await target.reset()` first to test it running. The CPU is reset after `test` passes (not on ESP32). |
 | `postProgram(ctx)` | After the self tests. |
 | `onFail(ctx, stage, err)` | When the run fails, before the device lets go of the target. |
 

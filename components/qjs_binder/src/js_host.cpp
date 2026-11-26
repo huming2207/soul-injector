@@ -74,6 +74,22 @@ namespace qjs_binder
     static void set_err(const char *fmt, const char *arg = "")
     {
         snprintf(g.err, sizeof(g.err), fmt, arg);
+        g.js_err_set = false;
+    }
+
+    // A string property of `e` into `out`, empty when it has none.
+    static void prop_text(JSContext *ctx, JSValueConst e, const char *name, char *out, size_t len)
+    {
+        out[0] = '\0';
+        JSValue v = JS_GetPropertyStr(ctx, e, name);
+        if (JS_IsString(v)) {
+            const char *t = JS_ToCString(ctx, v);
+            if (t) {
+                strlcpy(out, t, len);
+                JS_FreeCString(ctx, t);
+            }
+        }
+        JS_FreeValue(ctx, v);
     }
 
     // One line per runtime, so a long run of jobs or a trap that restarts for
@@ -107,6 +123,12 @@ namespace qjs_binder
         const char *st = JS_IsString(stack) ? JS_ToCString(ctx, stack) : nullptr;
         ESP_LOGE(TAG, "script: %s\n%s", msg ? msg : "(error)", st ? st : "");
         snprintf(g.err, sizeof(g.err), "%s", msg ? msg : "script error");
+        g.js_err_set = JS_IsError(e);
+        if (g.js_err_set) {
+            prop_text(ctx, e, "name", g.js_err_name, sizeof(g.js_err_name));
+            prop_text(ctx, e, "message", g.js_err_msg, sizeof(g.js_err_msg));
+            prop_text(ctx, e, "code", g.js_err_code, sizeof(g.js_err_code));
+        }
         JS_FreeCString(ctx, st);
         JS_FreeCString(ctx, msg);
         JS_FreeValue(ctx, stack);
@@ -279,7 +301,17 @@ namespace qjs_binder
         if (g.cur_hook == hook::on_fail) {
             args[1] = JS_NewString(ctx, g.fail_stage);
             args[2] = JS_NewError(ctx);
-            JS_SetPropertyStr(ctx, args[2], "message", JS_NewString(ctx, g.fail_reason));
+            if (g.fail_js) { // the hook's own error, as it threw it (less the stack)
+                if (g.js_err_name[0]) {
+                    JS_SetPropertyStr(ctx, args[2], "name", JS_NewString(ctx, g.js_err_name));
+                }
+                JS_SetPropertyStr(ctx, args[2], "message", JS_NewString(ctx, g.js_err_msg));
+                if (g.js_err_code[0]) {
+                    JS_SetPropertyStr(ctx, args[2], "code", JS_NewString(ctx, g.js_err_code));
+                }
+            } else {
+                JS_SetPropertyStr(ctx, args[2], "message", JS_NewString(ctx, g.fail_reason));
+            }
             argc = 3;
         }
         JSValue r = JS_IsFunction(ctx, fn) ? JS_Call(ctx, fn, JS_UNDEFINED, argc, args)
@@ -354,6 +386,7 @@ namespace qjs_binder
                                                     : ESP_ERR_TIMEOUT);
         } else if (why != QJS_ESP_STOP_REQUESTED) { // not end_run(): it died in a callback, e.g. onProgress
             snprintf(g.err, sizeof(g.err), "%s%s", ENDED_BETWEEN, stop_text(why));
+            g.js_err_set = false;
             ESP_LOGE(TAG, "%s", g.err);
         }
 
@@ -644,6 +677,7 @@ namespace qjs_binder
     {
         end_run();
         g.err[0] = '\0';
+        g.js_err_set = false;
         memset(g.hooks, 0, sizeof(g.hooks));
 
         size_t hash_len = 0;
@@ -743,15 +777,19 @@ namespace qjs_binder
         char err[sizeof(g.err)];
         strlcpy(err, g.err, sizeof(err));
         strlcpy(g.fail_stage, stage ? stage : "", sizeof(g.fail_stage));
+        g.fail_js = false;
         if (reason == nullptr || reason[0] == '\0') {
             reason = err[0] ? err : "failed";
+            g.fail_js = err[0] && g.js_err_set;
         }
         strlcpy(g.fail_reason, reason, sizeof(g.fail_reason));
+        bool js_err_set = g.js_err_set;
         esp_err_t ret = run_hook(hook::on_fail, target, timeout_ms, cancelled);
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "onFail failed too: %s", g.err);
         }
-        strlcpy(g.err, err, sizeof(g.err));
+        strlcpy(g.err, err, sizeof(g.err)); // the run's error stays the first failure
+        g.js_err_set = js_err_set;
         return ret;
     }
 

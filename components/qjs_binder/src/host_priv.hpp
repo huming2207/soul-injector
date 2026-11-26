@@ -209,6 +209,13 @@ namespace qjs_binder::priv
         char fail_stage[16];         // onFail arguments
         char fail_reason[96];
         char err[96];
+        // The script's own error behind `err`, when it is one (else js_err_set
+        // is false): onFail gets its name, message and code back.
+        bool js_err_set;
+        char js_err_name[24];
+        char js_err_msg[96];
+        char js_err_code[16];
+        bool fail_js;                // onFail's err is the script's error (js_err_*)
         char results_json[RESULTS_MAX + 1];
 
         bool running;

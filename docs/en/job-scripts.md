@@ -87,8 +87,10 @@ All hooks are optional exports; each gets `ctx`:
 | `onFail(ctx, stage, err)` | When the run fails, before the device lets go of the target. |
 
 - `onFail` gets the stage that failed (`preProgram`, `detect`, `erase`,
-  `program`, `verify`, `test`, `postProgram`) and an `Error`. Its message is
-  the script's own error when a hook failed, or `'failed'`. Use it to put the
+  `program`, `verify`, `test`, `postProgram`) and an `Error`. When a hook
+  threw, it has that error's `name`, `message` and, for a `TargetError`,
+  `code` (`err.code === 'TIMEOUT'`); otherwise its message says what failed
+  (`'failed'`, `'script ran out of time'`). Use it to put the
   target in a safe state or `log.record()` what went wrong. If it throws, the
   device logs that, and the run record still shows the first failure.
 - `onFail` doesn't run on a cancel, or after the script itself ran out of time

@@ -51,6 +51,9 @@ export async function preProgram(ctx) {
         throw new Error('boom2');
     case 'failfail':
         throw new Error('first');
+    case 'failtarget':
+        t.write32(0xbad, 1);
+        return;
     case 'regs': {
         t.halt();
         t.writeReg('r0', 5);
@@ -196,7 +199,7 @@ export async function test(ctx) {
 
 export async function onFail(ctx, stage, err) {
     if (ctx.hook !== 'onFail' || !(err instanceof Error)) throw new Error('onFail args');
-    log.record({ stage, msg: err.message });
+    log.record({ stage, msg: err.message, name: err.name, code: err.code ?? null });
     if (ctx.job.name === 'failfail') throw new Error('second');
     t.write32(0x1000, 0xf);
 }

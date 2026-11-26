@@ -886,11 +886,31 @@ static void test_task(void *)
         h->end_run();
         const char *res = h->last_results();
         check(hooks && tr == ESP_OK && strstr(res, "\"tested\":1"), "test: hook runs with its ctx", res);
-        check(pre == ESP_FAIL && f == ESP_OK && strstr(res, "\"stage\":\"preProgram\"") && strstr(res, "boom2") &&
-                  strcmp(m.log, "W1000=f ") == 0,
-              "onFail: gets the stage and the error", res);
+        check(pre == ESP_FAIL && f == ESP_OK && strstr(res, "\"stage\":\"preProgram\"") &&
+                  strstr(res, "\"msg\":\"boom2\",\"name\":\"Error\",\"code\":null") && strcmp(m.log, "W1000=f ") == 0,
+              "onFail: gets the stage and the error as thrown", res);
         check(strstr(err, "boom2") != nullptr, "onFail: last_error stays the first failure", err);
         heap_same("fail");
+    }
+    {
+        mock_target m;
+        run_info info = {"failtarget", "", "mock", false};
+        h->begin_run(qbc, qbc_end - qbc, nullptr, info);
+        esp_err_t pre = h->run_hook(hook::pre_program, m, 0, nullptr);
+        esp_err_t f = h->run_on_fail("preProgram", nullptr, m, 0, nullptr);
+        h->end_run();
+        const char *res = h->last_results();
+        check(pre == ESP_FAIL && f == ESP_OK && strstr(res, "\"name\":\"TargetError\",\"code\":\"FAULT\"") &&
+                  strstr(res, "\"msg\":\"write32") != nullptr,
+              "onFail: a TargetError keeps its name and code", res);
+        mock_target m2;
+        h->begin_run(qbc, qbc_end - qbc, nullptr, info);
+        h->run_hook(hook::pre_program, m2, 0, nullptr);
+        h->run_on_fail("erase", "erase failed", m2, 0, nullptr); // the device's failure, not the script's
+        h->end_run();
+        res = h->last_results();
+        check(strstr(res, "\"msg\":\"erase failed\",\"name\":\"Error\",\"code\":null") != nullptr,
+              "onFail: a device failure is a plain Error", res);
     }
     {
         mock_target m;

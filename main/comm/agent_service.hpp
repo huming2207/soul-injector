@@ -80,8 +80,14 @@ private:
         bool starting;          // the module was started; waiting for its top level's outcome
         uint32_t start_token;
         int64_t start_until_us; // past it a top level that's still going counts as started
+        // Waiting because the target didn't answer: probe it every PROBE_MS and
+        // start again as soon as it answers after having been seen gone.
+        bool absent;
+        bool probe_saw_gone;
+        int64_t next_probe_us;
     };
 
+    void trap_probe(int64_t now);
     sidp::status_t op_open(std::span<const uint8_t> payload, pb_ostream_t &out);
     sidp::status_t op_info(pb_ostream_t &out);
     sidp::status_t op_run(std::span<const uint8_t> payload, pb_ostream_t &out);
@@ -146,6 +152,7 @@ private:
     std::atomic<bool> trap_holds = false;
     std::atomic<bool> trap_yields = false;
     std::atomic<bool> run_wanted = false;
+    std::atomic<bool> probing = false; // trap_probe() has the debug claim for a moment
 
     static const constexpr size_t EVENTS_PER_READ = 8;
     static const constexpr uint32_t INCIDENT_EVENTS = 16;

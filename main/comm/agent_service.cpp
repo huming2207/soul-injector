@@ -27,6 +27,7 @@
 #include "qjs_binder.hpp"
 #include "sidp_swd_backend.hpp"
 #include "swd_prog.hpp"
+#include "target_lines.hpp"
 
 #if CONFIG_SI_JS_ENABLE
 
@@ -54,6 +55,7 @@ namespace
     constexpr uint32_t BACKOFF_MAX_MS = 60000;
     constexpr uint32_t LOST_RESTART_MS = 5000;
     constexpr uint32_t STABLE_MS = 60000;
+    constexpr uint32_t PROBE_MS = 1000; // while the target is gone
     constexpr uint32_t MAX_FAILURES = 5;
 
     int64_t now_us()
@@ -795,6 +797,9 @@ void agent_service::trap_start()
     }
     const si_agent_Permissions perms = trap.cfg.has_permissions ? trap.cfg.permissions : si_agent_Permissions{};
     const auto status = claim(perms, trap.cfg.connect_under_reset, true);
+    if (status != sidp::STATUS_SWD_ERROR) {
+        trap.absent = false;
+    }
     if (status != sidp::STATUS_OK) {
         heap_caps_free(module);
         switch (status) {
@@ -807,6 +812,11 @@ void agent_service::trap_start()
         case sidp::STATUS_SWD_ERROR:
             trap.backoff_ms = std::clamp(trap.backoff_ms * 2, BACKOFF_MIN_MS, BACKOFF_MAX_MS);
             trap_retry("the target doesn't answer", trap.backoff_ms);
+            if (!trap.absent) { // a new absence: trap_probe() must see it gone before it counts as back
+                trap.absent = true;
+                trap.probe_saw_gone = false;
+            }
+            trap.next_probe_us = now_us() + PROBE_MS * 1000LL;
             return;
         default:
             trap_fail("scripts can't run, see the device log");
@@ -920,8 +930,47 @@ void agent_service::trap_service()
         trap.retry_us = now + HOLDOFF_MS * 1000LL;
         return;
     }
+    if (trap.absent && trap.state == si_agent_TrapState_TRAP_STATE_WAITING && now < trap.retry_us && now >= trap.next_probe_us) {
+        trap_probe(now);
+    }
     if (now >= trap.retry_us) {
         trap_start();
+    }
+}
+
+void agent_service::trap_probe(int64_t now)
+{
+    // The backoff between attach attempts grows to a minute; a target plugged
+    // back in would wait out the rest of it unwatched. A probe (line reset and
+    // DP IDCODE: no target reset, no halt) every PROBE_MS sees it come back.
+    // Only after a probe has seen it gone: a target that answers the probe but
+    // not the attach (locked, asleep) keeps the backoff, so a connect-under-
+    // reset trap doesn't reset it every second.
+    trap.next_probe_us = now + PROBE_MS * 1000LL;
+    if (backend()->is_connected()) {
+        return; // GDB has the target; it claims it from this task, so this can't race
+    }
+    probing = true; // a run waiting for the trap (yield_for_run) waits for this too
+    if (job_controller::instance()->begin_debug() != ESP_OK) {
+        probing = false;
+        return; // a programming run has the lines
+    }
+    uint32_t idcode = 0;
+    target_lines::connect();
+    const esp_err_t ret = swd_probe_target(0, &idcode);
+    target_lines::isolate();
+    job_controller::instance()->end_debug();
+    probing = false;
+    if (ret == ESP_ERR_TIMEOUT || ret == ESP_ERR_INVALID_STATE) {
+        return; // someone else is on the bus: no news
+    }
+    if (ret != ESP_OK) {
+        trap.probe_saw_gone = true;
+    } else if (trap.probe_saw_gone) {
+        ESP_LOGI(TAG, "trap '%s': the target answers again (DP IDCODE 0x%08lx), starting", trap.cfg.name, (unsigned long)idcode);
+        trap.probe_saw_gone = false;
+        trap.backoff_ms = 0;
+        trap.retry_us = now;
     }
 }
 
@@ -951,11 +1000,20 @@ bool agent_service::make_way_for_run()
 
 bool agent_service::yield_for_run(uint32_t wait_ms)
 {
+    const int64_t end = now_us() + wait_ms * 1000LL;
+    if (probing) {
+        // The debug claim is a waiting trap's presence probe (trap_probe), a
+        // few milliseconds: the run goes once it's over, whatever the mode.
+        // probing is set before the claim and cleared after it.
+        while (probing && now_us() < end) {
+            vTaskDelay(1);
+        }
+        return !probing;
+    }
     if (!trap_yields) {
         return false;
     }
     run_wanted = true;
-    const int64_t end = now_us() + wait_ms * 1000LL;
     while (trap_holds && now_us() < end) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }

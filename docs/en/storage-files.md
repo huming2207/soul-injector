@@ -25,11 +25,24 @@ sidp-agent job push --port /dev/ttyACM0 \
   the same file.
 - `--name` sets the name the device reports (default: the variant name);
   `--variant` selects a variant when `target.yaml` lists several.
-- `--auto` runs the job whenever a target is plugged in. Without it the job
-  only runs on `sidp-agent job run`. The setting survives reboots.
+- `--trigger` says what starts a run besides `sidp-agent job run`, which
+  always can:
+
+  | `--trigger` | A run starts when |
+  | ----------- | ----------------- |
+  | `falling` (default) | the detect input falls: the adaptor's button, or a harness tying it to GND |
+  | `rising` | the detect input rises |
+  | `swd` | a target starts answering on SWD. The device probes every 0.5 s (line reset and DP IDCODE: no reset, no halt); after a run it waits until the target has stopped answering for 1 s before the next. Paused while GDB, an agent session or a trap has the target |
+  | `manual` | nothing: only `job run` |
+
+  Runs start on edges, not levels: the input's level at boot starts nothing,
+  and an edge during a run is dropped. With `swd`, firmware that turns SWD
+  off or sleeps looks like a target that went away, and runs again if it
+  answers later; use an edge for such targets. The setting survives
+  restarts.
 
 Images the device already holds are not uploaded again, and pushing the job
-that is already active only updates `--auto`. To switch products, push the
+that is already active only updates `--trigger`. To switch products, push the
 other product's job; the previous one is replaced.
 
 ## Running and checking

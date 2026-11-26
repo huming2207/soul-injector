@@ -22,6 +22,7 @@
 #include "sidp_transport_cdc.hpp"
 #include "swd_prog.hpp"
 #include "target_lines.hpp"
+#include <swd_host.h>
 #include "driver/i2c_master.h"
 
 esp_err_t bootstrap_fsm::init()
@@ -79,7 +80,7 @@ esp_err_t bootstrap_fsm::init()
     if (js_ret != ESP_OK && js_ret != ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGE(TAG, "Job scripts unavailable: 0x%x %s", js_ret, esp_err_to_name(js_ret));
     }
-    ret = job_controller::instance()->init(evt_group, BIT_RUN_REQUEST);
+    ret = job_controller::instance()->init(evt_group, BIT_RUN_REQUEST, BIT_TRIGGER_CHANGED);
     ret = ret ?: setup_usb();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up USB/SIDP: 0x%x %s", ret, esp_err_to_name(ret));
@@ -93,13 +94,9 @@ esp_err_t bootstrap_fsm::init()
         return ESP_FAIL;
     }
 
-    // Now set the initial detection state
-    if (last_det_state == 0) {
-        ESP_LOGI(TAG, "Target detected at boot time!");
-        xEventGroupSetBits(evt_group, BIT_TARGET_CONNECTED);
-    } else {
-        ESP_LOGI(TAG, "No target detected at boot time.");
-    }
+    // Runs start on edges, so the level at boot starts nothing.
+    ESP_LOGI(TAG, "Detect input %s at boot, trigger %s", last_det_state ? "high" : "low",
+             job_controller::trigger_name(job_controller::instance()->get_trigger()));
 
     ESP_LOGI(TAG, "Bootstrap init OK");
     return ESP_OK;
@@ -242,12 +239,24 @@ void bootstrap_fsm::fsm_task_handler(void *_ctx)
 
 void bootstrap_fsm::run_fsm_task()
 {
-    // Both bits are edges: a run request from SIDP, or a target plugged in.
-    EventBits_t bits = xEventGroupWaitBits(evt_group, BIT_TARGET_CONNECTED | BIT_RUN_REQUEST, pdTRUE, pdFALSE, portMAX_DELAY);
-
-    // job_controller has already claimed a requested run; a plugged-in
-    // target only runs when the job is armed for automatic runs.
+    // Run requests from SIDP and the trigger's edges on the detect input wake
+    // the task; with TRIGGER_DETECT_SWD it also wakes to probe for a target.
     auto *jobs = job_controller::instance();
+    const bool polling = jobs->get_trigger() == si_manage_Trigger_TRIGGER_DETECT_SWD;
+    EventBits_t bits = xEventGroupWaitBits(evt_group, BIT_DETECTED | BIT_RUN_REQUEST | BIT_TRIGGER_CHANGED, pdTRUE, pdFALSE,
+                                           polling ? pdMS_TO_TICKS(SWD_POLL_MS) : portMAX_DELAY);
+    if (bits & BIT_TRIGGER_CHANGED) {
+        swd_present = false; // a new setting starts from "no target": one there now runs
+        swd_absent_since_us = 0;
+    }
+    if ((bits & (BIT_DETECTED | BIT_RUN_REQUEST)) == 0) {
+        if (!polling || !swd_target_arrived()) {
+            return;
+        }
+    }
+
+    // job_controller has already claimed a requested run; a detected
+    // target only runs when the trigger asks for automatic runs.
     if ((bits & BIT_RUN_REQUEST) == 0 && !jobs->begin_auto_run() &&
         !(jobs->auto_run_waits_for_debug() && agent_service::instance()->yield_for_run(TRAP_YIELD_WAIT_MS) && jobs->begin_auto_run())) {
         show_auto_run_refused();
@@ -255,6 +264,45 @@ void bootstrap_fsm::run_fsm_task()
     }
 
     run_job();
+    // An edge during the run is dropped, not queued; and the target was there
+    // for the run, so SWD polling waits for it to go away before the next one.
+    xEventGroupClearBits(evt_group, BIT_DETECTED);
+    swd_present = true;
+    swd_absent_since_us = 0;
+}
+
+bool bootstrap_fsm::swd_target_arrived()
+{
+    if (!job_controller::instance()->swd_poll_wanted()) {
+        return false; // no job, a run, or GDB, a session or a trap has the target: leave the lines alone
+    }
+    uint32_t idcode = 0;
+    target_lines::connect();
+    esp_err_t ret = swd_probe_target(0, &idcode);
+    target_lines::isolate();
+    if (ret == ESP_ERR_TIMEOUT || ret == ESP_ERR_INVALID_STATE) {
+        return false; // another task is on the bus: no news
+    }
+    if (ret == ESP_OK) {
+        swd_absent_since_us = 0;
+        if (!swd_present) {
+            swd_present = true;
+            ESP_LOGI(TAG, "SWD: a target answers (DP IDCODE 0x%08lx)", idcode);
+            return true;
+        }
+        return false;
+    }
+    if (swd_present) {
+        int64_t now = esp_timer_get_time();
+        if (swd_absent_since_us == 0) {
+            swd_absent_since_us = now;
+        } else if (now - swd_absent_since_us >= SWD_GONE_MS * 1000LL) {
+            swd_present = false;
+            swd_absent_since_us = 0;
+            ESP_LOGI(TAG, "SWD: the target went away");
+        }
+    }
+    return false;
 }
 
 void bootstrap_fsm::show_auto_run_refused()
@@ -337,13 +385,12 @@ void bootstrap_fsm::update_target_detect()
     bool state = gpio_get_level(DET_IO_PIN);
     if (state != last_det_state) {
         last_det_state = state;
-        if (!state) {
-            ESP_LOGW(TAG, "Tag connected!");
-            xEventGroupSetBits(evt_group, BIT_TARGET_CONNECTED);
-        } else {
-            ESP_LOGW(TAG, "Tag DISCONNECTED!");
-            // A connect edge not yet picked up must not start a run later.
-            xEventGroupClearBits(evt_group, BIT_TARGET_CONNECTED);
+        si_manage_Trigger trigger = job_controller::instance()->get_trigger();
+        bool run = (!state && trigger == si_manage_Trigger_TRIGGER_DETECT_FALLING) ||
+                   (state && trigger == si_manage_Trigger_TRIGGER_DETECT_RISING);
+        ESP_LOGI(TAG, "Detect input %s%s", state ? "rose" : "fell", run ? ": run" : "");
+        if (run) {
+            xEventGroupSetBits(evt_group, BIT_DETECTED);
         }
     }
     arm_io_pin(DET_IO_PIN, state);

@@ -19,7 +19,8 @@ class bootstrap_fsm
 public:
     enum evt_bits : uint32_t {
         BIT_RUN_REQUEST = (1UL << 0UL),
-        BIT_TARGET_CONNECTED = (1UL << 1UL),
+        BIT_DETECTED = (1UL << 1UL),        // the trigger's edge on the detect input
+        BIT_TRIGGER_CHANGED = (1UL << 2UL), // a job push set the trigger
     };
 
 public:
@@ -53,10 +54,13 @@ private:
     void run_job();
     void show_auto_run_refused();
     void update_target_detect();
+    bool swd_target_arrived();
     void update_usb_power();
 
 private:
     bool last_det_state = false;
+    bool swd_present = false;        // TRIGGER_DETECT_SWD: the target answered and hasn't gone since
+    int64_t swd_absent_since_us = 0; // first failed probe while swd_present; 0: none
     bool usb_powered = false;
     esp_pm_lock_handle_t run_pm_lock = nullptr; // Held during a run: SWD and the target UART need full speed and no light sleep
     esp_pm_lock_handle_t usb_pm_lock = nullptr; // Held on USB power: USB stops working in light sleep
@@ -74,5 +78,7 @@ private:
     static const constexpr gpio_num_t PLUG_DET_PIN = static_cast<gpio_num_t>(CONFIG_SI_USB_PLUG_DET_PIN);
     static const constexpr char DATA_PARTITION_PATH[] = "/data";
     static const constexpr uint32_t TRAP_YIELD_WAIT_MS = 2000;
+    static const constexpr uint32_t SWD_POLL_MS = 500;  // TRIGGER_DETECT_SWD probe period
+    static const constexpr uint32_t SWD_GONE_MS = 1000; // no answer this long: the target went away
     static const constexpr char DATA_PARTITION_LABEL[] = "data";
 };

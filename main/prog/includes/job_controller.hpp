@@ -21,7 +21,8 @@
  * an asset is refused while a run is in progress, so the programming task can
  * read the job without holding the lock.
  *
- * The trigger survives reboots (NVS); run results and run IDs do not, but
+ * The trigger survives reboots (NVS; a device with none stored uses
+ * TRIGGER_DETECT_FALLING); run results and run IDs do not, but
  * every finished run is recorded in prog_log.
  */
 class job_controller
@@ -42,8 +43,13 @@ public:
     /** Returned by request_run() while the production log needs collecting (as prog_log::check_space()). */
     static const constexpr esp_err_t ERR_LOG_FULL = ESP_ERR_NO_MEM;
 
-    /** @p run_request_bit in @p evt_group wakes the programming task for a run. */
-    esp_err_t init(EventGroupHandle_t evt_group, EventBits_t run_request_bit);
+    /** @p run_request_bit in @p evt_group wakes the programming task for a run,
+     *  @p trigger_changed_bit when a job push changed the trigger. */
+    esp_err_t init(EventGroupHandle_t evt_group, EventBits_t run_request_bit, EventBits_t trigger_changed_bit);
+
+    /** What starts automatic runs (TRIGGER_MANUAL: none). */
+    si_manage_Trigger get_trigger();
+    static const char *trigger_name(si_manage_Trigger t);
 
     // ---- SIDP service task ----
     /** Activate the staged job and set the trigger. ERR_RUNNING while a run is in progress. */
@@ -78,6 +84,10 @@ public:
 
     bool auto_run_waits_for_debug();
 
+    /** The trigger is TRIGGER_DETECT_SWD and a probe could start a run now:
+     *  a job, no run, no debugger, session or trap on the target, log space. */
+    bool swd_poll_wanted();
+
     bool cancel_requested() const
     {
         return cancel_flag.load();
@@ -99,8 +109,10 @@ private:
     SemaphoreHandle_t mutex = nullptr;
     EventGroupHandle_t evt_group = nullptr;
     EventBits_t run_bit = 0;
+    EventBits_t trigger_bit = 0;
     bool debugging = false;
-    si_manage_Trigger trigger = si_manage_Trigger_TRIGGER_MANUAL;
+    // Written under the mutex; read without it too (the detect-input timer mustn't wait on a job push).
+    std::atomic<si_manage_Trigger> trigger = si_manage_Trigger_TRIGGER_DETECT_FALLING; // until NVS says otherwise
     bool running = false;
     si_manage_Trigger current_trigger = si_manage_Trigger_TRIGGER_MANUAL; // What started the current run
     uint32_t last_run_id = 0;

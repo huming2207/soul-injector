@@ -19,8 +19,8 @@ sidp-agent debug --port /dev/ttyACM0 --target target.yaml \
 
 `debug` takes the same job options as `job push`, programs the target once, and
 fails before attaching if the run does not pass. It sets the job's trigger to
-manual, so run `job push --auto` afterwards to re-arm a job that runs when a
-target is plugged in.
+manual, so run `job push` again afterwards (`--trigger`, default `falling`)
+to re-arm automatic runs.
 
 To attach to whatever the target is already running, without programming it:
 

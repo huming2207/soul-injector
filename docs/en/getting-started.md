@@ -8,7 +8,7 @@ SoulInjector is an ESP32-S31 based offline programmer. It supports:
 
 A PC with `sidp-agent` pushes the programming job and its firmware images over
 USB; after that the device programs targets on its own, on request or whenever
-a target is plugged in. Every run is recorded in a production log that the PC
+it detects a target (a button press, a harness, or a target answering on SWD). Every run is recorded in a production log that the PC
 collects later.
 
 ## Hardware revision builds
@@ -66,7 +66,8 @@ log and settings; `data` and `log` are formatted on the next boot.
 ## Power
 
 The device runs from USB or its battery. On battery it uses automatic light
-sleep between runs and wakes when a target is plugged in or USB power returns.
+sleep between runs and wakes on the detect input or when USB power returns
+(with `--trigger swd` it wakes every 0.5 s to probe).
 It stays out of light sleep while:
 
 - USB power is present (`CONFIG_SI_USB_PLUG_DET_PIN`, GPIO35 on Rev 7.1: the

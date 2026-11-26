@@ -58,6 +58,15 @@ connector. It is active high and pulled low, so the lines are open until
 firmware drives it. This allows current to be measured with the debug cable
 still attached. Target detect is not switched.
 
+## Target detect
+
+`DETECT_CFG` (GPIO3, `CONFIG_SI_TARGET_DETECT_PIN`) is an input with the
+ESP32's internal pull-up: it reads high until something pulls it to GND,
+such as the adaptor's button or a harness that ties it to the target's
+ground. The job's `--trigger` (see [Storage and files](storage-files.md))
+decides whether its falling or rising edge starts a run; the default is the
+falling edge, a button press.
+
 ## Power profiler
 
 Three INA226 sensors sit on a series shunt chain between `VPP_INPUT` and

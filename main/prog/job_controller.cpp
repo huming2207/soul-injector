@@ -10,7 +10,28 @@
 #include "fw_asset_manager.hpp"
 #include "prog_log.hpp"
 
-esp_err_t job_controller::init(EventGroupHandle_t _evt_group, EventBits_t run_request_bit)
+static bool valid_trigger(si_manage_Trigger t)
+{
+    return t >= _si_manage_Trigger_MIN && t <= _si_manage_Trigger_MAX;
+}
+
+const char *job_controller::trigger_name(si_manage_Trigger t)
+{
+    switch (t) {
+    case si_manage_Trigger_TRIGGER_MANUAL:
+        return "manual";
+    case si_manage_Trigger_TRIGGER_DETECT_FALLING:
+        return "detect input falling";
+    case si_manage_Trigger_TRIGGER_DETECT_RISING:
+        return "detect input rising";
+    case si_manage_Trigger_TRIGGER_DETECT_SWD:
+        return "target answering on SWD";
+    default:
+        return "unknown";
+    }
+}
+
+esp_err_t job_controller::init(EventGroupHandle_t _evt_group, EventBits_t run_request_bit, EventBits_t trigger_changed_bit)
 {
     mutex = xSemaphoreCreateMutex();
     if (mutex == nullptr) {
@@ -18,18 +39,24 @@ esp_err_t job_controller::init(EventGroupHandle_t _evt_group, EventBits_t run_re
     }
     evt_group = _evt_group;
     run_bit = run_request_bit;
+    trigger_bit = trigger_changed_bit;
 
     nvs_handle_t handle = 0;
     uint8_t stored = 0;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
-        if (nvs_get_u8(handle, NVS_TRIGGER_KEY, &stored) == ESP_OK && stored == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT) {
-            trigger = si_manage_Trigger_TRIGGER_AUTO_ON_DETECT;
+        if (nvs_get_u8(handle, NVS_TRIGGER_KEY, &stored) == ESP_OK && valid_trigger((si_manage_Trigger)stored)) {
+            trigger = (si_manage_Trigger)stored;
         }
         nvs_close(handle);
     }
 
-    ESP_LOGI(TAG, "init: trigger %s", trigger == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT ? "auto" : "manual");
+    ESP_LOGI(TAG, "init: trigger %s", trigger_name(trigger.load()));
     return ESP_OK;
+}
+
+si_manage_Trigger job_controller::get_trigger()
+{
+    return trigger.load();
 }
 
 void job_controller::lock()
@@ -58,7 +85,7 @@ esp_err_t job_controller::save_trigger(si_manage_Trigger new_trigger)
 
 esp_err_t job_controller::set_job(const uint8_t *sha256, si_manage_Trigger new_trigger)
 {
-    if (new_trigger != si_manage_Trigger_TRIGGER_MANUAL && new_trigger != si_manage_Trigger_TRIGGER_AUTO_ON_DETECT) {
+    if (!valid_trigger(new_trigger)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -72,6 +99,10 @@ esp_err_t job_controller::set_job(const uint8_t *sha256, si_manage_Trigger new_t
         trigger = new_trigger;
     }
     unlock();
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "set_job: trigger %s", trigger_name(new_trigger));
+        xEventGroupSetBits(evt_group, trigger_bit); // the programming task may wait differently now
+    }
     return ret;
 }
 
@@ -118,8 +149,16 @@ esp_err_t job_controller::request_run(uint32_t *run_id_out)
 
 bool job_controller::auto_run_ready_locked()
 {
-    return !running && trigger == si_manage_Trigger_TRIGGER_AUTO_ON_DETECT && fw_asset_manager::instance()->has_job() &&
+    return !running && trigger != si_manage_Trigger_TRIGGER_MANUAL && fw_asset_manager::instance()->has_job() &&
            prog_log::instance()->check_space() == ESP_OK;
+}
+
+bool job_controller::swd_poll_wanted()
+{
+    lock();
+    bool ret = trigger == si_manage_Trigger_TRIGGER_DETECT_SWD && !debugging && auto_run_ready_locked();
+    unlock();
+    return ret;
 }
 
 bool job_controller::auto_run_waits_for_debug()
@@ -135,7 +174,7 @@ bool job_controller::begin_auto_run()
     lock();
     bool start = !debugging && auto_run_ready_locked();
     if (start) {
-        start_run_locked(si_manage_Trigger_TRIGGER_AUTO_ON_DETECT);
+        start_run_locked(trigger);
     }
     unlock();
     return start;

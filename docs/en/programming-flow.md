@@ -1,8 +1,9 @@
 # Programming flow
 
 A run programs one target with the device's job. It starts when
-`sidp-agent job run` asks for one, or when a target is plugged in and the job
-was pushed with `--auto`. Each run goes through these states:
+`sidp-agent job run` asks for one, or when the job's `--trigger` detects a
+target (an edge on the detect input, or a target answering on SWD; see
+[Storage and files](storage-files.md)). Each run goes through these states:
 
 1. Check that the job exists, and hash its images to check they still match
    the hashes it pins.

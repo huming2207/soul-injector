@@ -124,6 +124,7 @@ All hooks are optional exports; each gets `ctx`:
 
 `reg` is a name (`r0`-`r15`, `sp`, `lr`, `pc`, `xpsr`, `msp`, `psp`,
 `fpscr`, `s0`-`s31`, any case) or the raw `DCRSR` register number (0-127).
+`fpscr` and `s0`-`s31` are `UNSUPPORTED` on a core without an FPU.
 `cfbp` (20) is CONTROL, FAULTMASK, BASEPRI and PRIMASK packed into one word.
 
 Sync calls take `{ timeoutMs = 500, retries = 0 }`. They only work inside a

@@ -20,11 +20,33 @@ static constexpr uint8_t DP_CTRL_STAT_ADDR = 0x04;
 static constexpr uint32_t END_PULSE_MS = 20;     // nRST low
 static constexpr uint32_t END_CATCH_MS = 500;    // for the core to stop at its reset vector
 
+static constexpr uint32_t MVFR0_ADDR = 0xE000EF40;
+static constexpr uint32_t REGSEL_FPSCR = 0x21;
+static constexpr uint32_t REGSEL_S0 = 0x40;
+static constexpr uint32_t REGSEL_S31 = 0x5F;
+
 static esp_err_t check_halted()
 {
     uint32_t dhcsr = 0;
     esp_err_t ret = swd_read_word(DHCSR_ADDR, &dhcsr);
     return ret != ESP_OK ? ret : (dhcsr & S_HALT) ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+// A core register access: halted, and an FP register (FPSCR, S0-S31) only on a
+// core with a single precision FPU. Without one DCRSR still answers, with a
+// value that means nothing. MVFR0 reads as 0 (or faults, on ARMv6-M) then.
+static esp_err_t check_core_reg(uint32_t id)
+{
+    esp_err_t ret = check_halted();
+    if (ret == ESP_OK && (id == REGSEL_FPSCR || (id >= REGSEL_S0 && id <= REGSEL_S31))) {
+        uint32_t mvfr0 = 0;
+        if (swd_read_word(MVFR0_ADDR, &mvfr0) != ESP_OK) {
+            (void)swd_clear_errors(); // ARMv6-M: no MVFR0
+            mvfr0 = 0;
+        }
+        ret = (mvfr0 & 0xF0) != 0 ? ESP_OK : ESP_ERR_NOT_SUPPORTED;
+    }
+    return ret;
 }
 
 esp_err_t swd_cortexm_backend::begin_session()
@@ -250,12 +272,12 @@ esp_err_t swd_cortexm_backend::resume_target()
 
 esp_err_t swd_cortexm_backend::read_core_reg(uint32_t id, uint32_t *val)
 {
-    esp_err_t ret = check_halted();
+    esp_err_t ret = check_core_reg(id);
     return ret != ESP_OK ? ret : swd_read_core_register(id, val);
 }
 
 esp_err_t swd_cortexm_backend::write_core_reg(uint32_t id, uint32_t val)
 {
-    esp_err_t ret = check_halted();
+    esp_err_t ret = check_core_reg(id);
     return ret != ESP_OK ? ret : swd_write_core_register(id, val);
 }

@@ -121,7 +121,7 @@ crash.elf ...`, then a restart of Claude Code so it loads).
 | 4.6 | Session while armed | Refused; `trap status`, events and captures still readable | Pass. Session refused (status 43); status readable |
 | 4.7 | Rate limit with `resetloop.bin` and a `reset` watch | 12 an hour, then `suppressed` counts | Pass. 12 incidents, then 15 counted as suppressed in 40 s |
 | 4.8 | `--incidents-per-hour 3600`, more than 32 incidents | Oldest dropped; count stays at 32 and under 512 KB | Pass. 32 kept (ids 37–68), 106 KB |
-| 4.9 | Target unplugged for a minute, plugged back | Backoff while gone; trap back within a few seconds of the target answering | |
+| 4.9 | Target unplugged for a minute, plugged back | Backoff while gone; trap back within a few seconds of the target answering | Pass after a fix. First try: backoff 1, 2, 4, 8, 16, 32 s (to 60 s), and the trap came back only on its next attempt, 35 s after the replug; the first incident had the target's fault counter at 5, so faults 1-4 went unrecorded. Now a waiting trap probes the absent target every second (no reset, no halt): replugged after 1.5 min, running again within the second, first incident at fault counter 1 (soul-injector e0cedfd) |
 | 4.10 | Module that throws after starting | Restarted with backoff, gives up after 5 with a note; arming a module whose top level throws is refused with the error | Pass after a fix: a top level that throws is refused at arm; one that throws later was never restarted (trap stayed "running"), fixed (c42ff27): 5 starts, then `failed` |
 | 4.11 | UTC times | With the clock set (`log pull` sets it), incidents have UTC; after a restart with no computer, boot count and uptime | Pass. With the clock set, UTC; after a restart with no `log pull` since, incidents show "boot 111 +97.2 s" |
 | 4.12 | Disarm | Target left as it is; sessions work again; the device goes back to light sleep (PM lock released) | Pass for GDB and sessions after disarm. Light sleep: can't be seen while USB powers the device (light sleep is off then) |
@@ -441,8 +441,7 @@ starts about 4 s late after every power-up, even with nothing wrong);
 3. Button with `--trigger falling` and `rising`, and during a run: done
    2026-11-26, passes (see the Q13 row).
 4. Postponed (Q7): 3.8 reset button, 3.10 target power, 4.1 USB data cut,
-   4.2 power cycle, 4.4 auto run (needs the detect pin grounded, Q13),
-   4.9 target unplugged; WiFi for 1.5, 3.13, 3.15.
+   4.2 power cycle, 4.4 auto run (needs the detect pin grounded, Q13); WiFi for 1.5, 3.13, 3.15.
 5. MCP: the named-frame part of 3.16 passed with today's sidp-agent run by
    hand over stdio (`mcp --elf rare.elf`, incident 485). This background
    session's own MCP server still runs the 07:36 binary: restarting the

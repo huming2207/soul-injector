@@ -160,7 +160,7 @@ build `CONFIG_SI_JS_NETWORK`).
 | `--session-end reset` now implies `--allow-reset` (Q6). Board: `target.reset()` in such a session works. | sidp_agent 160d0c2 |
 | With `--elf`, a capture named only the stacked PC and LR; the rest of the call chain was in the stack hex. `stack_code` now names the code addresses on the stack past the frame. Board (incident 485, through a new MCP server): `divide+0xe` ← `average+0x12` ← `crash+0x16` ← `main+0x88` ← `Reset_Handler+0x44`, as addr2line has it. | sidp_agent e7b0327 |
 | Trap status showed `0` for the default incident limit and throttle hold, which reads as "none"; now `"default"`. | sidp_agent ae71f6a |
-| `test()` starts with the core halted where the flash algorithm left it (DHCSR `0x00030003`); the docs now say to `reset()` first (reads work straight after it, no `reinit()` needed on the RAK3172). | soul-injector 8d20c44 |
+| `test()` starts with the core halted where the flash algorithm left it (DHCSR `0x00030003`); the docs now say to `reset()` first (reads work straight after it, no `reinit()` needed on the RAK3172). | soul-injector 6012bad |
 
 Found in the code review afterwards; test_app cases added; tried on the
 board 2026-11-26:

@@ -451,3 +451,11 @@ needs it grounded.
   costs about 0.55 s even for 16 bytes, mostly a 0.5 s wait in SWD init.
 - swd_esp `tests/test_init.py` didn't build since connect-under-reset; fixed
   with e7c9bd3.
+- Once, `sidp-agent trap status` failed with `SIDP I/O: Broken pipe` 1.1 s
+  after a boot, right after two good requests, while the `soak` trap was
+  starting (2026-11-26 21:30:21; the device logged an ordinary 250 ms
+  connection). Not reproduced: 6 resets with `trap status` and `device
+  info` back to back from the moment USB came up, 198 requests, none broke.
+  The one failure there was `Permission denied` 10 ms after the port
+  appeared, before udev had set its mode: host side, but the agent could
+  retry an open that fails that way for a second or so.

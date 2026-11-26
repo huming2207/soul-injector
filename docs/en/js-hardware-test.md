@@ -451,10 +451,26 @@ a real power cycle with it (needs you; Next).
    see 4.13). The trap re-armed itself after the 21:27 flash (build with
    version 2026.11.0): counter 184, next incident 553.
 3. Button with `--trigger falling` and `rising`, and during a run: done
-   2026-11-26, passes (see the Q13 row).
-4. Postponed (Q7): 3.8 reset button, 3.10 target power, 4.1 USB data cut,
-   4.2 power cycle, 4.4 auto run (needs the detect pin grounded, Q13); WiFi for 1.5, 3.13, 3.15.
-5. MCP: the named-frame part of 3.16 passed with today's sidp-agent run by
+   2026-11-26, passes (see the Q13 row). 4.2 power cycle and 4.9 target
+   unplugged: pass (rows above).
+4. **Soak (4.13) fifth run armed 2026-11-26 23:26:51** on build 8e33c2f
+   (all of today's fixes), trap `soak` (`js/trap-soak.mjs`, default 12
+   incidents an hour) on `rare.bin`, target fault counter 43, newest
+   incident 661: incidents after 661 should equal the counter's growth past
+   43 (`data.status` bytes 8-11 of the newest incident), `starts_this_boot`
+   1, no ESP restart in `results/uart.log`. Let it run to 48 h if you can
+   leave the board.
+5. Needs you, when the soak is done or stopped: Q14 with a real power cycle.
+   `sidp-agent trap disarm`, program `crash.bin` (`js/run-case.sh hw-plain
+   crash.bin --trigger manual`), `sidp-agent trap arm --name cur
+   --connect-under-reset js/trap-cur.mjs`, then all cables off for 10 s and
+   back. Expected: `trap-cur: attached at pc 8000224` in the UART log about
+   4 s after power-up, and an incident about 4 s after that whose
+   `data.status` boots (bytes 4-7) is 2 (1 from the first 1.2 s before the
+   hold, 1 from the release) and faults (bytes 8-11) 1.
+6. Postponed (Q7): 3.8 reset button, 3.10 target power, 4.1 USB data cut,
+   4.4 auto run (needs the detect pin grounded, Q13); WiFi for 1.5, 3.13, 3.15.
+7. MCP: the named-frame part of 3.16 passed with today's sidp-agent run by
    hand over stdio (`mcp --elf rare.elf`, incident 485). This background
    session's own MCP server still runs the 07:36 binary: restarting the
    CLI you type in doesn't restart it. To use the new one from Claude

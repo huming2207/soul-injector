@@ -114,7 +114,7 @@ crash.elf ...`, then a restart of Claude Code so it loads).
 | # | Test | Pass when | Result |
 |---|------|-----------|--------|
 | 4.1 | Arm a `fault` trap (reflex `none`, handler `{ action: 'resume', data }`) on `crash.bin`, then close the agent and unplug USB data (power only) | Status `armed`; incident written; `incident show --elf` has the capture, the events before it and `data` | Pass without the USB-unplug part: incident with the decoded capture (`divide+0xe`, DIVBYZERO, FORCED), UTC, and the handler's `data`. `events_before` also held another session's events (see below) |
-| 4.2 | Restart the device (CH340 open, then a power cycle) | Trap starts again from the top; boot count in the next incidents goes up | Pass for an ESP restart (CH340 open): trap starts again by itself, incidents kept, the target not reset by it. Power cycle: needs a hand |
+| 4.2 | Restart the device (CH340 open, then a power cycle) | Trap starts again from the top; boot count in the next incidents goes up | Pass for an ESP restart (CH340 open): trap starts again by itself, incidents kept, the target not reset by it. Power cycle (2026-11-26, all cables off for about 10 s, `rarequick.bin`, target powered from the adaptor so it went down too): pass. Boot 160 to 161, trap back by itself (`starts_this_boot` 1, `running`, 0 suppressed), the 32 incidents kept and readable, new ones every 10-17 s with boot 161 (no UTC until a computer sets the clock). The target's first fault after power-up has no incident: the watch was in place at 3.5 s (the `trap-soak armed` event, the only one before the next fault) and no target reset was seen after it, so that fault and its reset came before (Q14) |
 | 4.3 | `yield` mode: GDB attaches, then detaches | GDB works; trap starts again about 3 s after the detach | Pass. Paused "a debugger attached"; GDB works (`stepi` 12.3 ms); trap back after the detach |
 | 4.4 | `yield` mode: manual run and auto run on detect | Runs work; trap back after them | Pass for manual runs: paused "a programming run", back 3.2 s after the run, the next crash is an incident. Auto run on detect: needs a hand. Found: every trap start stalled SIDP for 5 s, fixed (37ba76d) |
 | 4.5 | `exclusive` mode | GDB and runs refused while armed | Pass: job runs refused (status 43); GDB refused, first as "SWD error", fixed to "busy" (e000c2c, sidp_client 82f0e26) |
@@ -389,6 +389,18 @@ RAK3172, so the bench harness doesn't ground it; it's not a firmware
 fault. Which pin of the programming connector is it, and should the docs
 say so (`rev8-hardware.md` has no word on it)? Auto run on detect (4.4)
 needs it grounded.
+
+**Q14. Faults in the first seconds after power-up.** After a power cycle
+the probe boots in about 2.5 s and starts the armed trap 2 s later
+(`BOOT_DELAY_MS`); its watches are in place about 3.5-4.5 s after power-up.
+A target powered with the probe runs its firmware from the start, so a
+fault in those first seconds isn't recorded (seen in 4.2: fault 1 of
+`rarequick.bin` came before the watch). For crashes at power-up this is
+the window that matters. Options: (a) document it; (b) for a trap armed
+with `--connect-under-reset`, hold the target's nRST low from early boot
+until the trap has attached, so the target starts under watch (it then
+starts about 4 s late after every power-up, even with nothing wrong);
+(c) drop the 2 s start delay (saves 2 s, not the boot time). Which?
 
 ### Morning checklist (2026-11-25, done 2026-11-26)
 

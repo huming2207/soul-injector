@@ -166,6 +166,8 @@ build `CONFIG_SI_JS_NETWORK`).
 | `flash.*` argument errors came back as `FAULT`, and in an agent session the flash algorithm was loaded (resetting the target) before the call failed. Now checked from the job's config first: `RangeError` with the reason, target untouched; `flash.read` limited to the flash range. Board (`hw-ops`): six refusals, each with its reason ("0x0803f804+4 isn't whole 2048-byte sectors", "length 0", "outside the flash, 0x08000000-0x08040000"), DHCSR.S_RESET_ST clear after them; a write over programmed words still `FAULT`. | soul-injector d30211d; sidp_agent 3e29790 |
 | A pinned asset that didn't match said "not the image this job pins" even for a script. Board: "the firmware /data/firmware.bin isn't the one the job pins (SHA-256 8e931b72..., the job wants 686a57b5...)". | soul-injector 037457e |
 | `gpio: conflict found for GPIO[9]` on every SWD init (BOOT pin configured twice on the AXC2T245 front end). Board: none since the flash. | swd_esp 97d4685, soul-injector 2a2e585 |
+| Q11: erase sectors were taken to be `page_size` long everywhere (`flash.erase`, the erase before programming): on STM32F4-like parts a 1 KB erase wiped a 16 KB sector. The job now carries the yaml's `sectors` map and `flash.erase(addr, count)` takes a count of sectors (your answer). Board, with a fake 4 KB map over the WLE5's 2 KB pages (the second half of a fake sector survives an erase, which shows where EraseSector ran): an erase at a 4 KB start leaves its second half's pattern; one inside a sector is refused ("isn't the start of a sector (that one is 0x0803f000, 4096 bytes)"); the programming erase without EraseAll walks the map and leaves it too; `hw-ops` passes on the real map. | sidp_client 3575417, sidp_agent e6cdd87, soul-injector eb6a703 |
+| Q13: automatic runs started when the detect input was low (a level, also at boot) and only with `--auto`. Now `job push --trigger falling` (default: the button pulls it to GND), `rising`, `swd` (a probe every 0.5 s: line reset and DP IDCODE, no reset or halt; a target that starts answering runs once, again only after it stopped answering for 1 s; paused while GDB, a session or a trap has the target) or `manual`. Edges, not levels; an edge during a run is dropped. Board (`swd`): a push ran once 0.5 s later and not again; no rerun after a manual run or an agent session; records show `TRIGGER_DETECT_SWD`; `sleep.bin` turning SWD off read as "the target went away"; the polls log nothing. **The edges need the button: not tried.** | swd_esp 6b030a2, sidp_client 01bcd05, sidp_agent faffc8d, soul-injector 387df2b |
 
 Found in the code review afterwards; test_app cases added; tried on the
 board 2026-11-26:
@@ -344,6 +346,10 @@ isn't whole sectors of that map). It changes the main programming path,
 and nothing on the bench has non-uniform sectors. Do it now and test it
 on an F4 board when you have one, or wait until then?
 
+Answered 2026-11-26 (afternoon): Q11 `flash.erase(addr, count)` over the
+real sector map, done. Q13 four triggers, `falling` by default, done (the
+button tests wait for you). Q12 asked to be explained; see below.
+
 **Q12. Firmware version and hardware revision in `device info`.** The
 version is ESP-IDF's `git describe`, cut to the app descriptor's 31
 characters: `legacy-s3-yaml-115-g037457e-dirty` shows as `...-dir`, and the
@@ -353,6 +359,19 @@ product version you release, the commit hash in its own `DeviceInfo`
 field (`firmware_commit`, "037457e" or "037457e-dirty"), and
 `hardware` ("8") from `CONFIG_SI_DEVICE_BUILD`. The version scheme is
 yours to choose.
+
+In more words: `device info` shows `Firmware: legacy-s3-yaml-117-g58b55e2`.
+That's `git describe`: the newest tag (`legacy-s3-yaml`, an old one), 117
+commits since it, and the commit (`58b55e2`), plus `-dirty` when the tree
+had uncommitted changes at build time. ESP-IDF keeps it in a 32-byte field,
+so on a long string `-dirty` is cut to `-dir` or lost, and a build that
+isn't any commit looks like one. It isn't a product version either: an
+operator can't tell from it whether a device has this month's release. And
+nothing says which board the firmware was built for, so a Rev 7.1 and a
+Rev 8 look the same. What I'd do: you set a release version (`0.4.0`) in
+`version.txt`; `device info` shows `Firmware: 0.4.0 (58b55e2)`, or `(58b55e2,
+modified)`, and `Hardware: Rev 8`, each from its own field so nothing gets
+cut. Say if you want it, and which version to start from.
 
 **Q13. Target detect on the adaptor.** The input (GPIO3 on Rev 8) is
 active low with the internal pull-up: a target counts as connected when
@@ -392,12 +411,17 @@ needs it grounded.
    2 incidents), `starts_this_boot` 1, no restart or error in the UART log.
 2. Soak third run passed (10:56:27 to 11:32:54): counter 103 to 107, 4
    faults, 4 incidents (485-488), 0 suppressed, `starts_this_boot` 1, no
-   ESP restart. Stopped to flash the fixes below (in Fixed); to be armed
-   again after Q11 and Q13.
-3. Postponed (Q7): 3.8 reset button, 3.10 target power, 4.1 USB data cut,
+   ESP restart. **Fourth run armed 2026-11-26 12:01:24** on build 387df2b,
+   `rare.bin`, fault counter 120 (the crash.bin test runs in between
+   counted too), newest incident 488: incidents after 488 should equal the
+   counter's growth past 120.
+3. Needs your hand: press the adaptor's button with `--trigger falling`
+   (the default: a run starts on the press) and with `--trigger rising` (on
+   the release), and once during a run (dropped, no second run).
+4. Postponed (Q7): 3.8 reset button, 3.10 target power, 4.1 USB data cut,
    4.2 power cycle, 4.4 auto run (needs the detect pin grounded, Q13),
    4.9 target unplugged; WiFi for 1.5, 3.13, 3.15.
-4. MCP: the named-frame part of 3.16 passed with today's sidp-agent run by
+5. MCP: the named-frame part of 3.16 passed with today's sidp-agent run by
    hand over stdio (`mcp --elf rare.elf`, incident 485). This background
    session's own MCP server still runs the 07:36 binary: restarting the
    CLI you type in doesn't restart it. To use the new one from Claude

@@ -167,7 +167,7 @@ build `CONFIG_SI_JS_NETWORK`).
 | A pinned asset that didn't match said "not the image this job pins" even for a script. Board: "the firmware /data/firmware.bin isn't the one the job pins (SHA-256 8e931b72..., the job wants 686a57b5...)". | soul-injector 037457e |
 | `gpio: conflict found for GPIO[9]` on every SWD init (BOOT pin configured twice on the AXC2T245 front end). Board: none since the flash. | swd_esp 97d4685, soul-injector 2a2e585 |
 | Q11: erase sectors were taken to be `page_size` long everywhere (`flash.erase`, the erase before programming): on STM32F4-like parts a 1 KB erase wiped a 16 KB sector. The job now carries the yaml's `sectors` map and `flash.erase(addr, count)` takes a count of sectors (your answer). Board, with a fake 4 KB map over the WLE5's 2 KB pages (the second half of a fake sector survives an erase, which shows where EraseSector ran): an erase at a 4 KB start leaves its second half's pattern; one inside a sector is refused ("isn't the start of a sector (that one is 0x0803f000, 4096 bytes)"); the programming erase without EraseAll walks the map and leaves it too; `hw-ops` passes on the real map. | sidp_client 3575417, sidp_agent e6cdd87, soul-injector eb6a703 |
-| Q13: automatic runs started when the detect input was low (a level, also at boot) and only with `--auto`. Now `job push --trigger falling` (default: the button pulls it to GND), `rising`, `swd` (a probe every 0.5 s: line reset and DP IDCODE, no reset or halt; a target that starts answering runs once, again only after it stopped answering for 1 s; paused while GDB, a session or a trap has the target) or `manual`. Edges, not levels; an edge during a run is dropped. Board (`swd`): a push ran once 0.5 s later and not again; no rerun after a manual run or an agent session; records show `TRIGGER_DETECT_SWD`; `sleep.bin` turning SWD off read as "the target went away"; the polls log nothing. **The edges need the button: not tried.** | swd_esp 6b030a2, sidp_client 01bcd05, sidp_agent faffc8d, soul-injector 387df2b |
+| Q13: automatic runs started when the detect input was low (a level, also at boot) and only with `--auto`. Now `job push --trigger falling` (default: the button pulls it to GND), `rising`, `swd` (a probe every 0.5 s: line reset and DP IDCODE, no reset or halt; a target that starts answering runs once, again only after it stopped answering for 1 s; paused while GDB, a session or a trap has the target) or `manual`. Edges, not levels; an edge during a run is dropped. Board (`swd`): a push ran once 0.5 s later and not again; no rerun after a manual run or an agent session; records show `TRIGGER_DETECT_SWD`; `sleep.bin` turning SWD off read as "the target went away"; the polls log nothing. Button (2026-11-26, a 7.5 s job): `falling` started a run on the press, not the 2.1 s later release; `rising` on the release after a 3.3 s hold, not the press; a press during a run (falling) and two releases during a run (rising) started nothing, then or after the run, and a press 2 s after a run ended started the next one. One fall and one rise per press, no bounce. Such edges now log "ignored, a run is in progress" (1f897e4). | swd_esp 6b030a2, sidp_client 01bcd05, sidp_agent faffc8d, soul-injector 387df2b |
 
 Found in the code review afterwards; test_app cases added; tried on the
 board 2026-11-26:
@@ -426,9 +426,8 @@ needs it grounded.
    counter's growth past 120. Passed (9 h 23 m, 64 faults, 64 incidents,
    see 4.13). The trap re-armed itself after the 21:27 flash (build with
    version 2026.11.0): counter 184, next incident 553.
-3. Needs your hand: press the adaptor's button with `--trigger falling`
-   (the default: a run starts on the press) and with `--trigger rising` (on
-   the release), and once during a run (dropped, no second run).
+3. Button with `--trigger falling` and `rising`, and during a run: done
+   2026-11-26, passes (see the Q13 row).
 4. Postponed (Q7): 3.8 reset button, 3.10 target power, 4.1 USB data cut,
    4.2 power cycle, 4.4 auto run (needs the detect pin grounded, Q13),
    4.9 target unplugged; WiFi for 1.5, 3.13, 3.15.

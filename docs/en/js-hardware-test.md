@@ -161,6 +161,11 @@ build `CONFIG_SI_JS_NETWORK`).
 | With `--elf`, a capture named only the stacked PC and LR; the rest of the call chain was in the stack hex. `stack_code` now names the code addresses on the stack past the frame. Board (incident 485, through a new MCP server): `divide+0xe` ← `average+0x12` ← `crash+0x16` ← `main+0x88` ← `Reset_Handler+0x44`, as addr2line has it. | sidp_agent e7b0327 |
 | Trap status showed `0` for the default incident limit and throttle hold, which reads as "none"; now `"default"`. | sidp_agent ae71f6a |
 | `test()` starts with the core halted where the flash algorithm left it (DHCSR `0x00030003`); the docs now say to `reset()` first (reads work straight after it, no `reinit()` needed on the RAK3172). | soul-injector 6012bad |
+| `onFail`'s `err` was a new Error whose message was the thrown error as a string ("Error: boom"); now it has the hook's own `name`, `message` and a TargetError's `code`. Board: `hw-fail-target` record `failName` TargetError, `failCode` FAULT, `failMsg` "read32: FAULT (ESP_FAIL)"; `hw-fail-pre` gets `Error`, the plain message, code null. | soul-injector fe94651 |
+| `readReg`/`writeReg` of `s0`-`s31` or `fpscr` on a core without an FPU returned junk; now `UNSUPPORTED`. The FPU is known once per attach (sessions: the attach's CAP_FPU; job runs: MVFR0 on the first FP access, kept for the run), not read per access. Board: `hw-ops` test() and an agent eval both refuse s0, s31, fpscr, writeReg('s3'); r0 reads. | soul-injector aecd581, 22b3b88; sidp_agent 4d2ccb4 |
+| `flash.*` argument errors came back as `FAULT`, and in an agent session the flash algorithm was loaded (resetting the target) before the call failed. Now checked from the job's config first: `RangeError` with the reason, target untouched; `flash.read` limited to the flash range. Board (`hw-ops`): six refusals, each with its reason ("0x0803f804+4 isn't whole 2048-byte sectors", "length 0", "outside the flash, 0x08000000-0x08040000"), DHCSR.S_RESET_ST clear after them; a write over programmed words still `FAULT`. | soul-injector d30211d; sidp_agent 3e29790 |
+| A pinned asset that didn't match said "not the image this job pins" even for a script. Board: "the firmware /data/firmware.bin isn't the one the job pins (SHA-256 8e931b72..., the job wants 686a57b5...)". | soul-injector 037457e |
+| `gpio: conflict found for GPIO[9]` on every SWD init (BOOT pin configured twice on the AXC2T245 front end). Board: none since the flash. | swd_esp 97d4685, soul-injector 2a2e585 |
 
 Found in the code review afterwards; test_app cases added; tried on the
 board 2026-11-26:
@@ -385,36 +390,10 @@ needs it grounded.
    8-11, or `tools/end_state.sh` after `trap disarm`). UART log:
    `results/uart.log`. At 11:21: incidents 485-486, counter 105 (2 faults,
    2 incidents), `starts_this_boot` 1, no restart or error in the UART log.
-2. **Waiting for a flash** (built for Rev 8 and 7.1, committed locally, not
-   pushed until they pass on the board). Flashing restarts the device and
-   ends the soak's run, so they wait until you stop it:
-   - soul-injector fe94651: `onFail`'s `err` is the hook's own error
-     (`name`, `message`, a TargetError's `code`), not one string with
-     "Error: " in front.
-   - soul-injector aecd581, sidp_agent 4d2ccb4: `readReg`/`writeReg` of
-     `s0`-`s31` or `fpscr` is `UNSUPPORTED` on a core without an FPU (it
-     returned a meaningless value).
-   - soul-injector d30211d, sidp_agent 3e29790: `flash.*` argument errors
-     (outside the flash, length 0, not whole sectors, a write length not a
-     multiple of 4) reject with a `RangeError` that says what's wrong,
-     checked from the job's config before the target is touched. Before,
-     they were `FAULT`, and in an agent session the flash algorithm was
-     loaded first, which reset the target. `flash.read` on Cortex-M is now
-     limited to the flash range, as documented.
-   - soul-injector 037457e: a pinned asset that doesn't match is logged as
-     the script, firmware or image it is, with both hashes.
-   - swd_esp 97d4685 (soul-injector 2a2e585): no `gpio: conflict found for
-     GPIO[9]` on every SWD init (the BOOT pin was configured twice).
-
-   Board check, after `trap disarm` and flashing `build-rev8`:
-   `js/run-case.sh hw-ops crash.bin` (the flash refusals are now checked as
-   RangeErrors, with no reset), `js/run-case.sh hw-fail-target crash.bin`
-   (run record: `failName` TargetError, `failCode` FAULT), an agent
-   `eval` of `target.halt(); target.readReg('s0')` (UNSUPPORTED), a pinned
-   job whose script was pushed again (the log line), and no GPIO[9] line in
-   the UART log. Then push, and arm the soak again.
-2. Q1 is decided (later hardware: battery and ext4 on SD); on Rev 8 don't
-   reset the ESP while a trap writes incidents if the incidents matter.
+2. Soak third run passed (10:56:27 to 11:32:54): counter 103 to 107, 4
+   faults, 4 incidents (485-488), 0 suppressed, `starts_this_boot` 1, no
+   ESP restart. Stopped to flash the fixes below (in Fixed); to be armed
+   again after Q11 and Q13.
 3. Postponed (Q7): 3.8 reset button, 3.10 target power, 4.1 USB data cut,
    4.2 power cycle, 4.4 auto run (needs the detect pin grounded, Q13),
    4.9 target unplugged; WiFi for 1.5, 3.13, 3.15.

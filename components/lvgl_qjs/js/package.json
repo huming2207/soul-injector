@@ -1,0 +1,12 @@
+{
+  "name": "lvgl-qjs-solid",
+  "private": true,
+  "type": "module",
+  "description": "Builds SolidJS apps for the lvgl_qjs binding",
+  "devDependencies": {
+    "@babel/core": "^7.28.0",
+    "babel-preset-solid": "~1.9.19",
+    "esbuild": "^0.28.2",
+    "solid-js": "~1.9.20"
+  }
+}

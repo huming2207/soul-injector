@@ -5,22 +5,14 @@
 #include <freertos/task.h>
 #include <esp_err.h>
 #include <esp_timer.h>
-#include <ui/ui_if.hpp>
+#include "si_ui.hpp"
 #include "disp_panel_if.hpp"
 #include "ui_composer_noop.hpp"
 
 #ifdef CONFIG_SI_DISP_ENABLE
 #include "lvgl.h"
-#include "nfp114h_panel.hpp"
 #include "nt279vj_panel.hpp"
-#ifdef CONFIG_SI_DISP_PANEL_NT279VJ
 #include "ui_composer_279.hpp"
-#else
-#include "ui_composer_114.hpp"
-#include "ui_screen_current_114.hpp"
-#include "ui_screen_message_114.hpp"
-#include "ui_screen_progress_114.hpp"
-#endif
 #endif
 
 class display_manager
@@ -38,25 +30,14 @@ public:
     esp_err_t init();
     void deinit();
     disp_panel_if *get_panel();
-    ui_composer *get_composer();
+    si_ui *get_composer();
 
 private:
-#ifdef CONFIG_SI_DISP_ENABLE
-#ifdef CONFIG_SI_DISP_PANEL_NFP190B
-    disp_panel_if *panel = nullptr;
-#elif defined(CONFIG_SI_DISP_PANEL_LHS154KC)
-    disp_panel_if *panel = nullptr;
-#elif defined(CONFIG_SI_DISP_PANEL_NFP114H)
-    disp_panel_if *panel = (disp_panel_if *)(new nfp114h_panel());
-#elif defined(CONFIG_SI_DISP_PANEL_NT279VJ)
+#if defined(CONFIG_SI_DISP_ENABLE) && defined(CONFIG_SI_DISP_PANEL_NT279VJ)
     disp_panel_if *panel = (disp_panel_if *)(new nt279vj_panel());
-#endif
-#ifdef CONFIG_SI_DISP_PANEL_NT279VJ
     ui_composer_279 composer{};
 #else
-    ui_composer_114 composer{};
-#endif
-#else
+    // Other panels have no UI: the display stays off.
     disp_panel_if *panel = nullptr;
     ui_composer_noop composer{};
 #endif

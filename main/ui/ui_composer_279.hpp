@@ -1,19 +1,25 @@
 #pragma once
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/event_groups.h>
-#include <esp_err.h>
-#include <esp_log.h>
-#include <ui/ui_if.hpp>
-#include "ui_screen_progress_279.hpp"
-#include "ui_screen_message_279.hpp"
-#include "ui_screen_current_279.hpp"
+#include <atomic>
 
-class ui_composer_279 : public ui_composer
+#include <freertos/FreeRTOS.h>
+#include <esp_err.h>
+#include <lvgl.h>
+
+#include "si_ui.hpp"
+#include "ui_model.hpp"
+#include "ui_view.hpp"
+
+// The UI on the NT279VJ 2.79" panel (428 x 142).
+//
+// display_*() only stores the screen to show and returns: they never wait for
+// the LVGL lock, so a run or a debug session is never held up by drawing. A
+// timer in the LVGL task picks the screen up within POLL_MS and draws what
+// changed. The same timer shows a debugger's session over the run's screen
+// and the connected link in the header.
+class ui_composer_279 : public si_ui
 {
 public:
-    ui_composer_279() = default;
-
     esp_err_t init() override;
     esp_err_t display_init() override;
     esp_err_t display_erase(uint8_t percentage) override;
@@ -24,18 +30,32 @@ public:
     esp_err_t display_config() override;
     esp_err_t display_current(double min_ua, double max_ua, double avg_ua, const char *state, lv_color_t state_color) override;
 
-    esp_err_t wait_for_ui_mod(uint32_t wait_ticks = pdMS_TO_TICKS(1000)) const;
+    esp_err_t display_starting() override;
+    esp_err_t display_connecting() override;
+    esp_err_t display_verify() override;
+    esp_err_t display_notice(const char *title, const char *detail) override;
+    void set_progress(uint32_t done, uint32_t total) override;
 
-    void reload_base_obj();
+    static constexpr uint32_t POLL_MS = 100;
 
-public:
-    ui_screen_current_279 current_screen = {}; // No time to make it polymorphic, just keep it simple for now...
-    ui_screen_message_279 msg_screen = {};
-    ui_screen_progress_279 progress_screen = {};
+private:
+    esp_err_t post(const ui_model &model, bool ready = false);
+    static void poll_cb(lv_timer_t *timer);
+    void poll();
 
-    lv_obj_t *base_obj = nullptr;
-    ui_screen::state screen_state = ui_screen::CLEAR;
+    // Written by any task, under lock
+    portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
+    ui_model pending = {};
+    bool pending_ready = false;
+    std::atomic<uint32_t> pending_seq = 0;
+    std::atomic<int8_t> step_progress = -1; // overrides the posted screen's progress
 
-public:
-    static const constexpr char TAG[] = "ui_composer";
+    // LVGL task only
+    ui_view view;
+    lv_timer_t *timer = nullptr;
+    uint32_t taken_seq = 0;
+    ui_model base = {};
+    bool base_ready = false;
+
+    static constexpr char TAG[] = "ui_composer";
 };

@@ -57,7 +57,7 @@ private:
     target_backend *backend = nullptr;
 
     display_manager *display = nullptr;
-    ui_composer *composer = nullptr;
+    si_ui *composer = nullptr;
 
     volatile flasher::pg_state state = flasher::DETECT;
     flasher::pg_state failed_state = flasher::DONE;

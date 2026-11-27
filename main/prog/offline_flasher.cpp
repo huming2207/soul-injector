@@ -63,6 +63,7 @@ namespace
     void program_progress(uint32_t done, uint32_t total)
     {
         progress("program", total ? (int)(done * 100ULL / total) : 100);
+        display_manager::instance()->get_composer()->set_progress(done, total); // never blocks
     }
 
     bool has_script()
@@ -193,11 +194,11 @@ void offline_flasher::on_erase()
     auto ret = backend->erase();
     progress("erase", 100);
     if (ret == ESP_ERR_INVALID_STATE) {
-        composer->display_error("CFG ERROR", "Flash address\nnot provided");
+        composer->display_error("Job error", "The job has no flash address.\nSend the job again.");
         state = flasher::ERROR;
         ESP_LOGE(TAG, "Failed to read flash addresses");
     } else if (ret != ESP_OK) {
-        composer->display_error("ERROR", "Cannot erase target!\nPlease try again!");
+        composer->display_error("Erase failed", "Could not erase the chip.\nTry again. If it fails again, set the board aside.");
         state = flasher::ERROR;
     } else {
         state = flasher::PROGRAM;
@@ -206,13 +207,13 @@ void offline_flasher::on_erase()
 
 void offline_flasher::on_program()
 {
-    composer->display_program(100);
+    composer->display_program(0);
     progress("program", 0);
     backend->on_progress = program_progress;
     auto ret = backend->program(&written_len);
     backend->on_progress = nullptr;
     if (ret != ESP_OK) {
-        composer->display_error("ERROR", "Cannot program target!\nPlease try again!");
+        composer->display_error("Write failed", "Could not write the firmware.\nTry again. If it fails again, set the board aside.");
         state = flasher::ERROR;
     } else {
         state = flasher::VERIFY;
@@ -223,7 +224,7 @@ void offline_flasher::on_detect()
 {
     ESP_LOGI(TAG, "Detecting");
 
-    composer->display_init();
+    composer->display_connecting();
     auto ret = backend->detect();
     uint32_t max_retry = 10;
     while (ret != ESP_OK && max_retry > 0) {
@@ -234,6 +235,7 @@ void offline_flasher::on_detect()
     }
 
     if (max_retry == 0 && ret != ESP_OK) {
+        composer->display_error("No board found", "Check the cable and that the board has power.");
         state = flasher::ERROR;
     } else {
         state = flasher::ERASE; // To erase
@@ -254,13 +256,13 @@ void offline_flasher::on_done()
 void offline_flasher::on_verify()
 {
     led.set_color(0x68, 0x26, 0x99); // Purple?
-    composer->display_program(100);
+    composer->display_verify();
     progress("verify", 0);
     auto ret = backend->verify(written_len);
     progress("verify", 100);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to verify!");
-        composer->display_error("ERROR", "Failed to verify\nPlease try again");
+        composer->display_error("Check failed", "The firmware read back wrong.\nTry again. If it fails again, set the board aside.");
         state = flasher::ERROR;
     } else {
         ESP_LOGI(TAG, "Firmware verified");
@@ -278,11 +280,11 @@ void offline_flasher::on_self_test()
         if (cfg.test_count > 0) {
             ESP_LOGW(TAG, "Self test: the script's test() replaces the job's %u self tests", (unsigned)cfg.test_count);
         }
-        composer->display_test(0, 0, "Script test");
+        composer->display_test(0, 0, "Running the job's test script");
         auto ret = run_script_hook(qjs_binder::hook::test, *backend);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Self test: script: %s (0x%x)", qjs_binder::js_host::instance()->last_error(), ret);
-            composer->display_error("TEST FAILED", qjs_binder::js_host::instance()->last_error());
+            composer->display_error("Test failed", qjs_binder::js_host::instance()->last_error());
             state = flasher::ERROR;
             return;
         }
@@ -318,8 +320,8 @@ void offline_flasher::on_self_test()
             } else if (ret != ESP_OK) {
                 ESP_LOGW(TAG, "Self test @ 0x%08lx failed, host error 0x%x, function returned 0x%lx", item.addr, ret, func_ret);
                 char msg[128] = {0};
-                snprintf(msg, sizeof(msg), "Test failed at\n%u of %u @ 0x%08lx;\n%s", idx + 1, cfg.test_count, item.addr, item.name);
-                composer->display_error("ERROR", msg);
+                snprintf(msg, sizeof(msg), "Test %u of %u (%s) could not run.\nAddress 0x%08lx", idx + 1, cfg.test_count, item.name, item.addr);
+                composer->display_error("Test failed", msg);
                 state = flasher::ERROR;
                 return;
             }
@@ -327,8 +329,9 @@ void offline_flasher::on_self_test()
             if (func_ret != 0) {
                 ESP_LOGW(TAG, "Self test failed, host returned 0x%x, target returned error 0x%lx", ret, func_ret);
                 char msg[128] = {0};
-                snprintf(msg, sizeof(msg), "Test failed @ 0x%08lx;\n%s\nRet=%lu", item.addr, item.name, func_ret);
-                composer->display_error("ERROR", msg);
+                snprintf(msg, sizeof(msg), "Test %u of %u (%s) failed with code %lu.\nAddress 0x%08lx", idx + 1, cfg.test_count, item.name,
+                         func_ret, item.addr);
+                composer->display_error("Test failed", msg);
                 state = flasher::ERROR;
                 return;
             }
@@ -353,7 +356,7 @@ void offline_flasher::on_post_program()
     auto ret = backend->begin_session();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "post_prog: cannot begin backend session: 0x%x", ret);
-        composer->display_error("ERROR", "Post-program fail");
+        composer->display_error("Finishing failed", "The job's last steps failed.\nTry again.");
         state = flasher::ERROR;
         return;
     }
@@ -362,7 +365,7 @@ void offline_flasher::on_post_program()
         ret = run_script_hook(qjs_binder::hook::post_program, *backend);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "post_prog: script: %s (0x%x)", qjs_binder::js_host::instance()->last_error(), ret);
-            composer->display_error("SCRIPT ERROR", qjs_binder::js_host::instance()->last_error());
+            composer->display_error("Script error", qjs_binder::js_host::instance()->last_error());
             state = flasher::ERROR;
             return;
         }
@@ -390,7 +393,7 @@ void offline_flasher::on_post_program()
     ret = procedure_executor::execute(*steps, *backend);
     if (ret != ESP_OK) {
         ESP_LOGI(TAG, "post_prog: execution error: 0x%x", ret);
-        composer->display_error("ERROR", "Post-program fail");
+        composer->display_error("Finishing failed", "The job's last steps failed.\nTry again.");
         state = flasher::ERROR;
         return;
     }
@@ -416,7 +419,7 @@ void offline_flasher::on_current_test()
     auto ret = pwr_test.init((gpio_num_t)CONFIG_SI_SG_PWR_TESTER_ALERT);
     ret = ret ?: pwr_test.start_testing(3000, &max, &min, &avg);
     if (ret != ESP_OK) {
-        composer->display_error("ERROR", "Current sensor error");
+        composer->display_error("Current test failed", "The current sensor did not answer.");
         state = flasher::ERROR;
         ESP_LOGE(TAG, "curr_test: failed to start testing 0x%x", ret);
         return;
@@ -433,7 +436,7 @@ void offline_flasher::on_cancelled()
 {
     end_run(false);
     led.set_color(0x80, 0x80, 0x00); // Yellow
-    composer->display_error("CANCELLED", "Job cancelled");
+    composer->display_notice("Stopped", "The job was cancelled.");
 }
 
 void offline_flasher::check_cancel()
@@ -534,7 +537,7 @@ void offline_flasher::on_pre_program()
     auto ret = backend->begin_session();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "pre_prog: cannot begin backend session: 0x%x", ret);
-        composer->display_error("ERROR", "Pre-program fail");
+        composer->display_error("Preparing failed", "The job's first steps failed.\nTry again.");
         state = flasher::ERROR;
         return;
     }
@@ -543,7 +546,7 @@ void offline_flasher::on_pre_program()
         ret = run_script_hook(qjs_binder::hook::pre_program, *backend);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "pre_prog: script: %s (0x%x)", qjs_binder::js_host::instance()->last_error(), ret);
-            composer->display_error("SCRIPT ERROR", qjs_binder::js_host::instance()->last_error());
+            composer->display_error("Script error", qjs_binder::js_host::instance()->last_error());
             state = flasher::ERROR;
             return;
         }
@@ -561,7 +564,7 @@ void offline_flasher::on_pre_program()
     ret = procedure_executor::execute(*steps, *backend);
     if (ret != ESP_OK) {
         ESP_LOGI(TAG, "pre_prog: execution error: 0x%x", ret);
-        composer->display_error("ERROR", "Pre-program fail");
+        composer->display_error("Preparing failed", "The job's first steps failed.\nTry again.");
         state = flasher::ERROR;
         return;
     }
@@ -572,10 +575,11 @@ void offline_flasher::on_pre_program()
 
 void offline_flasher::on_load_asset()
 {
+    composer->display_starting();
     auto *asset = fw_asset_manager::instance();
     if (!asset->has_job()) {
         ESP_LOGE(TAG, "load_asset: no job");
-        composer->display_error("ERROR", "No job\nPlease push a job to me!");
+        composer->display_notice("No job", "Send a job from the computer.");
         state = flasher::ERROR;
         return;
     }
@@ -584,7 +588,7 @@ void offline_flasher::on_load_asset()
     auto ret = asset->verify_images();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "load_asset: images do not match the job: 0x%x %s", ret, esp_err_to_name(ret));
-        composer->display_error("ERROR", "Firmware mismatch\nPlease push the job again!");
+        composer->display_notice("Job out of date", "The firmware files changed.\nSend the job again.");
         state = flasher::ERROR;
         return;
     }
@@ -599,7 +603,7 @@ void offline_flasher::on_load_asset()
         ret = js->begin_run(script, asset->script_sha256(), info);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "load_asset: script: %s (0x%x)", js->last_error(), ret);
-            composer->display_error("SCRIPT ERROR", js->last_error());
+            composer->display_error("Script error", js->last_error());
             state = flasher::ERROR;
             return;
         }

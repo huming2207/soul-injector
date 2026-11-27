@@ -26,7 +26,7 @@ set(SI_MAIN_SRCS
     "power/power_profiler.cpp" "power/power_profiler.hpp"
     "bootstrap_fsm.cpp" "bootstrap_fsm.hpp"
     "driver/lcd/display_manager.cpp" "driver/lcd/display_manager.hpp"
-    "ui/ui_composer_noop.cpp" "ui/ui_composer_noop.hpp"
+    "ui/ui_composer_noop.cpp" "ui/ui_composer_noop.hpp" "ui/si_ui.hpp"
 )
 
 if(CONFIG_SI_SG_PROG_RIG)
@@ -39,16 +39,10 @@ if(CONFIG_SI_DISP_ENABLE)
     list(APPEND SI_MAIN_SRCS
         "driver/lcd/esp_lcd_panel_nv3007.c" "driver/lcd/esp_lcd_panel_nv3007.h"
         "driver/lcd/lhs154kc_panel.cpp" "driver/lcd/lhs154kc_panel.hpp"
-        "driver/lcd/nfp114h_panel.cpp" "driver/lcd/nfp114h_panel.hpp"
         "driver/lcd/nt279vj_panel.cpp" "driver/lcd/nt279vj_panel.hpp"
-        "ui/ui_composer_114.cpp" "ui/ui_composer_114.hpp"
-        "ui/ui_screen_progress_114.cpp" "ui/ui_screen_progress_114.hpp"
-        "ui/ui_screen_message_114.cpp" "ui/ui_screen_message_114.hpp"
-        "ui/ui_screen_current_114.cpp" "ui/ui_screen_current_114.hpp"
         "ui/ui_composer_279.cpp" "ui/ui_composer_279.hpp"
-        "ui/ui_screen_progress_279.cpp" "ui/ui_screen_progress_279.hpp"
-        "ui/ui_screen_message_279.cpp" "ui/ui_screen_message_279.hpp"
-        "ui/ui_screen_current_279.cpp" "ui/ui_screen_current_279.hpp"
+        "ui/ui_view.cpp" "ui/ui_view.hpp"
+        "ui/ui_screens.cpp" "ui/ui_model.hpp"
     )
 endif()
 

@@ -69,7 +69,7 @@ private:
     TimerHandle_t io_debounce_timer = nullptr;
     EventGroupHandle_t evt_group = nullptr;
     display_manager *display = nullptr;
-    ui_composer *composer = nullptr;
+    si_ui *composer = nullptr;
     char sn_str[32] = {0};
 
 private:

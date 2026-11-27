@@ -43,7 +43,7 @@ void display_manager::deinit()
     // TODO: not sure now
 }
 
-ui_composer *display_manager::get_composer()
+si_ui *display_manager::get_composer()
 {
     return &composer;
 }

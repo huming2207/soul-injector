@@ -24,6 +24,8 @@
 - [Jobs and files](storage-files.md) — pushing, running and checking the
   device's job with `sidp-agent`, the files kept on `/data`, and collecting
   the production log.
+- [The screen](screen.md) — what the 2.79" LCD shows during runs and
+  debugging, and how to preview changes to it on a computer.
 - [Debugging with GDB](debugging.md) — programming and debugging a Cortex-M
   target with `sidp-agent`, firmware that turns off SWD, and test status.
 - [Debugging over the network: plan](network-debugging-plan.md) — proposal

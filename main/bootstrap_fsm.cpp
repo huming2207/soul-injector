@@ -63,13 +63,13 @@ esp_err_t bootstrap_fsm::init()
     ret = setup_storage();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up storage: 0x%x %s", ret, esp_err_to_name(ret));
-        composer->display_error("ERROR", "Storage partition error\nPlease try factory reset");
+        composer->display_notice("Storage error", "Try a factory reset.");
         return ret;
     }
 
     ret = prog_log::instance()->init();
     if (ret != ESP_OK) {
-        composer->display_error("ERROR", "Log partition error\nPlease reflash firmware");
+        composer->display_notice("Log storage error", "Install the Soul Injector firmware again.");
         return ret;
     }
 
@@ -310,10 +310,10 @@ void bootstrap_fsm::show_auto_run_refused()
     esp_err_t log_ret = prog_log::instance()->check_space();
     if (log_ret == ESP_ERR_NO_MEM) {
         ESP_LOGW(TAG, "Target connected, log full");
-        composer->display_error("LOG FULL", "Connect to the host\nto collect the log");
+        composer->display_notice("Log is full", "Connect to the computer to collect the log.");
     } else if (log_ret != ESP_OK) {
         ESP_LOGE(TAG, "Target connected, log write failed");
-        composer->display_error("LOG ERROR", "Restart the device");
+        composer->display_notice("Log error", "Restart the Soul Injector.");
     } else {
         ESP_LOGI(TAG, "Target connected, no automatic job armed");
     }

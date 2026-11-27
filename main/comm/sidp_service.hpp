@@ -55,6 +55,13 @@ public:
      */
     esp_err_t init(const char *serial);
 
+    enum class link : uint8_t { none, usb, network };
+    // The link serving a connection now. Any task; never blocks.
+    static link connected_link();
+    // The debug session's target state: TARGET_DETACHED unless a debugger has
+    // attached. Any task; never blocks.
+    static sidp::target_state_t debug_state();
+
 private:
     sidp_service() = default;
 

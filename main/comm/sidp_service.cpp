@@ -36,6 +36,7 @@
 // The connection being served. Set by the service task around each connection;
 // the power sampler's sinks read it from their own task.
 static std::atomic<sidp::transport_intf *> active_transport{nullptr};
+static std::atomic<uint8_t> session_target_state{sidp::TARGET_DETACHED}; // for the display
 
 static bool send_debug_frame(std::span<const uint8_t> frame)
 {
@@ -434,6 +435,20 @@ void sidp_service::task_handler(void *ctx)
     }
 }
 
+sidp_service::link sidp_service::connected_link()
+{
+    auto *transport = active_transport.load(std::memory_order_relaxed);
+    if (transport == nullptr) {
+        return link::none;
+    }
+    return transport == &sidp::cdc_slip_transport::instance() ? link::usb : link::network;
+}
+
+sidp::target_state_t sidp_service::debug_state()
+{
+    return static_cast<sidp::target_state_t>(session_target_state.load(std::memory_order_relaxed));
+}
+
 void sidp_service::run_session(sidp::transport_intf &transport)
 {
     const bool network = &transport != &sidp::cdc_slip_transport::instance();
@@ -469,6 +484,7 @@ void sidp_service::run_session(sidp::transport_intf &transport)
         vTaskDelay(pdMS_TO_TICKS(CLEANUP_RETRY_MS));
     }
 
+    session_target_state.store(sidp::TARGET_DETACHED, std::memory_order_relaxed);
     end_login();
     active_transport.store(nullptr);
     if (network) {
@@ -497,6 +513,7 @@ void sidp_service::serve_connection(sidp::transport_intf &transport, sidp::sidp_
         }
 
         session.handle_poll();
+        session_target_state.store(session.get_state(), std::memory_order_relaxed);
         agent->service();
         if (other_link_wins(transport)) {
             return;

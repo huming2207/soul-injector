@@ -29,10 +29,9 @@ interface and uses the GPIO assignments from the Rev 7.1 KiCad schematic. Its
 NT279VJ-C10-01-V1 LCD uses the NV3007 panel driver and is enabled by default.
 
 Rev 8 keeps the Rev 7.1 GPIO assignments and moves the SWD/UART front end and
-the LCD to the adaptor board. The firmware does not support Rev 8 fully yet: it
-does not drive GPIO39, which powers the LCD, so the LCD stays blank. See the
-[Rev 8 hardware notes](rev8-hardware.md), including the changed programming
-connector wiring.
+the LCD to the adaptor board. The firmware switches the LCD's supply on through
+GPIO39 before it starts the panel. See the [Rev 8 hardware
+notes](rev8-hardware.md), including the changed programming connector wiring.
 
 ESP-IDF v6.1 ships FatFs with `f_expand()` disabled, which the production log
 needs. Until Espressif releases upstream commit `74a7a4b`, run

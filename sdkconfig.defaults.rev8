@@ -26,8 +26,8 @@ CONFIG_SI_DISP_PANEL_IO_RST=51
 CONFIG_SI_DISP_PANEL_IO_DC=52
 CONFIG_SI_DISP_PANEL_IO_CS=50
 CONFIG_SI_DISP_PANEL_BKL=55
-# Active-low P-FET supply switch, pulled off. The firmware does not drive this
-# option yet, so the LCD stays unpowered until it does.
+# Active-low P-FET supply switch (DISP_SWITCH), pulled off; the panel driver
+# switches it on (SI_DISP_PANEL_PWR_ON_LEVEL 0).
 CONFIG_SI_DISP_PANEL_PWR=39
 CONFIG_SI_DISP_PANEL_BUFFER_SIZE=60776
 CONFIG_SI_LED_ENABLE=n

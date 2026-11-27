@@ -1,4 +1,6 @@
 #include <driver/gpio.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <esp_log.h>
 #include <driver/spi_master.h>
 #include <esp_lcd_panel_ops.h>
@@ -6,8 +8,36 @@
 #include "esp_lcd_panel_nv3007.h"
 #include "nt279vj_panel.hpp"
 
+// Light sleep isolates GPIOs (CONFIG_PM_SLP_DISABLE_GPIO): without this the
+// supply switch and reset float to their pulls at each sleep and the panel
+// loses power or resets.
+static void keep_in_sleep(int gpio)
+{
+    if (gpio >= 0) {
+        gpio_sleep_sel_dis(static_cast<gpio_num_t>(gpio));
+    }
+}
+
 esp_err_t nt279vj_panel::init()
 {
+#if CONFIG_SI_DISP_PANEL_PWR >= 0
+    // Power the panel before driving any of its lines, so they don't feed it
+    // through its input protection, and let the supply settle before reset.
+    const auto pwr_gpio = static_cast<gpio_num_t>(CONFIG_SI_DISP_PANEL_PWR);
+    gpio_set_level(pwr_gpio, CONFIG_SI_DISP_PANEL_PWR_ON_LEVEL); // Level first: no glitch when the output turns on
+    gpio_config_t supply_io_cfg = {};
+    supply_io_cfg.pin_bit_mask = 1ULL << CONFIG_SI_DISP_PANEL_PWR;
+    supply_io_cfg.mode = GPIO_MODE_OUTPUT;
+    auto pwr_ret = gpio_config(&supply_io_cfg);
+    if (pwr_ret != ESP_OK) {
+        ESP_LOGE(TAG, "Panel supply GPIO%d setup failed: 0x%x", CONFIG_SI_DISP_PANEL_PWR, pwr_ret);
+        return pwr_ret;
+    }
+    keep_in_sleep(CONFIG_SI_DISP_PANEL_PWR);
+    ESP_LOGI(TAG, "Panel supply on (GPIO%d = %d)", CONFIG_SI_DISP_PANEL_PWR, CONFIG_SI_DISP_PANEL_PWR_ON_LEVEL);
+    vTaskDelay(pdMS_TO_TICKS(20));
+#endif
+
     gpio_config_t pwr_io_cfg = {
         .pin_bit_mask = (1ULL << CONFIG_SI_DISP_PANEL_BKL),
         .mode = GPIO_MODE_OUTPUT,
@@ -35,6 +65,14 @@ esp_err_t nt279vj_panel::init()
     spi_bus_cfg.miso_io_num = GPIO_NUM_NC;
     spi_bus_cfg.quadhd_io_num = GPIO_NUM_NC;
     spi_bus_cfg.quadwp_io_num = GPIO_NUM_NC;
+    if (LCD_SPI_HOST == SPI3_HOST) {
+        // ESP-IDF v6.1 checks every host's pins against GP-SPI2's second IO MUX
+        // set on the S31 (CLK 53, MOSI 54, ...), so on SPI3 it takes these pins
+        // for IO MUX pins and gives them SPI3's nonexistent IO MUX function:
+        // SCLK and MOSI never leave the chip. Use the GPIO matrix, as good as
+        // IO MUX up to 40 MHz.
+        spi_bus_cfg.flags = SPICOMMON_BUSFLAG_GPIO_PINS;
+    }
     ret = spi_bus_initialize(LCD_SPI_HOST, &spi_bus_cfg, SPI_DMA_CH_AUTO);
 
     if (ret != ESP_OK) {
@@ -97,11 +135,16 @@ esp_err_t nt279vj_panel::init()
         return ret;
     }
 
+    // The PPA only writes to buffers whose address and size are whole cache
+    // lines (LV_DRAW_BUF_ALIGN); 428 x 142 x 2 bytes is not.
+    constexpr size_t px_bytes = 2;
+    constexpr size_t buf_px = LV_ROUND_UP(LCD_H_RES * LCD_V_RES * px_bytes, LV_DRAW_BUF_ALIGN) / px_bytes;
+
     lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = io_handle,
         .panel_handle = panel_handle,
         .control_handle = nullptr,
-        .buffer_size = LCD_H_RES * LCD_V_RES,
+        .buffer_size = buf_px,
         .double_buffer = true,
         .trans_size = 0,
         .hres = LCD_H_RES,
@@ -126,6 +169,12 @@ esp_err_t nt279vj_panel::init()
         return ESP_ERR_INVALID_STATE;
     }
 
+    keep_in_sleep(CONFIG_SI_DISP_PANEL_BKL);
+    keep_in_sleep(CONFIG_SI_DISP_PANEL_IO_RST);
+    keep_in_sleep(CONFIG_SI_DISP_PANEL_IO_CS);
+    keep_in_sleep(CONFIG_SI_DISP_PANEL_IO_DC);
+    keep_in_sleep(CONFIG_SI_DISP_PANEL_IO_SCLK);
+    keep_in_sleep(CONFIG_SI_DISP_PANEL_IO_MOSI);
     return ret;
 }
 

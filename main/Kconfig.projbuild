@@ -184,9 +184,18 @@ menu "Soul Injector Configuration"
     config SI_DISP_PANEL_PWR
         int "Display power control"
         depends on SI_DISP_ENABLE
-        default 15
+        default -1
         help
-            LCD panel's power control
+            GPIO that switches the LCD panel's supply, or -1 when the supply
+            isn't switched. Used by the NT279VJ driver.
+
+    config SI_DISP_PANEL_PWR_ON_LEVEL
+        int "Display power control: level that turns the supply on"
+        depends on SI_DISP_ENABLE
+        range 0 1
+        default 0
+        help
+            0 for an active-low switch, such as Rev 8's P-FET.
 
     config SI_DISP_PANEL_BUFFER_SIZE
         int "Display buffer size"

@@ -2,4 +2,10 @@
 CONFIG_IDF_TARGET="esp32s31"
 CONFIG_SPIRAM_SPEED_250M=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_320=y
-CONFIG_LVGL_PORT_ENABLE_PPA=n
+# LVGL draws solid fills with the PPA. Its draw buffers must be aligned to the
+# S31's 64-byte L1 data cache line.
+CONFIG_LV_USE_PPA=y
+CONFIG_LV_DRAW_BUF_ALIGN=64
+# PPA rotation in esp_lvgl_port. Only used with sw_rotate; the NT279VJ rotates
+# in the panel.
+CONFIG_LVGL_PORT_ENABLE_PPA=y

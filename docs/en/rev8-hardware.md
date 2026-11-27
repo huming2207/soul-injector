@@ -10,13 +10,12 @@ test (branch `feature/si-rev8`) and an STM32WLE5 target.
 
 ## Firmware status
 
-Build with `-D SI_HW_REV=rev8`; see [getting started](getting-started.md). The
-firmware does not support Rev 8 fully yet:
+Build with `-D SI_HW_REV=rev8`; see [getting started](getting-started.md).
 
 | Signal | GPIO | Status |
 | --- | --- | --- |
 | `DBG_EN` | 57 | Driven high during a programming run or debug session, low otherwise. |
-| LCD power | 39 | Not driven. `SI_DISP_PANEL_PWR` is set but the firmware does not use it. |
+| LCD power (`DISP_SWITCH`) | 39 | Driven low before the panel starts, which turns on the adaptor's P-FET (AO3401A) to the LCD supply and backlight anode; pulled off otherwise. Kept in light sleep. |
 | Power profiler | See below | Measured over SIDP's power service; see below for what is verified. |
 
 The SWD and UART GPIOs are unchanged from Rev 7.1. The firmware still uses the
@@ -25,6 +24,13 @@ pinout and OE/DIR logic match.
 
 Rev 8 runs SWD at 13 MHz over the direct SPI2 backend, so the LCD uses SPI3.
 Rev 7.1 keeps the LCD on SPI2 and SWD at 500 kHz.
+
+On SPI3 the LCD bus is forced through the GPIO matrix
+(`SPICOMMON_BUSFLAG_GPIO_PINS`). Its SCLK and MOSI, GPIO53 and GPIO54, are GP-SPI2's second set of IO MUX pins.
+ESP-IDF v6.1 checks every host's pins against that set, so on SPI3 it treats
+them as IO MUX pins and selects SPI3's nonexistent IO MUX function: the panel
+then gets CS and DC but no clock or data. The GPIO matrix is as fast as IO MUX
+up to the LCD's 40 MHz.
 
 A debug session reads the target's flash range and RAM regions from the active
 job, so a Cortex-M job must be pushed before debugging. A debug session and a

@@ -46,6 +46,23 @@ Drawing never holds up a run or a debug session:
 - The panel is on its own SPI bus (SPI3 on Rev 8, SPI2 on Rev 7.1, where SWD
   doesn't use SPI2).
 
+Measured on Rev 8 (2026-11-28): a task on core 1 at the run's priority did
+SWD transfers, then read 4 KB blocks from the data partition into PSRAM,
+copied them to internal RAM and took their CRC, as a write does. Each mode ran
+three times for 4 s:
+
+| Screen | SWD transfers in 2 s | Longest transfer | Storage | Longest block |
+| --- | --- | --- | --- | --- |
+| Unchanged | 74,867 | 32 µs | 5,594 KB/s | 740 µs |
+| Progress changing | 74,855 | 33 µs | 5,592 KB/s | 742 µs |
+| Whole screen changing 10 times a second | 74,862 | 32 µs | 5,593 KB/s | 804 µs |
+| LVGL stopped | 74,867 | 32 µs | 5,593 KB/s | 724 µs |
+
+The busiest real case, progress changing during a write, is 0.02% slower than
+with LVGL stopped, so the UI keeps running during SWD. A whole screen changing
+10 times a second is far more than a run does: it makes the longest block
+read up to 80 µs longer and nothing slower overall.
+
 ## Changing the screens
 
 The screens are in `main/ui`: `ui_screens.cpp` has the text, `ui_view.cpp` the

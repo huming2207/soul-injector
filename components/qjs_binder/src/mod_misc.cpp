@@ -187,7 +187,8 @@ namespace qjs_binder::priv
             return;
         }
         JSValue p = JS_NewObject(ctx);
-        JS_SetPropertyStr(ctx, p, "stage", JS_NewString(ctx, g.prog_stage.load()));
+        const char *stage = g.prog_stage.load();
+        JS_SetPropertyStr(ctx, p, "stage", JS_NewString(ctx, stage ? stage : ""));
         JS_SetPropertyStr(ctx, p, "pct", JS_NewInt32(ctx, g.prog_pct.load()));
         JSValue fn = JS_DupValue(ctx, g.on_progress); // it may replace itself
         JSValue r = JS_Call(ctx, fn, JS_UNDEFINED, 1, &p);

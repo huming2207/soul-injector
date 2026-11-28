@@ -1119,7 +1119,13 @@ namespace qjs_binder
 
     size_t js_host::read_events(uint32_t after_seq, event_out *out, size_t max, uint32_t *newest_seq, uint32_t *dropped)
     {
-        if (!g.events) {
+        if (!g.events) { // no buffer (no PSRAM): no events, and the outputs say so
+            if (newest_seq) {
+                *newest_seq = 0;
+            }
+            if (dropped) {
+                *dropped = 0;
+            }
             return 0;
         }
         xSemaphoreTake(g.ev_lock, portMAX_DELAY);

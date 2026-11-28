@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <unistd.h>
 
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -123,9 +124,12 @@ esp_err_t fw_asset_manager::init()
 
 esp_err_t fw_asset_manager::activate_staged(const uint8_t *sha256)
 {
-    // A published job is always the one saved in JOB_PATH, so this is a true no-op
+    // A published job is always the one saved in JOB_PATH: nothing to install.
+    // Its images may have been replaced since, though: check them as an
+    // activation would, and drop the staged copy of the same job.
     if (job != nullptr && memcmp(active_sha256, sha256, sizeof(active_sha256)) == 0) {
-        return ESP_OK;
+        unlink(STAGED_JOB_PATH);
+        return verify_images();
     }
 
     uint8_t staged[asset_store::SHA256_LEN] = {};

@@ -1124,6 +1124,13 @@ namespace qjs_binder::priv
         } else if (!st.lockup) {
             e.lockup = false;
         }
+        if (reset && e.waiting) {
+            // A stop's watch holds the target for its verdict (a firmware that
+            // faults right after a reset shows both in one poll): firing now
+            // would overwrite that wait. Report the reset once it's settled.
+            e.reset_latch = true;
+            reset = false;
+        }
         if (reset) {
             bool watched;
             xSemaphoreTake(g.watch_lock, portMAX_DELAY);

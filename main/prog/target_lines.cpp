@@ -10,8 +10,13 @@
 
 static const constexpr gpio_num_t SWITCH_PIN = static_cast<gpio_num_t>(CONFIG_SI_TARGET_SWITCH_PIN);
 
+static esp_pm_lock_handle_t probe_pm_lock; // made in init(), before any task probes
+
 esp_err_t target_lines::init()
 {
+    if (probe_pm_lock == nullptr) {
+        esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "si_probe", &probe_pm_lock); // fails only without PM: no lock needed then
+    }
     if (SWITCH_PIN == GPIO_NUM_NC) {
         return ESP_OK;
     }
@@ -50,6 +55,20 @@ void target_lines::isolate()
 
     gpio_set_level(SWITCH_PIN, 0);
     set_swdio_pulldowns(true);
+}
+
+esp_err_t target_lines::probe(uint32_t *idcode)
+{
+    if (probe_pm_lock != nullptr) {
+        esp_pm_lock_acquire(probe_pm_lock);
+    }
+    connect();
+    const esp_err_t ret = swd_probe_target(0, idcode);
+    isolate();
+    if (probe_pm_lock != nullptr) {
+        esp_pm_lock_release(probe_pm_lock);
+    }
+    return ret;
 }
 
 void target_lines::drive_nrst(bool asserted)

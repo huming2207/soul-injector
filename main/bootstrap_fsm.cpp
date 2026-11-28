@@ -294,10 +294,15 @@ bool bootstrap_fsm::swd_target_arrived()
     if (!job_controller::instance()->swd_poll_wanted() || swd_reset_held()) {
         return false; // no job, a run, or GDB, a session or a trap has the target (or will): leave the lines alone
     }
+    // Claimed, so a session can't start between connect() and isolate() and
+    // have its lines cut under it
+    auto *jobs = job_controller::instance();
+    if (!jobs->begin_probe()) {
+        return false;
+    }
     uint32_t idcode = 0;
-    target_lines::connect();
-    esp_err_t ret = swd_probe_target(0, &idcode);
-    target_lines::isolate();
+    esp_err_t ret = target_lines::probe(&idcode);
+    jobs->end_probe();
     if (ret == ESP_ERR_TIMEOUT || ret == ESP_ERR_INVALID_STATE) {
         return false; // another task is on the bus: no news
     }

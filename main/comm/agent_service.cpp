@@ -988,9 +988,7 @@ void agent_service::trap_probe(int64_t now)
         return; // a programming run has the lines
     }
     uint32_t idcode = 0;
-    target_lines::connect();
-    const esp_err_t ret = swd_probe_target(0, &idcode);
-    target_lines::isolate();
+    const esp_err_t ret = target_lines::probe(&idcode);
     job_controller::instance()->end_debug();
     probing = false;
     if (ret == ESP_ERR_TIMEOUT || ret == ESP_ERR_INVALID_STATE) {

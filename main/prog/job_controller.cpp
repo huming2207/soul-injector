@@ -189,7 +189,14 @@ bool job_controller::is_running()
 esp_err_t job_controller::begin_debug()
 {
     lock();
-    const esp_err_t ret = running ? ERR_RUNNING : ESP_OK;
+    // The programming task's probe holds the lines for a few ms: wait it out
+    // (it runs at a lower priority than the SIDP task, so it gets to finish).
+    for (uint32_t waited_ms = 0; probing && waited_ms < PROBE_WAIT_MS; waited_ms += portTICK_PERIOD_MS) {
+        unlock();
+        vTaskDelay(1);
+        lock();
+    }
+    const esp_err_t ret = running ? ERR_RUNNING : probing ? ESP_ERR_INVALID_STATE : ESP_OK;
     if (ret == ESP_OK) {
         debugging = true;
     }
@@ -201,6 +208,22 @@ void job_controller::end_debug()
 {
     lock();
     debugging = false;
+    unlock();
+}
+
+bool job_controller::begin_probe()
+{
+    lock();
+    const bool ok = !running && !debugging && !probing;
+    probing = ok;
+    unlock();
+    return ok;
+}
+
+void job_controller::end_probe()
+{
+    lock();
+    probing = false;
     unlock();
 }
 

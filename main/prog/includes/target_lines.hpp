@@ -19,6 +19,13 @@ public:
     static void connect();
     static void isolate();
 
+    /**
+     * Connect, read the DP IDCODE (no reset, no halt), isolate. Holds the CPU
+     * at full speed meanwhile, which also keeps light sleep from isolating the
+     * pins mid-probe. The caller must own the target (a job_controller claim).
+     */
+    static esp_err_t probe(uint32_t *idcode);
+
     /** Drive the target's nRST line (asserted: held in reset). */
     static void drive_nrst(bool asserted);
 

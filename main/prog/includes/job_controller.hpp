@@ -71,6 +71,14 @@ public:
     /** Release the target after begin_debug(). */
     void end_debug();
 
+    /**
+     * A short look at the SWD lines from the programming task
+     * (TRIGGER_DETECT_SWD). false: a run or a debugger has the target.
+     * begin_debug() waits for a probe to end rather than run under it.
+     */
+    bool begin_probe();
+    void end_probe();
+
     /** Ask the current run to stop; @p run_id 0 matches any run. */
     void cancel(uint32_t run_id);
 
@@ -111,6 +119,7 @@ private:
     EventBits_t run_bit = 0;
     EventBits_t trigger_bit = 0;
     bool debugging = false;
+    bool probing = false;
     // Written under the mutex; read without it too (the detect-input timer mustn't wait on a job push).
     std::atomic<si_manage_Trigger> trigger = si_manage_Trigger_TRIGGER_DETECT_FALLING; // until NVS says otherwise
     std::atomic<bool> running = false; // as trigger: is_running() reads it without the mutex
@@ -119,6 +128,7 @@ private:
     std::atomic<bool> cancel_flag = false;
     si_manage_RunResult last_result = si_manage_RunResult_init_zero;
 
+    static const constexpr uint32_t PROBE_WAIT_MS = 200; // a probe takes a few ms
     static const constexpr char NVS_NAMESPACE[] = "si_job";
     static const constexpr char NVS_TRIGGER_KEY[] = "trigger";
     static const constexpr char *TAG = "job_ctrl";

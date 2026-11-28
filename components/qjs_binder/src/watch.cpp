@@ -894,9 +894,14 @@ namespace qjs_binder::priv
         m.reflex = throttled ? (uint8_t)REFLEX_HALT : d.reflex;
         strlcpy(m.cause, cause, sizeof(m.cause));
         strlcpy(m.name, d.name, sizeof(m.name));
-        if (m.reflex == REFLEX_HALT && !halted && t.halt() == ESP_OK) {
-            halted = true; // a lockup or a reset: stop it there
-            e.halted = true;
+        bool halt_failed = false;
+        if (m.reflex == REFLEX_HALT && !halted) {
+            if (t.halt() == ESP_OK) {
+                halted = true; // a lockup or a reset: stop it there
+                e.halted = true;
+            } else {
+                halt_failed = true; // not held: the handler mustn't be told it is
+            }
         }
         m.halted = halted;
         int slot = -1;
@@ -912,6 +917,12 @@ namespace qjs_binder::priv
             }
         } else if (m.reflex == REFLEX_RESET) {
             action = apply(V_RESET, t, &note);
+        } else if (halt_failed) {
+            action = "none";
+            note = "the halt failed";
+        }
+        if (strcmp(action, "resume") == 0 || strcmp(action, "reset") == 0) {
+            m.halted = false; // as the handler will find it, not as it was caught
         }
 
         m.incident = open_incident(m, action);
@@ -994,7 +1005,14 @@ namespace qjs_binder::priv
         }
         if (st.dfsr & DFSR_VCATCH) {
             uint32_t xpsr = 0;
-            t.read_reg(16, &xpsr);
+            if (t.read_reg(16, &xpsr) != ESP_OK) {
+                // IPSR unknown: a reset only if that's the one catch armed; a
+                // fault otherwise (the one not to miss)
+                const bool reset_only = (g.eng.vc & VC_CORERESET) != 0 && (g.eng.vc & VC_FAULTS) == 0;
+                *on = reset_only ? ON_RESET : ON_FAULT;
+                *cause = reset_only ? "reset" : "fault";
+                return;
+            }
             uint32_t ipsr = xpsr & 0x1ff;
             *on = ipsr == 0 ? ON_RESET : ON_FAULT;
             *cause = ipsr == 0 ? "reset" : fault_name(ipsr);
@@ -1083,14 +1101,16 @@ namespace qjs_binder::priv
             // flash work, a reset) the stop is ours.
             const bool stop_cause = st.halted && (st.dfsr & DFSR_STOP_CAUSES) != 0;
             const bool ours = e.after_op;
-            const bool unseen = !e.after_op && stop_cause;
+            // A lockup found running (not halted) is one nobody saw either
+            const bool found_lockup = st.lockup && !st.halted;
+            const bool unseen = !e.after_op && (stop_cause || found_lockup);
             if (e.after_op && stop_cause) {
                 t.clear_stop_cause(); // ours: a call or the flash algorithm ends at a BKPT
             }
             e.known = true;
             e.after_op = false;
             e.halted = st.halted && !unseen;
-            e.lockup = st.lockup;
+            e.lockup = st.lockup && !(unseen && found_lockup); // so the lockup below fires
             e.ignore_reset = false;
             if (!unseen) {
                 if (e.halted && !ours && g.cfg.throttle_hold_ms != 0) {

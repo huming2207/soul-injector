@@ -149,7 +149,8 @@ bool swd_prog::overlaps_algorithm(uint32_t addr, size_t len) const
     if (!algo_resident || len == 0) {
         return false;
     }
-    const uint64_t start = code_start - sizeof(uint32_t), end = uint64_t(stack_bottom) + sizeof(uint32_t); // header .. canary
+    const uint64_t start = code_start >= sizeof(uint32_t) ? code_start - sizeof(uint32_t) : 0; // header .. canary
+    const uint64_t end = uint64_t(stack_bottom) + sizeof(uint32_t);
     return addr < end && uint64_t(addr) + len > start;
 }
 
@@ -333,7 +334,10 @@ esp_err_t swd_prog::init(uint32_t _stack_size)
     const uint32_t planned_stack_bottom = next_multiple_of(planned_code_end + page * 2, 8);
     const uint32_t planned_stack_top = planned_stack_bottom + stack_size;
     const uint32_t min_end = planned_stack_top + page;
-    if (min_end < code_start_in_region || !ram->contains_range(code_start_in_region, min_end - code_start_in_region)) {
+    // From the halt header, which load_flash_algorithm() writes below code_start
+    const uint32_t header_at = code_start_in_region - sizeof(uint32_t);
+    if (code_start_in_region < sizeof(uint32_t) || min_end < code_start_in_region ||
+        !ram->contains_range(header_at, min_end - header_at)) {
         ESP_LOGE(
             TAG, "Algorithm RAM region 0x%08lx-0x%08lx too small: need 0x%08lx-0x%08lx (algo %zu + stack %lu + pages %lu)", ram->start, ram->end,
             code_start_in_region, min_end, fa_cfg.algo_bin_len, stack_size, page

@@ -181,7 +181,7 @@ namespace qjs_binder::priv
     void progress_cb(JSContext *ctx, void *)
     {
         g.prog_posted = false; // anything newer posts again
-        if (!JS_IsFunction(ctx, g.on_progress)) {
+        if (loop_stopping() || !JS_IsFunction(ctx, g.on_progress)) {
             return;
         }
         JSValue p = JS_NewObject(ctx);

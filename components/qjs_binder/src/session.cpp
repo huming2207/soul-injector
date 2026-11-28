@@ -416,6 +416,10 @@ namespace qjs_binder
     {
         eval_post p = *static_cast<eval_post *>(arg);
         heap_caps_free(arg);
+        if (loop_stopping()) { // the runtime's end answers for the token
+            heap_caps_free(p.blob);
+            return;
+        }
         start_job(ctx, FIRST_EVAL, p.token, p.blob, p.len);
     }
 
@@ -469,7 +473,9 @@ namespace qjs_binder
 
         qjs_esp_stop_t why = qjs_esp_loop_run(loop);
         g.rt_ending = true;
+        xSemaphoreTake(g.loop_lock, portMAX_DELAY); // posters check it under the lock
         g.alive = false;
+        xSemaphoreGive(g.loop_lock);
         bool wanted = g.stop_wanted.load();
         if (!wanted) {
             char json[96];

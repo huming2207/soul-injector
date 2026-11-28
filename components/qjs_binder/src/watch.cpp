@@ -500,6 +500,12 @@ namespace qjs_binder::priv
     {
         fire_msg m = *static_cast<fire_msg *>(arg);
         heap_caps_free(arg);
+        if (loop_stopping()) { // no handler now; the runtime's end settles a held wait
+            if (m.slot >= 0) {
+                g.caps[m.slot].js_busy = false;
+            }
+            return;
+        }
 
         JSValue ev = JS_NewObject(ctx);
         JS_SetPropertyStr(ctx, ev, "watch", JS_NewInt32(ctx, m.id));

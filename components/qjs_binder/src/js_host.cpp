@@ -290,6 +290,19 @@ namespace qjs_binder
 
     static void call_hook(JSContext *ctx, void *)
     {
+        if (loop_stopping()) {
+            if (g.alive) { // still in the loop: run_script() answers for it as for a hook in flight
+                g.hook_active = true;
+                return;
+            }
+            // qjs_esp_loop_free(): posted after the loop stopped, before
+            // run_script() cleared g.alive. Answer, or run_hook() waits out its timeout.
+            if (strncmp(g.err, ENDED_BETWEEN, strlen(ENDED_BETWEEN)) != 0) {
+                set_err("script isn't running");
+            }
+            send_done(ESP_ERR_INVALID_STATE);
+            return;
+        }
         g.hook_active = true;
         qjs_esp_loop_set_deadline(g.loop, now_us() + g.cur_timeout_ms * 1000LL);
         qjs_esp_loop_set_limits(g.loop, &g.lim); // fresh slice for the hook
@@ -376,7 +389,9 @@ namespace qjs_binder
         settle(ctx, qjs_esp_bc_eval(ctx, g.script, g.script_len, &g.mod));
 
         qjs_esp_stop_t why = qjs_esp_loop_run(loop);
+        xSemaphoreTake(g.loop_lock, portMAX_DELAY); // run_hook() checks it under the lock
         g.alive = false; // before send_done, so no hook is posted to a stopped loop
+        xSemaphoreGive(g.loop_lock);
         if (g.loading || g.hook_active) {
             set_err("%s", stop_text(why));
             ESP_LOGE(TAG, "%s", g.err);
@@ -424,6 +439,11 @@ namespace qjs_binder
     {
         TickType_t t = pdMS_TO_TICKS(ms);
         return t ? t : 1;
+    }
+
+    bool priv::loop_stopping()
+    {
+        return g.loop && qjs_esp_loop_stopping(g.loop) != QJS_ESP_STOP_IDLE;
     }
 
     void priv::stop_loop()

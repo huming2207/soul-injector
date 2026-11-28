@@ -284,6 +284,12 @@ namespace qjs_binder::priv
             return; // the hook ended without waiting for it
         }
         s.used = false;
+        if (loop_stopping()) { // resolving could run the script's code (a thenable)
+            xfer_seen(s.seq);
+            JS_FreeValue(ctx, s.resolve);
+            JS_FreeValue(ctx, s.reject);
+            return;
+        }
         JSValue v;
         if (s.why[0]) {
             JS_ThrowRangeError(ctx, "%s: %s", op_name(s.op), s.why);

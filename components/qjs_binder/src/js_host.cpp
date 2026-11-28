@@ -418,19 +418,24 @@ namespace qjs_binder
         settle(ctx, qjs_esp_bc_eval(ctx, g.script, g.script_len, &g.mod));
 
         qjs_esp_stop_t why = qjs_esp_loop_run(loop);
+        // The error first: run_hook() reads it once it finds g.alive false
+        const bool answer = g.loading || g.hook_active;
+        if (answer) {
+            set_err("%s", stop_text(why));
+        } else if (why != QJS_ESP_STOP_REQUESTED) {
+            snprintf(g.err, sizeof(g.err), "%s%s", ENDED_BETWEEN, stop_text(why));
+            g.js_err_set = false;
+        }
         xSemaphoreTake(g.loop_lock, portMAX_DELAY); // run_hook() checks it under the lock
         g.alive = false; // before send_done, so no hook is posted to a stopped loop
         xSemaphoreGive(g.loop_lock);
-        if (g.loading || g.hook_active) {
-            set_err("%s", stop_text(why));
+        if (answer) {
             ESP_LOGE(TAG, "%s", g.err);
             g.loading = g.hook_active = false;
             send_done(why == QJS_ESP_STOP_REQUESTED ? ESP_ERR_INVALID_STATE
                       : why == QJS_ESP_STOP_ERROR   ? ESP_FAIL
                                                     : ESP_ERR_TIMEOUT);
         } else if (why != QJS_ESP_STOP_REQUESTED) { // not end_run(): it died in a callback, e.g. onProgress
-            snprintf(g.err, sizeof(g.err), "%s%s", ENDED_BETWEEN, stop_text(why));
-            g.js_err_set = false;
             ESP_LOGE(TAG, "%s", g.err);
         }
 
@@ -753,6 +758,11 @@ namespace qjs_binder
         fclose(fp);
         if (ret == ESP_OK) {
             ret = begin_run(buf, len, pinned_sha256, info);
+        }
+        if (g.dead) {
+            // The load hung: the JS task may still be reading the bytecode.
+            // Scripts are off until reboot; the buffer stays.
+            return ret;
         }
         heap_caps_free(buf); // runtime has its own copy
         return ret;

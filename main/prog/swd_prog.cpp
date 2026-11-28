@@ -1006,6 +1006,9 @@ esp_err_t swd_prog::check_flash_args(flash_access op, uint32_t addr, uint32_t le
                  (unsigned long)start, (unsigned long)end);
     } else if (op == flash_access::write && len % 4 != 0) {
         snprintf(why, why_len, "length %lu isn't a multiple of 4", (unsigned long)len);
+    } else if (op == flash_access::write && addr % 4 != 0) {
+        // A page boundary would split it into ProgramPage calls of 2 and 6 bytes
+        snprintf(why, why_len, "0x%08lx isn't 4-byte aligned", (unsigned long)addr);
     } else {
         return ESP_OK;
     }

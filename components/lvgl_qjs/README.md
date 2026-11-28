@@ -54,9 +54,9 @@ Types: `js/lvgl.d.ts`.
 | `obj.text` | label, checkbox, textarea. Setting the same text is free (no redraw). |
 | `obj.value`, `.min`, `.max` | bar, slider, arc. |
 | `obj.checked`, `.disabled`, `.hidden`, `.clickable`, `.scrollable`, `.checkable` | States and flags. |
-| `obj.width`, `.bgColor`, `.padRow` ... | Local style of the main part, default state. Colours are `0xRRGGBB`, fonts `lv.FONT.*`. `pad` sets all four sides, `gap` both row and column, `flexFlow` also turns the flex layout on. Setting a value the object already has is free. |
+| `obj.width`, `.bgColor`, `.padRow` ... | Local style of the main part, default state. Colours are `0xRRGGBB`, fonts `lv.FONT.*`. `pad` sets all four sides, `gap` both row and column, `flexFlow` also turns the flex layout on. Setting a value the object already has is free. `undefined` or `null` drops the local value, so the theme's applies again. |
 | `obj.setStyle(name, value, selector)` | Any part and state: `btn.setStyle("bgColor", 0x335577, lv.STATE.PRESSED)`. |
-| `obj.onClick`, `onPress`, `onLongPress`, `onRelease`, `onChange`, `onFocus`, `onBlur` | A function `(target) => {}` (`this` is the object too), or `null`. |
+| `obj.onClick`, `onPress`, `onLongPress`, `onRelease`, `onChange`, `onFocus`, `onBlur` | A function `(target) => {}` (`this` is the object too), or `null`. A handler on a deleted object throws; `null` is fine. |
 | `obj.insert(child, anchor?)` | Moves `child` here, before `anchor` or at the end (DOM `insertBefore`). |
 | `obj.remove()` | Out of the tree, still usable; `insert()` puts it back. |
 | `obj.delete()` | Gone, with its children. |
@@ -72,9 +72,11 @@ removed, deleted or moved.
   handlers and any properties the script put on it. A script doesn't need to
   hold on to what it put on screen.
 * A detached object (created without a parent, or `remove()`d) sits on a
-  hidden screen and lives as long as the script references it. When the
-  wrapper is collected, the object is deleted. This is how Solid's removed
-  nodes go away.
+  hidden screen and lives as long as the script references it, with its
+  children and their handlers. When the wrapper is collected, the object is
+  deleted, children too. This is how Solid's removed nodes go away, even
+  when a child's handler refers back to its container (a cycle the GC
+  collects as a whole).
 * Deleting from C (`lv_obj_clean(root)`, a screen with auto-delete) is fine:
   the wrappers find out and throw on use.
 
@@ -89,8 +91,9 @@ call only, never across JS code. Event callbacks run on the LVGL task and
 never wait for JS: they set a bit on the object and post one dispatch to the
 JS loop. Events of one object that arrive before the script gets to them are
 delivered once each, so dragging a slider while the script is busy costs one
-`onChange` with the latest value. If the loop's queue is full the events
-wait for the next one.
+`onChange` with the latest value. If the loop's queue is full, an LVGL
+timer posts them 20 ms later. Handlers of one batch stop at the first that
+deletes its object. A stopping loop calls no more handlers.
 
 ## Hosting
 

@@ -427,16 +427,25 @@ namespace lvgl_qjs::priv
         }
 
         // Skips a value the object already has: setting it again would redraw.
-        void set_local(lv_obj_t *o, lv_style_prop_t prop, style_kind kind, const lv_style_value_t &v, lv_style_selector_t sel)
+        // v nullptr: drop the local value (undefined/null from JS), so the
+        // theme's applies again, as a conditional Solid prop expects.
+        void set_local(lv_obj_t *o, lv_style_prop_t prop, style_kind kind, const lv_style_value_t *v, lv_style_selector_t sel)
         {
             lv_style_value_t cur;
-            if (lv_obj_get_local_style_prop(o, prop, &cur, sel) == LV_STYLE_RES_FOUND && same_value(kind, cur, v)) {
+            const bool found = lv_obj_get_local_style_prop(o, prop, &cur, sel) == LV_STYLE_RES_FOUND;
+            if (!v) {
+                if (found) {
+                    lv_obj_remove_local_style_prop(o, prop, sel);
+                }
                 return;
             }
-            lv_obj_set_local_style_prop(o, prop, v, sel);
+            if (found && same_value(kind, cur, *v)) {
+                return;
+            }
+            lv_obj_set_local_style_prop(o, prop, *v, sel);
         }
 
-        void apply_style(lv_obj_t *o, int magic, const lv_style_value_t &v, lv_style_selector_t sel)
+        void apply_style(lv_obj_t *o, int magic, const lv_style_value_t *v, lv_style_selector_t sel)
         {
             const auto kind = static_cast<style_kind>(magic >> 8);
             const auto prop = static_cast<lv_style_prop_t>(magic & 0xff);
@@ -454,7 +463,7 @@ namespace lvgl_qjs::priv
             case K_FLOW: {
                 lv_style_value_t flex = {};
                 flex.num = LV_LAYOUT_FLEX;
-                set_local(o, LV_STYLE_LAYOUT, K_NUM, flex, sel);
+                set_local(o, LV_STYLE_LAYOUT, K_NUM, v ? &flex : nullptr, sel);
                 set_local(o, prop, K_NUM, v, sel);
                 break;
             }
@@ -493,7 +502,8 @@ namespace lvgl_qjs::priv
         JSValue set_style_prop(JSContext *ctx, JSValueConst this_val, JSValueConst val, int magic)
         {
             lv_style_value_t v;
-            if (!to_style_value(ctx, static_cast<style_kind>(magic >> 8), val, &v)) {
+            const bool drop = JS_IsUndefined(val) || JS_IsNull(val);
+            if (!drop && !to_style_value(ctx, static_cast<style_kind>(magic >> 8), val, &v)) {
                 return JS_EXCEPTION;
             }
             lv_lock l;
@@ -504,7 +514,7 @@ namespace lvgl_qjs::priv
             if (!o) {
                 return JS_EXCEPTION;
             }
-            apply_style(o, magic, v, SEL_MAIN);
+            apply_style(o, magic, drop ? nullptr : &v, SEL_MAIN);
             return JS_UNDEFINED;
         }
 
@@ -706,7 +716,8 @@ namespace lvgl_qjs::priv
 
         uint32_t sel = SEL_MAIN;
         lv_style_value_t v;
-        if (!to_style_value(ctx, static_cast<style_kind>(magic >> 8), argv[1], &v) ||
+        const bool drop = JS_IsUndefined(argv[1]) || JS_IsNull(argv[1]);
+        if ((!drop && !to_style_value(ctx, static_cast<style_kind>(magic >> 8), argv[1], &v)) ||
             (argc > 2 && !JS_IsUndefined(argv[2]) && JS_ToUint32(ctx, &sel, argv[2]))) {
             return JS_EXCEPTION;
         }
@@ -718,7 +729,7 @@ namespace lvgl_qjs::priv
         if (!o) {
             return JS_EXCEPTION;
         }
-        apply_style(o, magic, v, sel);
+        apply_style(o, magic, drop ? nullptr : &v, sel);
         return JS_UNDEFINED;
     }
 } // namespace lvgl_qjs::priv

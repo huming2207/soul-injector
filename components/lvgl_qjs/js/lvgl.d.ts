@@ -6,7 +6,8 @@ declare module "lvgl" {
         | "obj" | "label" | "button" | "bar" | "slider" | "switch"
         | "checkbox" | "arc" | "spinner" | "textarea";
 
-    /** A style property's value: a number, a 0xRRGGBB colour, or an lv.FONT index. */
+    /** A style property's value: a number, a 0xRRGGBB colour, or an lv.FONT index.
+     *  Setting undefined or null drops the local value (the theme's applies). */
     export interface StyleProps {
         x: number; y: number; width: number; height: number;
         minWidth: number; maxWidth: number; minHeight: number; maxHeight: number;
@@ -48,7 +49,7 @@ declare module "lvgl" {
         onFocus: Handler; onBlur: Handler;
     }
 
-    export type Props = Partial<StyleProps & WidgetProps>;
+    export type Props = Partial<{ [K in keyof StyleProps]: StyleProps[K] | null } & WidgetProps>;
 
     /**
      * One LVGL object. The same object comes back for the same LVGL object
@@ -70,7 +71,7 @@ declare module "lvgl" {
         /** Gone, with its children. */
         delete(): void;
         /** A style property for any part and state, e.g. lv.PART.INDICATOR | lv.STATE.PRESSED. */
-        setStyle(name: keyof StyleProps, value: number, selector?: number): void;
+        setStyle(name: keyof StyleProps, value: number | null | undefined, selector?: number): void;
     }
 
     export function create(type: WidgetType, parent?: Obj | null, props?: Props): Obj;

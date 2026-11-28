@@ -170,6 +170,117 @@ function throwing() {
     host.send(bad, "click"); // reported, and the loop goes on
 }
 
+// Detached subtrees whose children's handlers close over them, built the
+// way Solid builds (bottom up, detached) and the way it unmounts (remove()):
+// the GC collects them, cycles and all.
+let cycleBase, keptCard;
+
+function makeCard() {
+    const card = lv.create("obj");
+    const inner = lv.create("obj", card);
+    const ok = lv.create("button", inner);
+    ok.onClick = () => { card.hidden = true; };
+    return card;
+}
+
+function makePanel() {
+    const panel = lv.create("obj", root);
+    const close = lv.create("button", panel);
+    close.onClick = () => panel.delete();
+    panel.remove();
+}
+
+function cycles() {
+    cycleBase = host.nodes();
+    makeCard();
+    makePanel();
+    keptCard = makeCard(); // still referenced: nothing in it may go
+    host.gc();
+}
+
+function cyclesCollected() {
+    const [limbo, trash] = host.detached();
+    eq(limbo, 2, "`kept` and `keptCard` stay detached");
+    eq(trash, 0, "trash emptied");
+    eq(host.nodes(), cycleBase + 3, "only keptCard's three wrappers left");
+    const ok = keptCard.firstChild.firstChild;
+    eq(typeof ok.onClick, "function", "a kept subtree keeps its handlers");
+    root.insert(keptCard);
+    host.send(ok, "click");
+}
+
+function keptCardClicked() {
+    eq(keptCard.hidden, true, "the handler ran");
+    keptCard.delete();
+    keptCard = null;
+}
+
+// The loop's queue is full when the click comes: the retry timer posts it
+let retried = 0;
+let rbtn;
+
+function queueFull() {
+    rbtn = lv.create("button", root);
+    rbtn.onClick = () => retried++;
+    host.fill();
+    host.send(rbtn, "click");
+}
+
+function queueFullRetried() {
+    eq(retried, 0, "nothing ran while the queue was full");
+    host.tick(50);
+}
+
+function queueFullHandled() {
+    eq(retried, 1, "the retry posted the click");
+    rbtn.delete();
+}
+
+function handlersOnDeleted() {
+    const x = lv.create("button", root);
+    x.delete();
+    throws(() => { x.onClick = () => {}; }, ReferenceError, "a handler on a deleted object");
+    x.onClick = null; // dropping one is fine
+    eq(x.onClick, undefined, "nothing stored");
+}
+
+function nullishStyles() {
+    const o = lv.create("obj", root);
+    const bg = o.bgColor;
+    const padLeft = o.padLeft;
+    const layout = o.layout;
+    o.bgColor = 0x123456;
+    eq(o.bgColor, 0x123456, "set");
+    o.bgColor = undefined;
+    eq(o.bgColor, bg, "undefined: back to the theme's");
+    o.pad = 3;
+    o.pad = null;
+    eq(o.padLeft, padLeft, "null pad: all four sides back");
+    o.flexFlow = lv.FLEX_FLOW.ROW;
+    o.flexFlow = undefined;
+    eq(o.layout, layout, "no flex flow: no flex layout");
+    o.setStyle("bgColor", 0x00ff00, lv.STATE.PRESSED);
+    o.setStyle("bgColor", null, lv.STATE.PRESSED);
+    o.delete();
+}
+
+// An earlier handler deletes the object: the later ones of the same batch don't run
+let pressSeen = 0;
+let clickSeen = 0;
+
+function deleteInHandler() {
+    const x = lv.create("button", root);
+    x.onPress = () => { pressSeen++; x.delete(); };
+    x.onClick = () => { clickSeen++; };
+    host.send(x, "press");
+    host.send(x, "click");
+}
+
+function deleteInHandlerDone() {
+    eq(pressSeen, 1, "onPress ran");
+    eq(clickSeen, 0, "onClick of a deleted object");
+}
+
 // The host empties its root from C: the wrappers find out
 function wipe() {
     nodesBefore = host.nodes();
@@ -192,4 +303,19 @@ function nodesFreed() {
     }
 }
 
-export const steps = [build, input, inputHandled, tree, afterGc, throwing, wipe, wiped, nodesFreed];
+// Last: a dispatch still queued when the host detaches. The teardown's
+// loop run must free its node without calling the script.
+function queuedAtDetach() {
+    const x = lv.create("button", root);
+    x.onClick = () => { throw new Error("a handler ran after detach()"); };
+    host.send(x, "click");
+    host.holdLoop();
+}
+
+export const steps = [
+    build, input, inputHandled, tree, afterGc, throwing,
+    cycles, cyclesCollected, keptCardClicked,
+    queueFull, queueFullRetried, queueFullHandled,
+    handlersOnDeleted, nullishStyles, deleteInHandler, deleteInHandlerDone,
+    wipe, wiped, nodesFreed, queuedAtDetach,
+];

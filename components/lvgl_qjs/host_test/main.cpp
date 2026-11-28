@@ -10,6 +10,9 @@
 //   host.cleanRoot()       the host empties lv.root() from C
 //   host.gc()              JS_RunGC
 //   host.nodes()           wrappers the binding tracks
+//   host.fill()            fills the loop's queue, so posts fail until it runs
+//   host.tick(ms)          time passes on the LVGL task: its timers run
+//   host.holdLoop()        the loop doesn't run after this step (it's the last)
 // Then the runtime is torn down as a host does it; QuickJS asserts that no
 // object leaked and AddressSanitizer catches the rest.
 
@@ -35,7 +38,14 @@ struct qjs_esp_loop {
     size_t head;
     size_t count;
     bool failed;
+    bool stopping; // qjs_esp_loop_free() runs what's left after the loop stopped
+    bool hold;
 };
+
+qjs_esp_stop_t qjs_esp_loop_stopping(const qjs_esp_loop_t *l)
+{
+    return l->stopping ? QJS_ESP_STOP_REQUESTED : QJS_ESP_STOP_IDLE;
+}
 
 esp_err_t qjs_esp_loop_post(qjs_esp_loop_t *l, qjs_esp_work_cb_t cb, void *arg, TickType_t)
 {
@@ -54,6 +64,9 @@ void qjs_esp_loop_fail(qjs_esp_loop_t *l, JSValueConst)
 static void run_loop(qjs_esp_loop_t *l)
 {
     JSRuntime *rt = JS_GetRuntime(l->ctx);
+    if (l->hold) {
+        return;
+    }
     for (;;) {
         JSContext *c;
         while (JS_ExecutePendingJob(rt, &c) > 0) {
@@ -159,6 +172,34 @@ static JSValue host_nodes(JSContext *ctx, JSValueConst, int, JSValueConst *)
     return JS_NewUint32(ctx, node_count());
 }
 
+static void no_work(JSContext *, void *) {}
+
+static JSValue host_fill(JSContext *, JSValueConst, int, JSValueConst *)
+{
+    while (qjs_esp_loop_post(test_loop, no_work, nullptr, 0) == ESP_OK) {
+    }
+    return JS_UNDEFINED;
+}
+
+static JSValue host_tick(JSContext *ctx, JSValueConst, int, JSValueConst *argv)
+{
+    uint32_t ms;
+    if (JS_ToUint32(ctx, &ms, argv[0])) {
+        return JS_EXCEPTION;
+    }
+    test_lock(0); // the LVGL task holds the lock while timers run
+    lv_tick_inc(ms);
+    lv_timer_handler();
+    test_unlock();
+    return JS_UNDEFINED;
+}
+
+static JSValue host_hold_loop(JSContext *, JSValueConst, int, JSValueConst *)
+{
+    test_loop->hold = true;
+    return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry HOST_FUNCS[] = {
     JS_CFUNC_DEF("send", 2, host_send),
     JS_CFUNC_DEF("queued", 0, host_queued),
@@ -166,6 +207,9 @@ static const JSCFunctionListEntry HOST_FUNCS[] = {
     JS_CFUNC_DEF("cleanRoot", 0, host_clean_root),
     JS_CFUNC_DEF("gc", 0, host_gc),
     JS_CFUNC_DEF("nodes", 0, host_nodes),
+    JS_CFUNC_DEF("fill", 0, host_fill),
+    JS_CFUNC_DEF("tick", 1, host_tick),
+    JS_CFUNC_DEF("holdLoop", 0, host_hold_loop),
 };
 
 static void add_host(JSContext *ctx)
@@ -282,10 +326,15 @@ int main(int argc, char **argv)
     run_steps(ctx, mod, disp);
     CHECK(!test_loop->failed);
 
-    // Teardown, as a host does it
+    // Teardown, as a host does it: the loop stopped, detach(), then
+    // qjs_esp_loop_free() runs the work still queued
+    const bool held = test_loop->hold;
+    test_loop->stopping = true;
+    test_loop->hold = false;
     lvgl_qjs::detach(ctx);
     CHECK(node_count() == 0);
-    run_loop(test_loop); // what qjs_esp_loop_free() would still run
+    CHECK(!held || test_loop->count > 0); // a dispatch was still queued
+    run_loop(test_loop);
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt); // asserts that no JS object leaked
     CHECK(lock_depth == 0);

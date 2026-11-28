@@ -19,6 +19,10 @@ namespace lvgl_qjs::priv
     //    script drops the wrapper, the finalizer moves the object to a second
     //    hidden screen, "trash", which the next drain empties. (A finalizer
     //    can run inside any allocation, so it never deletes objects itself.)
+    //  - Wrappers inside a detached object stay held, and the detached
+    //    object's wrapper reports them to the GC (gc_mark), so a cycle through
+    //    them (a button's onClick closing over its detached container) is
+    //    still collected, all of it at once.
     // LVGL telling us an object was deleted clears `obj`; the wrapper then
     // throws on use.
     struct node {
@@ -46,16 +50,19 @@ namespace lvgl_qjs::priv
         lv_obj_t *trash;
         node *nodes;          // all of them
         node *release;        // LVGL deleted these while held
+        lv_timer_t *retry;    // posts what a full loop queue refused; paused while nothing is
         JSAtom handler_atom[EVENT_KINDS]; // symbols the handlers are stored under, on the wrapper
     };
 
     extern state g;
 
-    // The LVGL lock, for one native call.
+    // The LVGL lock, for one native call. config::lock(0) waits for as long
+    // as it takes, so ok is false only with a broken lock. must: for the
+    // paths that can't fail (finalizer, GC, detach): try until it works.
     class lv_lock
     {
     public:
-        lv_lock() : ok(g.cfg.lock(0)) {}
+        explicit lv_lock(bool must = false) : ok(take(must)) {}
         ~lv_lock()
         {
             if (ok) {
@@ -66,6 +73,16 @@ namespace lvgl_qjs::priv
         lv_lock &operator=(const lv_lock &) = delete;
 
         const bool ok;
+
+    private:
+        static bool take(bool must)
+        {
+            bool got = g.cfg.lock(0);
+            while (must && !got) {
+                got = g.cfg.lock(0);
+            }
+            return got;
+        }
     };
 
     // Under the lock. The LVGL object behind a wrapper, or nullptr with a JS

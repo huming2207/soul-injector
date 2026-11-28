@@ -20,6 +20,8 @@ namespace lvgl_qjs::priv
             "onPress", "onLongPress", "onRelease", "onClick", "onChange", "onFocus", "onBlur",
         };
 
+        constexpr uint32_t RETRY_MS = 20;
+
         enum tree_prop : int16_t { T_PARENT, T_FIRST_CHILD, T_NEXT_SIBLING, T_TYPE, T_CHILD_COUNT, T_DELETED };
 
         void drain_job(JSContext *ctx, void *arg);
@@ -51,11 +53,29 @@ namespace lvgl_qjs::priv
         }
 
         // Under the lock, any task. Never waits: if the loop's queue is full,
-        // the next request posts it.
+        // the retry timer posts it later.
+        void post_retry_later()
+        {
+            if (g.retry) {
+                lv_timer_resume(g.retry);
+            }
+        }
+
         void request_drain()
         {
             if (g.attached && !g.drain_posted) {
                 g.drain_posted = qjs_esp_loop_post(g.loop, drain_job, nullptr, 0) == ESP_OK;
+                if (!g.drain_posted) {
+                    post_retry_later();
+                }
+            }
+        }
+
+        void post_dispatch(node *n)
+        {
+            n->posted = qjs_esp_loop_post(g.loop, dispatch_job, n, 0) == ESP_OK;
+            if (!n->posted) {
+                post_retry_later();
             }
         }
 
@@ -85,10 +105,32 @@ namespace lvgl_qjs::priv
                 if (EVENT_CODES[k] == code && (n->events & (1u << k))) {
                     n->fired |= 1u << k;
                     if (!n->posted) {
-                        n->posted = qjs_esp_loop_post(g.loop, dispatch_job, n, 0) == ESP_OK;
+                        post_dispatch(n);
                     }
                     return;
                 }
+            }
+        }
+
+        // LVGL timer: posts what the loop's queue was too full for. Events
+        // that came in meanwhile are already in `fired`.
+        void retry_cb(lv_timer_t *t)
+        {
+            bool waiting = false;
+            if (g.attached) {
+                if (!g.drain_posted && (g.release || lv_obj_get_child_count(g.trash))) {
+                    request_drain();
+                    waiting = !g.drain_posted;
+                }
+                for (node *n = g.nodes; n; n = n->next) {
+                    if (n->fired && !n->posted) {
+                        post_dispatch(n);
+                        waiting = waiting || !n->posted;
+                    }
+                }
+            }
+            if (!waiting) {
+                lv_timer_pause(t);
             }
         }
 
@@ -115,7 +157,7 @@ namespace lvgl_qjs::priv
             uint16_t fired;
             bool alive;
             {
-                lv_lock l;
+                lv_lock l(true);
                 fired = n->fired;
                 n->fired = 0;
                 n->posted = false;
@@ -125,13 +167,22 @@ namespace lvgl_qjs::priv
                 js_free(ctx, n);
                 return;
             }
-            if (!alive || !g.attached) {
+            // A stopping loop (or qjs_esp_loop_free() running what's left)
+            // runs no more JS
+            if (!alive || !g.attached || qjs_esp_loop_stopping(g.loop)) {
                 return;
             }
             JSValue self = JS_DupValue(ctx, n->self);
             for (int k = 0; k < EVENT_KINDS; k++) {
                 if (!(fired & (1u << k))) {
                     continue;
+                }
+                if (k) { // an earlier handler may have deleted it, or failed for good
+                    lv_lock l(true);
+                    alive = n->obj != nullptr;
+                }
+                if (!alive || qjs_esp_loop_stopping(g.loop)) {
+                    break;
                 }
                 JSValue fn = JS_GetProperty(ctx, self, g.handler_atom[k]);
                 if (JS_IsFunction(ctx, fn)) {
@@ -189,9 +240,12 @@ namespace lvgl_qjs::priv
             if (!n) {
                 return;
             }
-            lv_lock l; // recursive: fine inside a native call that holds it
+            lv_lock l(true); // recursive: fine inside a native call that holds it
             n->self = JS_UNDEFINED;
-            if (n->obj) { // not held, so the object is detached: it goes with its wrapper
+            // Held, yet finalized: collected with the detached object that
+            // reported it in gc_mark. QuickJS frees it, our reference with it.
+            n->held = false;
+            if (n->obj) { // detached, or inside a detached object: it goes with its wrapper
                 lv_obj_remove_event_cb_with_user_data(n->obj, bind_cb, n);
                 if (n->listening) {
                     lv_obj_remove_event_cb_with_user_data(n->obj, input_cb, n);
@@ -208,12 +262,41 @@ namespace lvgl_qjs::priv
             }
         }
 
-        // No gc_mark: the only JS value a node keeps is its own wrapper, and
-        // that one is a root on purpose while held.
+        node *find_node(lv_obj_t *obj);
+
+        void mark_held_in(JSRuntime *rt, lv_obj_t *obj, JS_MarkFunc *mark_func)
+        {
+            const uint32_t count = lv_obj_get_child_count(obj);
+            for (uint32_t i = 0; i < count; i++) {
+                lv_obj_t *c = lv_obj_get_child(obj, i);
+                node *n = find_node(c);
+                if (n && n->held) {
+                    JS_MarkValue(rt, n->self, mark_func);
+                }
+                mark_held_in(rt, c, mark_func);
+            }
+        }
+
+        // The only JS value a node keeps is its own wrapper, held while the
+        // object is in the screen tree (a root on purpose) or inside a
+        // detached object. The detached object's wrapper reports those, so
+        // the GC sees them as its children.
+        void gc_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func)
+        {
+            node *n = static_cast<node *>(JS_GetOpaque(val, g.class_id));
+            if (!n || !n->obj) {
+                return;
+            }
+            lv_lock l(true);
+            if (n->obj && lv_obj_get_parent(n->obj) == g.limbo) {
+                mark_held_in(rt, n->obj, mark_func);
+            }
+        }
+
         const JSClassDef OBJ_CLASS = {
             .class_name = "Obj",
             .finalizer = finalizer,
-            .gc_mark = nullptr,
+            .gc_mark = gc_mark,
             .call = nullptr,
             .exotic = nullptr,
         };
@@ -412,31 +495,35 @@ namespace lvgl_qjs::priv
             if (!on && !is_nullish(val)) {
                 return JS_ThrowTypeError(ctx, "%s: expected a function or null", EVENT_NAMES[magic]);
             }
+            {
+                lv_lock l;
+                if (!l.ok) {
+                    return lock_error(ctx);
+                }
+                if (!n->obj) { // dropping a handler of a deleted object is fine
+                    return on ? JS_ThrowReferenceError(ctx, "this LVGL object was deleted") : JS_UNDEFINED;
+                }
+                if (on && !n->listening) {
+                    if (!lv_obj_add_event_cb(n->obj, input_cb, LV_EVENT_ALL, n)) {
+                        return JS_ThrowOutOfMemory(ctx);
+                    }
+                    n->listening = true;
+                }
+            }
+            // Stored once LVGL will call it. A failed store leaves the bit
+            // clear: input_cb ignores events without one.
             const int r = on ? JS_SetProperty(ctx, this_val, g.handler_atom[magic], JS_DupValue(ctx, val))
                              : JS_DeleteProperty(ctx, this_val, g.handler_atom[magic], 0);
-            if (r < 0) {
-                return JS_EXCEPTION;
-            }
 
-            lv_lock l;
-            if (!l.ok) {
-                return lock_error(ctx);
+            lv_lock l(true);
+            if (r >= 0) {
+                n->events = on ? n->events | (1u << magic) : n->events & ~(1u << magic);
             }
-            if (!n->obj) {
-                return JS_UNDEFINED;
-            }
-            n->events = on ? n->events | (1u << magic) : n->events & ~(1u << magic);
-            const bool want = n->events != 0;
-            if (want && !n->listening) {
-                if (!lv_obj_add_event_cb(n->obj, input_cb, LV_EVENT_ALL, n)) {
-                    n->events = 0;
-                    return JS_ThrowOutOfMemory(ctx);
-                }
-            } else if (!want && n->listening) {
+            if (!n->events && n->listening && n->obj) {
                 lv_obj_remove_event_cb_with_user_data(n->obj, input_cb, n);
+                n->listening = false;
             }
-            n->listening = want;
-            return JS_UNDEFINED;
+            return r < 0 ? JS_EXCEPTION : JS_UNDEFINED;
         }
 
 #define HANDLER(k) JS_CGETSET_MAGIC_DEF(EVENT_NAMES[k], get_handler, set_handler, k)
@@ -684,16 +771,23 @@ namespace lvgl_qjs
         }
         g.limbo = lv_obj_create(nullptr);
         g.trash = lv_obj_create(nullptr);
-        if (!g.limbo || !g.trash) {
+        g.retry = lv_timer_create(retry_cb, RETRY_MS, nullptr);
+        if (!g.limbo || !g.trash || !g.retry) {
             if (g.limbo) {
                 lv_obj_delete(g.limbo);
             }
             if (g.trash) {
                 lv_obj_delete(g.trash);
             }
+            if (g.retry) {
+                lv_timer_delete(g.retry);
+            }
+            g.limbo = g.trash = nullptr;
+            g.retry = nullptr;
             free_handler_atoms(ctx);
             return ESP_ERR_NO_MEM;
         }
+        lv_timer_pause(g.retry);
         g.attached = true;
         return ESP_OK;
     }
@@ -704,9 +798,11 @@ namespace lvgl_qjs
             return;
         }
         {
-            lv_lock l;
+            lv_lock l(true);
             g.runtime_ok = runtime_ok;
             g.attached = false; // queued dispatches and drains do nothing now
+            lv_timer_delete(g.retry);
+            g.retry = nullptr;
             for (node *n = g.nodes, *next; n; n = next) {
                 next = n->next;
                 if (n->obj) {

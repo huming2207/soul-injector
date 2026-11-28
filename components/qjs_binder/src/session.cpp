@@ -964,8 +964,6 @@ namespace qjs_binder
             owner_result(script_outcome::error, quarantined ? "this script crashed the device, reboot to retry" : "no room for the script");
             return ESP_OK;
         }
-        uint32_t token = next_token();
-        g.want_token = token;
         g.owner_note = nullptr;
         set_crash_mark(sha);
         auto *p = static_cast<eval_post *>(heap_caps_malloc(sizeof(eval_post), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -973,6 +971,11 @@ namespace qjs_binder
             if (g.rt_started && g.rt_ending && stop_runtime() != ESP_OK) { // ended by itself: let it finish
                 break;
             }
+            // A fresh token, wanted only now: an ending runtime answers the
+            // token it finds wanted ("stopped"), and that answer (its OP_DONE
+            // dropped by start_runtime()) must not be this eval's
+            const uint32_t token = next_token();
+            g.want_token = token;
             if (!g.rt_started) {
                 heap_caps_free(p);
                 start_runtime(FIRST_EVAL, token, copy, len);

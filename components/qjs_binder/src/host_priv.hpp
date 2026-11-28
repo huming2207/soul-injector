@@ -294,6 +294,10 @@ namespace qjs_binder::priv
     // from (out of memory). Either way the runtime ends and its end answers whoever waits; for
     // the second kind this stops the loop, which nothing else would.
     bool ends_runtime(JSValueConst e);
+    // Where a failure has nowhere to go (a log line, a best-effort read):
+    // drop the pending exception, unless it ends the runtime (out of memory,
+    // the loop's interrupt), which then stops the loop as it should.
+    void drop_exception(JSContext *ctx);
     // JS task, in posted work: the loop is stopping (or qjs_esp_loop_free()
     // is running what's left). Free what the work owns; call no JS.
     bool loop_stopping();

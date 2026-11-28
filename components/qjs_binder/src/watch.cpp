@@ -463,10 +463,19 @@ namespace qjs_binder::priv
         if (!JS_IsObject(v) || JS_IsArray(v) || JS_IsFunction(ctx, v)) {
             return verdict_of(ctx, v, status);
         }
-        JSValue data = JS_GetPropertyStr(ctx, v, "data");
-        send_data(ctx, data, m);
+        JSValue data = JS_GetPropertyStr(ctx, v, "data"); // getters may throw: then hold, as for a bad value
+        if (JS_IsException(data)) {
+            drop_exception(ctx);
+        } else {
+            send_data(ctx, data, m);
+        }
         JS_FreeValue(ctx, data);
         JSValue action = JS_GetPropertyStr(ctx, v, "action");
+        if (JS_IsException(action)) {
+            drop_exception(ctx);
+            *status = H_BAD_VALUE;
+            return V_HOLD;
+        }
         uint8_t out = verdict_of(ctx, action, status);
         JS_FreeValue(ctx, action);
         return out;

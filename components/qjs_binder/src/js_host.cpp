@@ -83,13 +83,16 @@ namespace qjs_binder
     static void prop_text(JSContext *ctx, JSValueConst e, const char *name, char *out, size_t len)
     {
         out[0] = '\0';
-        JSValue v = JS_GetPropertyStr(ctx, e, name);
+        JSValue v = JS_GetPropertyStr(ctx, e, name); // a getter may throw
         if (JS_IsString(v)) {
             const char *t = JS_ToCString(ctx, v);
             if (t) {
                 strlcpy(out, t, len);
                 JS_FreeCString(ctx, t);
             }
+        }
+        if (JS_IsException(v)) {
+            drop_exception(ctx);
         }
         JS_FreeValue(ctx, v);
     }
@@ -118,10 +121,23 @@ namespace qjs_binder
         return true;
     }
 
+    void priv::drop_exception(JSContext *ctx)
+    {
+        JSValue x = JS_GetException(ctx);
+        ends_runtime(x);
+        JS_FreeValue(ctx, x);
+    }
+
     void priv::record_error(JSContext *ctx, JSValueConst e)
     {
-        const char *msg = JS_ToCString(ctx, e);
+        const char *msg = JS_ToCString(ctx, e); // the thrown value's toString may throw too
+        if (!msg) {
+            drop_exception(ctx);
+        }
         JSValue stack = JS_IsError(e) ? JS_GetPropertyStr(ctx, e, "stack") : JS_UNDEFINED;
+        if (JS_IsException(stack)) {
+            drop_exception(ctx);
+        }
         const char *st = JS_IsString(stack) ? JS_ToCString(ctx, stack) : nullptr;
         ESP_LOGE(TAG, "script: %s\n%s", msg ? msg : "(error)", st ? st : "");
         snprintf(g.err, sizeof(g.err), "%s", msg ? msg : "script error");
@@ -220,7 +236,14 @@ namespace qjs_binder
         size_t n = 0;
         line[0] = '\0';
         for (int i = 0; i < argc && n < sizeof(line) - 1; i++) {
-            const char *s = JS_ToCString(ctx, argv[i]);
+            const char *s = JS_ToCString(ctx, argv[i]); // a Symbol, or a toString that throws
+            if (!s) {
+                JSValue x = JS_GetException(ctx);
+                if (JS_IsUncatchableError(x)) {
+                    return JS_Throw(ctx, x);
+                }
+                JS_FreeValue(ctx, x);
+            }
             n += snprintf(line + n, sizeof(line) - n, "%s%s", i ? " " : "", s ? s : "?");
             JS_FreeCString(ctx, s);
         }

@@ -132,7 +132,9 @@ namespace qjs_binder::priv
         JSValue jhi = JS_IsObject(lim) ? JS_GetPropertyStr(ctx, lim, "hi") : JS_UNDEFINED;
         JSValue unit = JS_IsObject(lim) ? JS_GetPropertyStr(ctx, lim, "unit") : JS_UNDEFINED;
         bool has_lo = !JS_IsUndefined(jlo), has_hi = !JS_IsUndefined(jhi);
-        if ((has_lo && JS_ToFloat64(ctx, &lo, jlo)) || (has_hi && JS_ToFloat64(ctx, &hi, jhi))) {
+        // A throwing getter mustn't end up stored as a value (unit) or read as one
+        if (JS_IsException(jlo) || JS_IsException(jhi) || JS_IsException(unit) || (has_lo && JS_ToFloat64(ctx, &lo, jlo)) ||
+            (has_hi && JS_ToFloat64(ctx, &hi, jhi))) {
             JS_FreeValue(ctx, jlo);
             JS_FreeValue(ctx, jhi);
             JS_FreeValue(ctx, unit);

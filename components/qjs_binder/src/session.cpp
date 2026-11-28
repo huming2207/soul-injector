@@ -209,7 +209,11 @@ namespace qjs_binder
             }
             JSValue a = JS_NewArray(ctx);
             for (int64_t i = 0; i < len && !JS_IsException(a); i++) {
-                JS_SetPropertyUint32(ctx, a, i, JS_GetPropertyUint32(ctx, v, i));
+                JSValue x = JS_GetPropertyUint32(ctx, v, i);
+                if (JS_IsException(x) || JS_SetPropertyUint32(ctx, a, i, x) < 0) { // not the exception marker as an element
+                    JS_FreeValue(ctx, a);
+                    return JS_EXCEPTION;
+                }
             }
             return a;
         }

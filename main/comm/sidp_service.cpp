@@ -145,6 +145,10 @@ esp_err_t sidp_service::start_network()
     ret = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "net", &net_pm_lock);
     ret = ret ?: wifi.init(net_cfg.wifi_ssid, net_cfg.wifi_password);
     if (ret != ESP_OK) {
+        if (net_pm_lock != nullptr) {
+            esp_pm_lock_delete(net_pm_lock);
+            net_pm_lock = nullptr;
+        }
         return ret;
     }
 
@@ -153,6 +157,9 @@ esp_err_t sidp_service::start_network()
     esp_transport_handle_t tcp = esp_transport_tcp_init();
     esp_transport_handle_t ws_layer = tcp != nullptr ? esp_transport_ws_init(tcp) : nullptr;
     if (ws_layer == nullptr) {
+        if (tcp != nullptr) {
+            esp_transport_destroy(tcp);
+        }
         return ESP_ERR_NO_MEM;
     }
     esp_transport_keep_alive_t keep_alive = {
@@ -173,6 +180,8 @@ esp_err_t sidp_service::start_network()
     ws_layer_cfg.propagate_control_frames = true; // As the client sets for its own transport
     ret = esp_transport_ws_set_config(ws_layer, &ws_layer_cfg);
     if (ret != ESP_OK) {
+        esp_transport_destroy(ws_layer);
+        esp_transport_destroy(tcp);
         return ret;
     }
 
@@ -874,6 +883,10 @@ sidp::status_t sidp_service::op_net_config_set(std::span<const uint8_t> payload)
 {
     // Accepted over the network too, after the login; a lockdown mode that
     // refuses it there may come later.
+#ifndef CONFIG_SI_NETWORK_ENABLE
+    (void)payload;
+    return sidp::STATUS_UNSUPPORTED; // this firmware has no network to use it (Rev 7.1)
+#endif
     si_manage_NetConfig cfg = si_manage_NetConfig_init_zero;
     if (!decode(payload, si_manage_NetConfig_fields, &cfg)) {
         return sidp::STATUS_INVALID_ARGUMENT;

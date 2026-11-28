@@ -852,6 +852,7 @@ namespace qjs_binder
         }
         watch_poll(target);
         step_pending(target);
+        retry_async_posts();
         if (g.rt_started && !g.alive && reap_runtime(0)) {
             ESP_LOGI(TAG, "session runtime reaped");
         }

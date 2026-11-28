@@ -306,6 +306,7 @@ namespace qjs_binder::priv
         if (!s.used) {
             return; // the hook ended without waiting for it
         }
+        s.repost = false;
         s.used = false;
         if (loop_stopping()) { // resolving could run the script's code (a thenable)
             xfer_seen(s.seq);
@@ -343,6 +344,7 @@ namespace qjs_binder::priv
             if (s.used) {
                 JS_FreeValue(ctx, s.resolve);
                 JS_FreeValue(ctx, s.reject);
+                s.repost = false; // first: a reused slot must not look done
                 s.used = false;
             }
         }

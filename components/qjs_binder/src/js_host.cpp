@@ -607,8 +607,20 @@ namespace qjs_binder
             s.ret = ret;
             s.val = val;
             strlcpy(s.why, why ? why : "", sizeof(s.why));
-            if (qjs_esp_loop_post(g.loop, async_done, &s, pdMS_TO_TICKS(10)) != ESP_OK) {
-                ESP_LOGW(TAG, "JS queue full, async result dropped");
+            s.repost = qjs_esp_loop_post(g.loop, async_done, &s, pdMS_TO_TICKS(10)) != ESP_OK;
+            if (s.repost) { // kept: dropping it would leave the promise and the slot taken for good
+                ESP_LOGW(TAG, "JS queue full, async result posted later");
+            }
+        }
+        xSemaphoreGive(g.loop_lock);
+    }
+
+    void priv::retry_async_posts()
+    {
+        xSemaphoreTake(g.loop_lock, portMAX_DELAY);
+        for (auto &s : g.slots) {
+            if (g.loop && s.used && s.repost) {
+                s.repost = qjs_esp_loop_post(g.loop, async_done, &s, 0) != ESP_OK;
             }
         }
         xSemaphoreGive(g.loop_lock);
@@ -668,6 +680,7 @@ namespace qjs_binder
                 return ESP_ERR_TIMEOUT;
             }
 
+            retry_async_posts();
             req r;
             if (xQueueReceive(g.req_q, &r, ms_ticks(left_ms < CANCEL_POLL_MS ? left_ms : CANCEL_POLL_MS)) != pdTRUE) {
                 if (!stopped && cancelled && cancelled()) {

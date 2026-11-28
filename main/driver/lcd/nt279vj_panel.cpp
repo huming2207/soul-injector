@@ -38,16 +38,18 @@ esp_err_t nt279vj_panel::init()
     vTaskDelay(pdMS_TO_TICKS(20));
 #endif
 
+    // The backlight is active high: off (level first, as for the supply) and no
+    // pull-up feeding it while it's driven low.
     gpio_config_t pwr_io_cfg = {
         .pin_bit_mask = (1ULL << CONFIG_SI_DISP_PANEL_BKL),
         .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
 
-    auto ret = gpio_config(&pwr_io_cfg);
-    ret = ret ?: gpio_set_level((gpio_num_t)CONFIG_SI_DISP_PANEL_BKL, 0);
+    auto ret = gpio_set_level((gpio_num_t)CONFIG_SI_DISP_PANEL_BKL, 0);
+    ret = ret ?: gpio_config(&pwr_io_cfg);
     ret = ret ?: gpio_reset_pin((gpio_num_t)CONFIG_SI_DISP_PANEL_IO_CS);
     ret = ret ?: gpio_reset_pin((gpio_num_t)CONFIG_SI_DISP_PANEL_IO_DC);
     ret = ret ?: gpio_reset_pin((gpio_num_t)CONFIG_SI_DISP_PANEL_IO_MOSI);
@@ -84,11 +86,7 @@ esp_err_t nt279vj_panel::init()
     io_cfg.dc_gpio_num = static_cast<gpio_num_t>(CONFIG_SI_DISP_PANEL_IO_DC);
     io_cfg.cs_gpio_num = static_cast<gpio_num_t>(CONFIG_SI_DISP_PANEL_IO_CS);
 
-#ifndef CONFIG_SI_DISP_SLOW_CLK
-    io_cfg.pclk_hz = SPI_MASTER_FREQ_40M;
-#else
-    io_cfg.pclk_hz = SPI_MASTER_FREQ_8M;
-#endif
+    io_cfg.pclk_hz = PCLK_HZ;
 
     io_cfg.lcd_cmd_bits = 8;
     io_cfg.lcd_param_bits = 8;
@@ -123,7 +121,8 @@ esp_err_t nt279vj_panel::init()
     ret = ret ?: esp_lcd_panel_swap_xy(panel_handle, true);
     ret = ret ?: esp_lcd_panel_mirror(panel_handle, true, false);
     ret = ret ?: esp_lcd_panel_set_gap(panel_handle, 0, 14);
-    ret = ret ?: set_backlight(100);
+    // Backlight stays off: the panel is showing its uninitialised memory until
+    // LVGL's first frame (display_manager::init()).
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "nt279vj: can't setup LCD");
         return ret;

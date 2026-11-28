@@ -21,6 +21,15 @@ public:
     void unlock() override;
     lv_display_t *get_lv_disp() override;
 
+    // Time to send one full frame over SPI, and a margin: init() leaves the
+    // backlight off, display_manager lights it this long after the first frame.
+#ifndef CONFIG_SI_DISP_SLOW_CLK
+    static const constexpr uint32_t PCLK_HZ = SPI_MASTER_FREQ_40M;
+#else
+    static const constexpr uint32_t PCLK_HZ = SPI_MASTER_FREQ_8M;
+#endif
+    static const constexpr uint32_t FRAME_SEND_MS = 428 * 142 * 16 / (PCLK_HZ / 1000) + 10;
+
 private:
     static const constexpr char TAG[] = "nt279vj_drv";
 #ifdef CONFIG_ESP_SWD_USE_SPI

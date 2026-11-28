@@ -22,8 +22,19 @@ esp_err_t display_manager::init()
     ret = composer.init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up UI composer 0x%x", ret);
+        panel->set_backlight(100); // a blank panel beats a dark one that looks dead
         return ret;
     }
+
+    // Light the panel once the first screen is in its memory, not before:
+    // until then it shows random pixels. The refresh returns once the last
+    // chunk is queued, so wait for one frame's transfer too.
+    if (lvgl_port_lock(1000)) {
+        lv_refr_now(nullptr);
+        lvgl_port_unlock();
+    }
+    vTaskDelay(pdMS_TO_TICKS(nt279vj_panel::FRAME_SEND_MS));
+    ret = panel->set_backlight(100);
 
     ESP_LOGI(TAG, "Composer init OK");
     return ret;

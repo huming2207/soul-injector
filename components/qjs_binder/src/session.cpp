@@ -818,6 +818,16 @@ namespace qjs_binder
         default:
             break;
         }
+        if (r.op == OP_FLASH_WRITE || r.op == OP_FLASH_ERASE) {
+            // Refused arguments never touch the target: no stop cause cleared,
+            // nothing forgotten (execute() checks again and says why)
+            char why[8];
+            auto op = r.op == OP_FLASH_WRITE ? js_target::flash_op::write : js_target::flash_op::erase;
+            if (t.flash_check(op, r.addr, r.a, why, sizeof(why)) != ESP_OK) {
+                execute(r, &t, nullptr);
+                return;
+            }
+        }
         watch_before_op(r.op, r.addr, t);
         esp_err_t ret = execute(r, &t, nullptr);
         watch_after_op(r.op, r.addr, ret);

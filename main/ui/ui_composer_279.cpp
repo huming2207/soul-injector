@@ -31,7 +31,7 @@ esp_err_t ui_composer_279::init()
 
 esp_err_t ui_composer_279::post(const ui_model &model, bool ready)
 {
-    step_progress.store(-1, std::memory_order_relaxed); // belongs to the previous screen
+    // A new sequence number also retires the previous screen's step_progress
     taskENTER_CRITICAL(&lock);
     pending = model;
     pending_ready = ready;
@@ -42,8 +42,9 @@ esp_err_t ui_composer_279::post(const ui_model &model, bool ready)
 
 void ui_composer_279::set_progress(uint32_t done, uint32_t total)
 {
-    const int8_t percent = total == 0 ? 100 : static_cast<int8_t>(static_cast<uint64_t>(done) * 100 / total);
-    step_progress.store(percent > 100 ? 100 : percent, std::memory_order_relaxed);
+    const uint64_t percent = total == 0 ? 100 : static_cast<uint64_t>(done) * 100 / total;
+    const uint32_t seq = pending_seq.load(std::memory_order_acquire);
+    step_progress.store(seq << 8 | static_cast<uint32_t>(percent > 100 ? 100 : percent), std::memory_order_relaxed);
 }
 
 void ui_composer_279::poll_cb(lv_timer_t *timer)
@@ -63,9 +64,9 @@ void ui_composer_279::poll()
     }
 
     ui_model shown = base;
-    const int8_t progress = step_progress.load(std::memory_order_relaxed);
-    if (shown.progress >= 0 && progress >= 0) {
-        shown.progress = progress;
+    const uint32_t progress = step_progress.load(std::memory_order_relaxed);
+    if (shown.progress >= 0 && (progress & 0xff) <= 100 && (progress >> 8) == (taken_seq & 0xffffff)) {
+        shown.progress = static_cast<int8_t>(progress & 0xff);
     }
 
     // A script watching the target from agent_service is worth saying only while idle.

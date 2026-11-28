@@ -48,7 +48,9 @@ private:
     ui_model pending = {};
     bool pending_ready = false;
     std::atomic<uint32_t> pending_seq = 0;
-    std::atomic<int8_t> step_progress = -1; // overrides the posted screen's progress
+    // Overrides the posted screen's progress: pending_seq << 8 | percent, so
+    // progress counts only for the screen it was reported on. 0xff: none.
+    std::atomic<uint32_t> step_progress = 0xff;
 
     // LVGL task only
     ui_view view;

@@ -153,7 +153,8 @@ namespace
             esp_err_t ret = swd_init_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
             uint32_t dhcsr = 0;
             ret = ret ?: swd_read_word(DHCSR_ADDR, &dhcsr);
-            return ret ?: swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | ((dhcsr & S_HALT) ? C_HALT : 0));
+            ret = ret ?: swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | ((dhcsr & S_HALT) ? C_HALT : 0));
+            return keep_session(ret); // a failed init ended the attach's session
         }
 
         esp_err_t read_mem(uint32_t addr, uint8_t *buf, size_t len) override { return swd_read_memory(addr, buf, len); }

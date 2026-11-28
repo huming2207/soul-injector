@@ -87,13 +87,11 @@ idf_component_register(
         "esp_app_format"
         "esp_wifi"
         "esp-mqtt"
-        "mbedtls"
         "soulinjector-common"
         "app_update"
         "ina228"
         "ina226"
         "esp_lvgl_port"
-        "spi_flash"
         "esp-serial-flasher"
         "qjs_binder"
 

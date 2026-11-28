@@ -381,6 +381,10 @@ menu "Soul Injector ESP32 Target Programming"
             Host GPIO connected to the ESP32 target TX. Set to -1 on boards
             without this connection.
 
+endmenu
+
+menu "Soul Injector traps"
+
     config SI_AGENT_INCIDENTS_MAX
         int "Trap incidents kept"
         depends on SI_JS_ENABLE

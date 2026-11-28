@@ -39,6 +39,7 @@ public:
      * Ends a hold from boot, if there is one: nRST released and the lines
      * isolated. Called before anything else takes the target (a programming
      * run, a plain attach) and when the trap's first start doesn't attach.
+     * Any task; only the first call after a hold does anything.
      */
     static void end_boot_hold();
 

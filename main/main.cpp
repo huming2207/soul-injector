@@ -22,6 +22,7 @@ extern "C" void app_main(void)
     // A trap armed with --connect-under-reset wants the target to start under
     // watch: hold it in reset now, the earliest the firmware can, until the
     // trap attaches (agent_service). Before this the target runs freely.
+#if CONFIG_SI_JS_ENABLE // traps need scripts; a flag left by another firmware means nothing here
     if (nvs_flash_init() == ESP_OK) {
         nvs_handle_t nvs;
         uint8_t hold = 0;
@@ -34,6 +35,7 @@ extern "C" void app_main(void)
             ESP_LOGI(TAG, "Holding the target in reset for the armed trap");
         }
     }
+#endif
 
     psa_crypto_init();
 

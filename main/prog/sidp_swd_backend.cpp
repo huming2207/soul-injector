@@ -132,10 +132,10 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (!params.connect_under_reset) {
+    auto ret = load_target();
+    if (ret == ESP_OK && !params.connect_under_reset) {
         target_lines::end_boot_hold(); // a plain attach takes a target held from boot as it is
     }
-    auto ret = load_target();
     ret = ret ?: claim_target();
     if (ret != ESP_OK) {
         // A programming run has the target: the session answers BUSY for INVALID_STATE
@@ -146,6 +146,11 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
     // pulses nRST between retries, which wiped a sleeping target's state.
     ret = params.connect_under_reset ? connect_under_reset(params.halt_after_attach)
                                      : swd_attach_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    if (params.connect_under_reset) {
+        // The reset it went through ended any hold from boot (or the attach
+        // failed): what's left of the hold is its no-light-sleep lock
+        target_lines::end_boot_hold();
+    }
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "attach: cannot connect: %s", esp_err_to_name(ret));
         swd_off(); // Harmless when swd_host has already dropped the session

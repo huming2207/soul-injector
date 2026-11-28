@@ -7,6 +7,7 @@
 #include <swd_host.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <atomic>
 
 static const constexpr gpio_num_t SWITCH_PIN = static_cast<gpio_num_t>(CONFIG_SI_TARGET_SWITCH_PIN);
 
@@ -101,12 +102,16 @@ void target_lines::set_swdio_pulldowns(bool enable)
 // target go for each sleep. No light sleep while the hold lasts.
 static esp_pm_lock_handle_t hold_pm_lock;
 static bool hold_pm_held;
+// The flasher (a run) and the SIDP task (attach, trap) both end the hold: only
+// the first one may, or the second would isolate lines the first just connected.
+static std::atomic<bool> hold_active;
 
 void target_lines::hold_reset_from_boot()
 {
     if (hold_pm_lock != nullptr || esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "si_hold", &hold_pm_lock) == ESP_OK) {
         hold_pm_held = esp_pm_lock_acquire(hold_pm_lock) == ESP_OK;
     }
+    hold_active = true;
     swd_hold_reset(true); // nRST asserted before the switch connects it
     if (SWITCH_PIN != GPIO_NUM_NC) {
         gpio_config_t io_cfg = {};
@@ -119,6 +124,9 @@ void target_lines::hold_reset_from_boot()
 
 void target_lines::end_boot_hold()
 {
+    if (!hold_active.exchange(false)) {
+        return; // no hold, or another task ended it
+    }
     // An attach under reset ends the hold itself (swd_connect_under_reset)
     // and owns the lines then; otherwise nRST is released here.
     if (swd_reset_held()) {

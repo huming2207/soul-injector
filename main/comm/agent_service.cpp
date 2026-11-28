@@ -308,6 +308,7 @@ esp_err_t agent_service::init(notify_fn _notify)
         events = nullptr;
         inc_events = nullptr;
         ESP_LOGW(TAG, "init: no PSRAM for agent sessions");
+        target_lines::end_boot_hold(); // no trap will start to end it
         return ESP_ERR_NO_MEM;
     }
 
@@ -802,6 +803,7 @@ void agent_service::trap_disarm()
 {
     drop_trap_hold();
     erase_trap();
+    target_lines::end_boot_hold(); // disarmed before its first start: nothing else would let the target go
     if (trap.armed) {
         ESP_LOGI(TAG, "trap '%s' disarmed", trap.cfg.name);
     }

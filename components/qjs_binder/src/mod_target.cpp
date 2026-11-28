@@ -179,17 +179,32 @@ namespace qjs_binder::priv
 
     static constexpr uint32_t SYNC_SLICE_MS = 50;
 
-    static JSValue sync_call(JSContext *ctx, req &r, JSValueConst opts, uint32_t *val)
+    struct sync_opts {
+        uint32_t timeout_ms;
+        uint32_t retries;
+    };
+
+    static int read_sync_opts(JSContext *ctx, JSValueConst opts, sync_opts *o)
+    {
+        return opt_u32(ctx, opts, "timeoutMs", CONFIG_SI_JS_CALL_TIMEOUT_MS, &o->timeout_ms) ||
+               opt_u32(ctx, opts, "retries", 0, &o->retries);
+    }
+
+    // pre: options already read (before the transfer buffer was filled: a
+    // getter in them may run script code that uses the buffer)
+    static JSValue sync_call(JSContext *ctx, req &r, JSValueConst opts, uint32_t *val, const sync_opts *pre = nullptr)
     {
         const char *what = op_name(r.op);
         if (JS_IsException(check_owned(ctx, r.op))) {
             return JS_EXCEPTION;
         }
-        uint32_t timeout_ms, retries;
-        if (opt_u32(ctx, opts, "timeoutMs", CONFIG_SI_JS_CALL_TIMEOUT_MS, &timeout_ms) ||
-            opt_u32(ctx, opts, "retries", 0, &retries)) {
+        sync_opts o = {};
+        if (pre != nullptr) {
+            o = *pre;
+        } else if (read_sync_opts(ctx, opts, &o)) {
             return JS_EXCEPTION;
         }
+        const uint32_t timeout_ms = o.timeout_ms, retries = o.retries;
         if (async_pending()) {
             return JS_Throw(ctx, target_error(ctx, ESP_ERR_INVALID_STATE, "BUSY", what));
         }
@@ -387,6 +402,10 @@ namespace qjs_binder::priv
 
     static int get_reg(JSContext *ctx, JSValueConst v, uint32_t *out)
     {
+        if (JS_IsUndefined(v) || JS_IsNull(v)) { // would read as 0: r0, silently
+            JS_ThrowTypeError(ctx, "a register is needed: a name ('pc', 'r0') or a REGSEL number");
+            return -1;
+        }
         if (!JS_IsString(v)) {
             if (get_u32(ctx, v, out)) {
                 return -1;
@@ -494,10 +513,12 @@ namespace qjs_binder::priv
         req r = {};
         r.op = OP_WRITE_MEM;
         uint32_t val = 0;
-        if (get_u32(ctx, argv[0], &r.addr) || !fill_xfer(ctx, r, argv[1])) {
+        sync_opts o = {};
+        if (get_u32(ctx, argv[0], &r.addr) || read_sync_opts(ctx, argc > 2 ? argv[2] : JS_UNDEFINED, &o) ||
+            !fill_xfer(ctx, r, argv[1])) {
             return JS_EXCEPTION;
         }
-        return sync_call(ctx, r, argc > 2 ? argv[2] : JS_UNDEFINED, &val);
+        return sync_call(ctx, r, JS_UNDEFINED, &val, &o);
     }
 
     static JSValue js_poll32(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv)

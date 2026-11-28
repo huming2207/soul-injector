@@ -651,7 +651,7 @@ namespace qjs_binder
 
     static esp_err_t serve(js_target *t, uint32_t timeout_ms, cancel_fn cancelled)
     {
-        int64_t end = now_us() + (timeout_ms + GRACE_MS) * 1000LL;
+        int64_t end = now_us() + (int64_t(timeout_ms) + GRACE_MS) * 1000LL; // a uint32_t sum would wrap
         bool stopped = false;
         for (;;) {
             int64_t left_ms = (end - now_us()) / 1000;

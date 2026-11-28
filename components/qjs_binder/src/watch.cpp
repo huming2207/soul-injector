@@ -135,7 +135,7 @@ namespace qjs_binder::priv
                 }
                 return -1;
             }
-            if ((addr | len) & 3 || len == 0 || len > RANGE_MAX) {
+            if ((addr | len) & 3 || len == 0 || len > RANGE_MAX || uint64_t(addr) + len > 0x100000000ULL) { // no wrap past 4 GiB
                 JS_ThrowRangeError(ctx, "watch: capture.mem [0x%lx, %lu]: 4-byte aligned, 4-%u bytes", (unsigned long)addr,
                                    (unsigned long)len, (unsigned)RANGE_MAX);
                 return -1;

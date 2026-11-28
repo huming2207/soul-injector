@@ -1117,7 +1117,11 @@ esp_err_t swd_prog::call(uint32_t addr, const uint32_t args[4], uint32_t stack_t
         }
         bool late = esp_timer_get_time() >= until;
         if (late || (cancelled != nullptr && cancelled())) {
-            swd_halt_target(); // leave it halted
+            // Leave it halted, and confirmed so before saying so: interrupts
+            // stay masked until it is, then the mask goes, as after a return
+            if (swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | C_HALT | C_MASKINTS) == ESP_OK && swd_wait_until_halted() == ESP_OK) {
+                (void)swd_write_word(DHCSR_ADDR, DBGKEY | C_DEBUGEN | C_HALT);
+            }
             ESP_LOGW(TAG, "call: 0x%08lx %s", addr, late ? "timed out" : "cancelled");
             return late ? ESP_ERR_TIMEOUT : ESP_ERR_NOT_FINISHED;
         }

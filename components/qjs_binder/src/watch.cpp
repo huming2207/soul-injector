@@ -18,6 +18,7 @@ namespace qjs_binder::priv
     static constexpr uint16_t BURST_MAX = 10;     // fires per watch per second before it's throttled
     static constexpr uint32_t HANDLER_TIMEOUT_MS = 5000;
     static constexpr uint32_t HANDLER_TIMEOUT_MAX = 60000;
+    static constexpr int64_t THROTTLE_RETRY_US = 5000000; // a throttle hold's failed resume, tried again
     static constexpr uint32_t STACK_DEFAULT = 256;
     static constexpr uint32_t RANGE_MAX = 4096;
     static constexpr uint32_t READ_CHUNK = 256;
@@ -866,6 +867,7 @@ namespace qjs_binder::priv
     {
         engine &e = g.eng;
         e.throttle_until_us = 0; // an earlier throttled hold is over: this is a new stop
+        e.throttle_retrying = false;
         watch_def d;
         xSemaphoreTake(g.watch_lock, portMAX_DELAY);
         d = g.watches[on];
@@ -968,13 +970,22 @@ namespace qjs_binder::priv
         engine &e = g.eng;
         e.throttle_until_us = 0;
         if (!e.known || !e.halted) {
+            e.throttle_retrying = false;
             return; // resumed or reset by something else meanwhile
         }
         const char *note = nullptr;
         const char *action = apply(V_RESUME, t, &note);
         const bool resumed = strcmp(action, "resume") == 0;
+        if (!resumed) {
+            // Unattended, nobody else would let it go: try again, saying so once
+            e.throttle_until_us = now_us() + THROTTLE_RETRY_US;
+            if (e.throttle_retrying) {
+                return;
+            }
+        }
+        e.throttle_retrying = !resumed;
         ESP_LOGI(TAG, "throttle hold over: %s", resumed ? "resumed" : note);
-        emit_target(resumed ? "resumed after a throttle hold" : "throttle hold over, resume failed", resumed ? ESP_OK : ESP_FAIL);
+        emit_target(resumed ? "resumed after a throttle hold" : "throttle hold over, resume failed; retrying", resumed ? ESP_OK : ESP_FAIL);
     }
 
     static void finish_wait(uint8_t v, const char *handler, js_target &t)

@@ -106,6 +106,7 @@ namespace qjs_binder::priv
         int64_t next_poll_us;
         bool waiting;              // a held target waits for a verdict
         bool wait_orphaned;        // its runtime was stopped: no verdict will come (a new one may be alive already)
+        bool throttle_retrying;    // a throttle hold's resume failed and is being retried
         fire_msg w;
         int64_t w_until_us;
         uint32_t fires;

@@ -443,6 +443,9 @@ esp_err_t swd_prog::erase_chip()
         ESP_LOGE(TAG, "Chip erase failed, fallback to sector erase");
 
         auto ret = run_algo_uninit(swd_def::ERASE);
+        // The sector erase starts from a reset and a fresh load, not from
+        // whatever state the failed EraseChip left the flash controller in
+        forget_algorithm();
         if (ret != ESP_OK)
             return ret;
 

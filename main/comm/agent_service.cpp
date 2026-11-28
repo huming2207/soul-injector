@@ -106,6 +106,9 @@ namespace
     {
         uint32_t dhcsr = 0;
         esp_err_t ret = swd_read_word(DHCSR_ADDR, &dhcsr);
+        if (ret == ESP_OK) {
+            swd_prog::instance()->note_dhcsr(dhcsr);
+        }
         return ret != ESP_OK ? ret : (dhcsr & S_HALT) ? ESP_OK : ESP_ERR_INVALID_STATE;
     }
 
@@ -220,6 +223,7 @@ namespace
             if (ret != ESP_OK) {
                 return ret;
             }
+            swd_prog::instance()->note_dhcsr(dhcsr);
             *st = {(dhcsr & S_HALT) != 0, (dhcsr & S_LOCKUP) != 0, (dhcsr & S_RESET_ST) != 0, 0};
             return st->halted ? swd_read_word(DFSR_ADDR, &st->dfsr) : ESP_OK;
         }

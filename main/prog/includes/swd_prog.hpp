@@ -125,7 +125,22 @@ public:
      * reconnect, a write over its RAM, and at the start and end of every run
      * or session. The next operation then reloads it, resetting the target.
      */
-    void forget_algorithm() { algo_resident = false; }
+    void forget_algorithm()
+    {
+        algo_resident = false;
+        state = swd_def::UNKNOWN; // or the next op would skip Init and call into RAM as it was
+    }
+    /**
+     * For every DHCSR read outside the algorithm calls: reading clears the
+     * sticky S_RESET_ST that reuse_flash_algorithm() relies on, so a reader
+     * that sees a reset (or a running core) drops the algorithm itself.
+     */
+    void note_dhcsr(uint32_t dhcsr)
+    {
+        if ((dhcsr & S_RESET_ST) != 0 || (dhcsr & S_HALT) == 0) {
+            forget_algorithm();
+        }
+    }
     /** Whether [addr, addr+len) touches the RAM the loaded algorithm needs kept: header, code, data, stack canary. */
     bool overlaps_algorithm(uint32_t addr, size_t len) const;
 

@@ -437,7 +437,7 @@ esp_err_t incident_store::append(uint32_t id, uint8_t type, const void *data, si
 
 uint32_t incident_store::count() const
 {
-    if (mutex == nullptr) {
+    if (mutex == nullptr || !ready) { // as list() and read()
         return 0;
     }
     lock();
@@ -448,7 +448,7 @@ uint32_t incident_store::count() const
 
 uint32_t incident_store::newest() const
 {
-    if (mutex == nullptr) {
+    if (mutex == nullptr || !ready) {
         return 0;
     }
     lock();

@@ -384,6 +384,7 @@ esp_err_t sidp_swd_backend::finish_reset(bool halt_after, sidp::stop_detect_t &s
         vTaskDelay(1);
     }
 
+    (void)set_reset_catch(false); // or the next reset, whoever's, would halt the core
     return ESP_ERR_TIMEOUT;
 }
 
@@ -468,7 +469,10 @@ esp_err_t sidp_swd_backend::halt(uint32_t timeout_ms, sidp::stop_detect_t &stop)
 esp_err_t sidp_swd_backend::resume(sidp::run_action_t action, uint64_t address)
 {
     const bool step = action == sidp::RUN_SINGLE_STEP;
-    auto ret = action == sidp::RUN_TO_ADDRESS ? install_run_to(address) : ESP_OK;
+    if (action == sidp::RUN_TO_ADDRESS && (address > UINT32_MAX || (address & 1) != 0)) {
+        return ESP_ERR_INVALID_ARG; // as apply_breakpoints(): a Thumb address, in the 32-bit space
+    }
+    auto ret = action == sidp::RUN_TO_ADDRESS ? install_run_to(static_cast<uint32_t>(address)) : ESP_OK;
     ret = ret ?: swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
 
     // Mask interrupts so a step executes the next instruction instead of an

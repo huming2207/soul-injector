@@ -45,21 +45,27 @@ static bool send_debug_frame(std::span<const uint8_t> frame)
 }
 
 // Power samples share the log queue: they are dropped, never queued ahead of debug traffic.
+// Unsolicited messages only to a peer that logged in (USB needs no login)
+static sidp::transport_intf *trusted_transport()
+{
+    return sidp_service::instance()->peer_logged_in() ? active_transport.load() : nullptr;
+}
+
 static esp_err_t send_power_data(std::span<const uint8_t> frame)
 {
-    auto *transport = active_transport.load();
+    auto *transport = trusted_transport();
     return transport != nullptr ? transport->write_message_log(frame) : ESP_ERR_INVALID_STATE;
 }
 
 static esp_err_t send_power_event(std::span<const uint8_t> frame)
 {
-    auto *transport = active_transport.load();
+    auto *transport = trusted_transport();
     return transport != nullptr ? transport->write_message(frame) : ESP_ERR_INVALID_STATE;
 }
 
 static void send_agent_notice(uint32_t newest_seq) // expendable: EVENT_READ has the events
 {
-    auto *transport = active_transport.load();
+    auto *transport = trusted_transport();
     uint8_t buf[sizeof(sidp::msg_header_t) + si_agent_EventNotify_size] = {};
     si_agent_EventNotify notice = {newest_seq};
     pb_ostream_t out = pb_ostream_from_buffer(buf + sizeof(sidp::msg_header_t), si_agent_EventNotify_size);

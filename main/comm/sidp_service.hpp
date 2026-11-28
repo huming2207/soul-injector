@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -62,6 +64,10 @@ public:
     // attached. Any task; never blocks.
     static sidp::target_state_t debug_state();
 
+    // The connected peer may hear unsolicited messages (agent notices, power
+    // samples): USB, or a network peer that logged in. Any task.
+    bool peer_logged_in() const { return logged_in.load(); }
+
 private:
     sidp_service() = default;
 
@@ -118,7 +124,7 @@ private:
     char ws_headers[32] = {};   // "X-SIDP-Device: <device_id>\r\n"
     bool usb_accepted = false;  // USB connected during a network connection; served next
     protocomm_security_handle_t login = nullptr; // Security 2 state of a network connection
-    bool logged_in = false;     // Command 1 of the handshake accepted: the proof was right
+    std::atomic<bool> logged_in = false; // Command 1 of the handshake accepted: the proof was right
     int64_t next_connect_us = 0;
     uint32_t retry_ms = 0;
 

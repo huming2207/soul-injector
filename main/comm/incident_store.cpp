@@ -23,6 +23,13 @@ namespace
     constexpr char NVS_NEXT_KEY[] = "inc_next";
     constexpr uint32_t TOTAL_OFFSET = 12;
 
+    void copy_field(char *dst, size_t dst_size, const uint8_t *field, size_t field_len)
+    {
+        const size_t len = strnlen(reinterpret_cast<const char *>(field), std::min(field_len, dst_size - 1));
+        memcpy(dst, field, len);
+        dst[len] = '\0';
+    }
+
     void put16(uint8_t *p, uint16_t v)
     {
         p[0] = v;
@@ -112,12 +119,15 @@ esp_err_t incident_store::init()
         if (f != nullptr) {
             fclose(f);
         }
+        // off_t is 32-bit signed here: compare sizes as uint64_t, or a damaged
+        // total of 2 GiB or more would pass as negative
         const uint32_t total = get32(hdr + TOTAL_OFFSET);
-        if (!ok || memcmp(hdr, "SIIN", 4) != 0 || hdr[4] != 1 || total < HEADER_SIZE || (off_t)total > st.st_size) {
+        const uint64_t file_size = st.st_size > 0 ? static_cast<uint64_t>(st.st_size) : 0;
+        if (!ok || memcmp(hdr, "SIIN", 4) != 0 || hdr[4] != 1 || total < HEADER_SIZE || total > file_size) {
             unlink(path);
             continue;
         }
-        if ((off_t)total < st.st_size) {
+        if (total < file_size) {
             ESP_LOGW(TAG, "init: incident %lu ends in a partial section; keeping its first %lu bytes", (unsigned long)id,
                      (unsigned long)total);
             truncate(path, total);
@@ -482,8 +492,9 @@ size_t incident_store::list(uint32_t after_id, si_agent_IncidentInfo *out, size_
         e.boot = get32(hdr + 16);
         e.uptime_us = get64(hdr + 24);
         e.utc_ms = get64(hdr + 32);
-        strlcpy(e.name, reinterpret_cast<const char *>(hdr + 40), std::min(sizeof(e.name), (size_t)24));
-        strlcpy(e.trap, reinterpret_cast<const char *>(hdr + 64), std::min(sizeof(e.trap), (size_t)24));
+        // From the file: a damaged header may lack the NUL, so never read past the field
+        copy_field(e.name, sizeof(e.name), hdr + 40, 24);
+        copy_field(e.trap, sizeof(e.trap), hdr + 64, 24);
     }
     unlock();
     return got;

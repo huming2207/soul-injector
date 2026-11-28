@@ -170,12 +170,23 @@ namespace
         // SWD and resets the target; later ones reuse it while it checks out.
         esp_err_t flash_write(uint32_t addr, const uint8_t *buf, size_t len) override
         {
-            return swd_prog::instance()->write_range(addr, buf, len);
+            return keep_session(swd_prog::instance()->write_range(addr, buf, len));
         }
 
         esp_err_t flash_erase(uint32_t addr, uint32_t count) override
         {
-            return swd_prog::instance()->erase_sectors(addr, count);
+            return keep_session(swd_prog::instance()->erase_sectors(addr, count));
+        }
+
+        // A failed algorithm load (its connect under reset failing too) ends
+        // the SWD session the attach opened; the session's later calls would
+        // then run without the bus lock. Take it back: they fail cleanly.
+        static esp_err_t keep_session(esp_err_t ret)
+        {
+            if (ret != ESP_OK && !swd_session_held()) {
+                swd_init(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+            }
+            return ret;
         }
 
         esp_err_t flash_check(flash_op op, uint32_t addr, size_t len, char *why, size_t why_len) override

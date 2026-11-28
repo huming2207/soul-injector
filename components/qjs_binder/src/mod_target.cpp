@@ -177,6 +177,8 @@ namespace qjs_binder::priv
         return 0;
     }
 
+    static constexpr uint32_t SYNC_SLICE_MS = 50;
+
     static JSValue sync_call(JSContext *ctx, req &r, JSValueConst opts, uint32_t *val)
     {
         const char *what = op_name(r.op);
@@ -209,10 +211,16 @@ namespace qjs_binder::priv
         int64_t end = esp_timer_get_time() + timeout_ms * 1000LL;
         res x = {};
         bool got = false;
+        // In slices: the owner stops answering when it ends the run or the
+        // runtime, and then waits only GRACE_MS for this task to come back
         for (;;) {
-            int64_t left_ms = (end - esp_timer_get_time()) / 1000;
-            if (left_ms <= 0 || xQueueReceive(g.res_q, &x, pdMS_TO_TICKS(left_ms) ? pdMS_TO_TICKS(left_ms) : 1) != pdTRUE) {
+            int64_t left_ms = (end - esp_timer_get_time() + 999) / 1000;
+            if (left_ms <= 0 || qjs_esp_loop_stopping(g.loop) != QJS_ESP_STOP_IDLE) {
                 break;
+            }
+            const uint32_t slice = left_ms < SYNC_SLICE_MS ? (uint32_t)left_ms : SYNC_SLICE_MS;
+            if (xQueueReceive(g.res_q, &x, pdMS_TO_TICKS(slice) ? pdMS_TO_TICKS(slice) : 1) != pdTRUE) {
+                continue;
             }
             if (x.seq == r.seq) {
                 got = true;

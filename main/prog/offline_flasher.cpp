@@ -228,14 +228,14 @@ void offline_flasher::on_detect()
     composer->display_connecting();
     auto ret = backend->detect();
     uint32_t max_retry = 10;
-    while (ret != ESP_OK && max_retry > 0) {
+    while (ret != ESP_OK && max_retry > 0 && !cancel_requested()) { // each try takes seconds: a cancel stops them
         ESP_LOGE(TAG, "Detect failed, retrying");
         max_retry -= 1;
         vTaskDelay(pdMS_TO_TICKS(30));
         ret = backend->detect();
     }
 
-    if (max_retry == 0 && ret != ESP_OK) {
+    if (ret != ESP_OK) {
         composer->display_error("No board found", "Check the cable and that the board has power.");
         state = flasher::ERROR;
     } else {
@@ -466,6 +466,12 @@ esp_err_t offline_flasher::handle_states()
     esp_err_t ret = run_state();
     if (state == flasher::ERROR && current != flasher::ERROR) {
         failed_state = current;
+        // A step that failed because it was cancelled (a script hook stops,
+        // a retry loop gives up) ends as cancelled: no onFail, no red screen,
+        // as the run's record already says
+        if (cancel_requested()) {
+            state = flasher::CANCELLED;
+        }
     }
     return ret;
 }

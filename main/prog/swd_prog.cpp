@@ -693,6 +693,11 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
     }
 
     uint32_t addr_offset = fa.flash_start.value() + (start_addr == UINT32_MAX ? 0 : start_addr);
+    if (fa.flash_end.has_value() && (addr_offset >= fa.flash_end.value() || len > fa.flash_end.value() - addr_offset)) {
+        ESP_LOGE(TAG, "program_file: %u bytes at 0x%08lx run past the flash's end, 0x%08lx", len, addr_offset, fa.flash_end.value());
+        fclose(file);
+        return ESP_ERR_INVALID_SIZE;
+    }
     ESP_LOGD(
         TAG, "program_file: page_size: %lu, pc_prg_page=0x%lx, flash_start_addr=0x%lx", fa.page_size.value(), fa.pc_program_page.value(),
         fa.flash_start.value()
@@ -709,7 +714,11 @@ esp_err_t swd_prog::program_file(const char *path, uint32_t *len_written, uint32
 
     ts = esp_timer_get_time() - ts;
     double speed = len / (static_cast<double>(ts) / 1000000.0);
-    ESP_LOGI(TAG, "program_file: OK, len=%lu, speed=%.2f bytes/sec", len, speed);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "program_file: OK, len=%lu, speed=%.2f bytes/sec", len, speed);
+    } else {
+        ESP_LOGE(TAG, "program_file: failed: 0x%x", ret);
+    }
 
     fclose(file);
     ret = ret ?: run_algo_uninit(swd_def::PROGRAM);
@@ -817,8 +826,12 @@ esp_err_t swd_prog::perform_double_buffered_program(FILE *file, uint32_t len, ui
         size_t read_len = fread(buf, 1, write_size, file);
         ESP_LOGD(TAG, "program_file: write size: %lu", write_size);
         if (read_len != write_size) {
-            ESP_LOGW(TAG, "Trying to read %lu bytes but got only %u bytes", write_size, read_len);
-            write_size = read_len;
+            // The length came from the file's size: a short read is an I/O
+            // error or a file that changed, never something to program
+            ESP_LOGE(TAG, "program_file: read %u of %lu bytes", read_len, write_size);
+            free(buf);
+            state = swd_def::UNKNOWN;
+            return ESP_FAIL;
         }
 
         curr_buf_addr = curr_buf == 0 ? stack_top : (stack_top + page_size);
@@ -896,8 +909,12 @@ esp_err_t swd_prog::perform_simple_program(FILE *file, uint32_t len, uint32_t pa
         size_t read_len = fread(buf, 1, write_size, file);
         ESP_LOGD(TAG, "program_file: write size: %lu", write_size);
         if (read_len != write_size) {
-            ESP_LOGW(TAG, "Trying to read %lu bytes but got only %u bytes", write_size, read_len);
-            write_size = read_len;
+            // The length came from the file's size: a short read is an I/O
+            // error or a file that changed, never something to program
+            ESP_LOGE(TAG, "program_file: read %u of %lu bytes", read_len, write_size);
+            free(buf);
+            state = swd_def::UNKNOWN;
+            return ESP_FAIL;
         }
 
         curr_buf_addr = stack_top;

@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
 
 #include <freertos/FreeRTOS.h>
@@ -33,6 +34,7 @@ namespace qjs_binder
     static constexpr uint32_t LOAD_TIMEOUT_MS = 5000;
     static constexpr uint32_t GRACE_MS = 2000;      // past a deadline
     static constexpr uint32_t CANCEL_POLL_MS = 50;
+    static constexpr uint32_t CALL_MAX_MS = 60000; // target.call(): a session has no hook deadline to bound it
     static constexpr const char *HOOK_NAMES[HOOKS] = {"preProgram", "postProgram", "test", "onFail"};
 
     static __NOINIT_ATTR struct {
@@ -497,11 +499,18 @@ namespace qjs_binder
                 if (ret != ESP_OK || (*val & r.a) == r.b) {
                     return ret;
                 }
-                esp_err_t over = expired(until, cancelled);
-                if (over != ESP_OK) {
-                    return over;
-                }
-                vTaskDelay(ms_ticks(r.interval_ms));
+                // The interval in slices: a long one mustn't outlast the
+                // timeout or a cancel (expired() checks both)
+                const int64_t next = now_us() + r.interval_ms * 1000LL;
+                esp_err_t over;
+                do {
+                    over = expired(until, cancelled);
+                    if (over != ESP_OK) {
+                        return over;
+                    }
+                    const int64_t left_ms = (std::min(next, std::min(until, g.hook_end_us)) - now_us()) / 1000;
+                    vTaskDelay(ms_ticks(left_ms <= 0 ? 0 : std::min<int64_t>(left_ms, CANCEL_POLL_MS)));
+                } while (now_us() < next);
             }
         }
         case OP_DELAY: {
@@ -525,8 +534,14 @@ namespace qjs_binder
             return now_us() >= until && now_us() < g.hook_end_us ? ESP_OK : over;
         }
         case OP_CALL: {
+            if (cancelled && cancelled()) {
+                return ESP_ERR_NOT_FINISHED;
+            }
             int64_t left_ms = (g.hook_end_us - now_us()) / 1000;
-            uint32_t ms = left_ms <= 0 ? 0 : (r.timeout_ms < left_ms ? r.timeout_ms : (uint32_t)left_ms);
+            if (left_ms <= 0) {
+                return ESP_ERR_TIMEOUT; // past the hook's deadline: don't touch the target
+            }
+            uint32_t ms = std::min<int64_t>(std::min<int64_t>(r.timeout_ms, left_ms), CALL_MAX_MS);
             return t.call(r.addr, r.args, r.b, ms, cancelled, val);
         }
         case OP_FLASH_READ: {

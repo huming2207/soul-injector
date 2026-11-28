@@ -348,27 +348,14 @@ esp_err_t swd_prog::init(uint32_t _stack_size)
     stack_canary = esp_random();
 
     ESP_LOGI(TAG, "Algorithm RAM region 0x%08lx-0x%08lx (selected by containment, %zu regions in map)", ram->start, ram->end, cfg.ram_region_count);
-    ESP_LOGI(TAG, "Init target");
-    auto ret = swd_init_debug(pdMS_TO_TICKS(1000));
+    ESP_LOGI(TAG, "Init and halt target");
+    // As load_flash_algorithm() below: firmware that turns SWD off or sleeps
+    // at boot is reached under reset
+    auto ret = connect_and_halt();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed when init");
+        ESP_LOGE(TAG, "Failed to connect and halt: 0x%x", ret);
         state = swd_def::UNKNOWN;
         return ret;
-    }
-
-    ESP_LOGI(TAG, "Halt target");
-    ret = swd_halt_target();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed when halting");
-        state = swd_def::UNKNOWN;
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    ret = swd_wait_until_halted();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Timeout when halting");
-        state = swd_def::UNKNOWN;
-        return ESP_ERR_INVALID_STATE;
     }
 
     if (load_flash_algorithm() != ESP_OK) {

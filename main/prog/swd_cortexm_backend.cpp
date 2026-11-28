@@ -60,6 +60,7 @@ esp_err_t swd_cortexm_backend::begin_session()
     fpu = fpu_state::unknown; // maybe another target than the last run's
     auto ret = swd_init_debug(pdMS_TO_TICKS(1000));
     if (ret == ESP_OK) {
+        session_open = true;
         return ESP_OK;
     }
 
@@ -67,6 +68,7 @@ esp_err_t swd_cortexm_backend::begin_session()
     ESP_LOGW(TAG, "begin_session: failed with 0x%x, retrying under reset", ret);
     ret = swd_connect_under_reset(pdMS_TO_TICKS(1000));
     connected_under_reset = ret == ESP_OK;
+    session_open = ret == ESP_OK;
     return ret;
 }
 
@@ -121,14 +123,23 @@ esp_err_t swd_cortexm_backend::release_transport()
         (void)swd_run_target();
         connected_under_reset = false;
     }
+    session_open = false;
     swd_prog::reset_gpio(); // tri-state the SWD pins so the target can run
     return ESP_OK;
 }
 
 esp_err_t swd_cortexm_backend::end_run(run_end how)
 {
-    if (how == run_end::as_is) {
-        return release_transport();
+    if (how == run_end::as_is || !session_open) {
+        // As the run left it, even after a connect under reset: only the
+        // transport goes (release_transport() would let a halted core run).
+        // Never connected (the run failed before that): nothing to free, and
+        // reconnecting just to reset it would touch a target the run never had.
+        swd_prog::instance()->forget_algorithm();
+        connected_under_reset = false;
+        session_open = false;
+        swd_prog::reset_gpio();
+        return ESP_OK;
     }
     swd_prog::instance()->forget_algorithm();
 
@@ -149,6 +160,7 @@ esp_err_t swd_cortexm_backend::end_run(run_end how)
         ESP_LOGE(TAG, "end_run: couldn't free the target: %s (0x%x)", esp_err_to_name(ret), ret);
     }
     connected_under_reset = false;
+    session_open = false;
     swd_prog::reset_gpio();
     return ret;
 }

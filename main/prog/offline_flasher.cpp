@@ -121,6 +121,7 @@ void offline_flasher::init()
     if (backend != nullptr) {
         backend->release_transport();
     }
+    backend = nullptr; // this run's comes from its job (select_backend); until then, none
 
     qjs_binder::js_host::instance()->end_run();
     qjs_binder::js_host::instance()->forget_last_script(); // record only this run's
@@ -353,7 +354,6 @@ void offline_flasher::on_self_test()
 
 void offline_flasher::on_post_program()
 {
-    auto ret = backend->begin_session();
     // Only when there's something to do: otherwise Pass follows at once
     const bool has_steps = has_script() ? qjs_binder::js_host::instance()->exports_hook(qjs_binder::hook::post_program)
                                         : fw_asset_manager::instance()->post_program_steps() != nullptr;
@@ -361,6 +361,7 @@ void offline_flasher::on_post_program()
         composer->display_finishing();
     }
 
+    auto ret = backend->begin_session();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "post_prog: cannot begin backend session: 0x%x", ret);
         composer->display_error("Finishing failed", "The job's last steps failed.\nTry again.");

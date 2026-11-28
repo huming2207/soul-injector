@@ -57,6 +57,7 @@ private:
     esp_err_t check_core_reg(uint32_t id);
 
     bool connected_under_reset = false;
+    bool session_open = false; // begin_session() connected: end_run() has a core to free
     enum class fpu_state : uint8_t { unknown, yes, no };
     fpu_state fpu = fpu_state::unknown; // read on the first FP register access of a run
 };

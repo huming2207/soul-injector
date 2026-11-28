@@ -156,7 +156,10 @@ bool job_controller::auto_run_ready_locked()
 bool job_controller::swd_poll_wanted()
 {
     lock();
-    bool ret = trigger == si_manage_Trigger_TRIGGER_DETECT_SWD && !debugging && auto_run_ready_locked();
+    // Only a Cortex-M job has an SWD target to look for: an ESP32 job's board
+    // must not have the switch toggled and SWD clocked at it every poll
+    bool ret = trigger == si_manage_Trigger_TRIGGER_DETECT_SWD && !debugging && auto_run_ready_locked() &&
+               fw_asset_manager::instance()->config().family == si::config::target_family::swd_cortex_m;
     unlock();
     return ret;
 }

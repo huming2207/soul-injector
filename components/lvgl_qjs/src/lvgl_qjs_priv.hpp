@@ -1,14 +1,16 @@
 #pragma once
 
+#include <atomic>
+
 #include "lvgl_qjs.hpp"
 
 namespace lvgl_qjs::priv
 {
-    // Event handlers, one bit each in node::events and node::fired.
+    // Event handlers, one bit each in node::events and node::pending.
     enum event_kind : uint8_t { EV_PRESS, EV_LONG_PRESS, EV_RELEASE, EV_CLICK, EV_CHANGE, EV_FOCUS, EV_BLUR, EVENT_KINDS };
 
     // What a JS wrapper knows of its LVGL object. One per wrapper, made with
-    // it and freed with it (or by the last pending dispatch, see `posted`).
+    // it and freed with it (or by the last pending dispatch, see POSTED).
     //
     // Who keeps whom alive:
     //  - An object in the screen tree keeps its wrapper: `held`, a counted
@@ -25,16 +27,25 @@ namespace lvgl_qjs::priv
     //    still collected, all of it at once.
     // LVGL telling us an object was deleted clears `obj`; the wrapper then
     // throws on use.
+    // node::pending: the events seen and not yet dispatched (one bit per
+    // event_kind), and POSTED: a dispatch for this node is queued; it frees
+    // the node if the wrapper is gone by then. One word, so dispatch_job takes
+    // both at once without the LVGL lock (the LVGL task holds that for whole
+    // frames).
+    constexpr uint32_t POSTED = 1u << 31;
+    constexpr uint32_t FIRED_MASK = (1u << EVENT_KINDS) - 1;
+    static_assert(std::atomic<uint32_t>::is_always_lock_free && std::atomic<lv_obj_t *>::is_always_lock_free,
+                  "LVGL callbacks and dispatch_job share these without a lock");
+
     struct node {
-        lv_obj_t *obj;  // null once deleted
+        std::atomic<lv_obj_t *> obj; // null once deleted; written under the LVGL lock, dispatch_job reads it without
         JSValue self;   // the wrapper; counted only while held, undefined once finalized
         node *prev;     // every node, for detach()
         node *next;
         node *release;  // release list: held was dropped by LVGL, self still to free
+        std::atomic<uint32_t> pending; // fired events | POSTED
         uint16_t events; // handlers set
-        uint16_t fired;  // events seen, not yet dispatched
         bool held;
-        bool posted;    // a dispatch for this node is queued: it frees the node if the wrapper is gone by then
         bool listening; // input_cb is registered
     };
 

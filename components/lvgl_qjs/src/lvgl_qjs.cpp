@@ -1,4 +1,5 @@
 #include <cstring>
+#include <new>
 
 #include "quickjs-libc.h"
 #include "lvgl_qjs_priv.hpp"
@@ -71,10 +72,11 @@ namespace lvgl_qjs::priv
             }
         }
 
+        // POSTED is set (by the caller): undone if the queue is full
         void post_dispatch(node *n)
         {
-            n->posted = qjs_esp_loop_post(g.loop, dispatch_job, n, 0) == ESP_OK;
-            if (!n->posted) {
+            if (qjs_esp_loop_post(g.loop, dispatch_job, n, 0) != ESP_OK) {
+                n->pending.fetch_and(~POSTED);
                 post_retry_later();
             }
         }
@@ -103,8 +105,7 @@ namespace lvgl_qjs::priv
             const lv_event_code_t code = lv_event_get_code(e);
             for (int k = 0; k < EVENT_KINDS; k++) {
                 if (EVENT_CODES[k] == code && (n->events & (1u << k))) {
-                    n->fired |= 1u << k;
-                    if (!n->posted) {
+                    if (!(n->pending.fetch_or((1u << k) | POSTED) & POSTED)) {
                         post_dispatch(n);
                     }
                     return;
@@ -123,9 +124,10 @@ namespace lvgl_qjs::priv
                     waiting = !g.drain_posted;
                 }
                 for (node *n = g.nodes; n; n = n->next) {
-                    if (n->fired && !n->posted) {
+                    const uint32_t p = n->pending.load();
+                    if ((p & FIRED_MASK) && !(p & POSTED) && !(n->pending.fetch_or(POSTED) & POSTED)) {
                         post_dispatch(n);
-                        waiting = waiting || !n->posted;
+                        waiting = waiting || !(n->pending.load() & POSTED);
                     }
                 }
             }
@@ -154,15 +156,10 @@ namespace lvgl_qjs::priv
             if (!g.runtime_ok) {
                 return; // the arena goes, nodes and all
             }
-            uint16_t fired;
-            bool alive;
-            {
-                lv_lock l(true);
-                fired = n->fired;
-                n->fired = 0;
-                n->posted = false;
-                alive = n->obj != nullptr;
-            }
+            // Takes the events and clears POSTED in one go: an event from now on
+            // posts a new dispatch. No LVGL lock, so no wait for a frame.
+            const uint32_t fired = n->pending.exchange(0) & FIRED_MASK;
+            bool alive = n->obj.load() != nullptr;
             if (JS_IsUndefined(n->self)) { // finalized while this was queued
                 js_free(ctx, n);
                 return;
@@ -178,8 +175,7 @@ namespace lvgl_qjs::priv
                     continue;
                 }
                 if (k) { // an earlier handler may have deleted it, or failed for good
-                    lv_lock l(true);
-                    alive = n->obj != nullptr;
+                    alive = n->obj.load() != nullptr;
                 }
                 if (!alive || qjs_esp_loop_stopping(g.loop)) {
                     break;
@@ -257,7 +253,7 @@ namespace lvgl_qjs::priv
                 n->obj = nullptr;
             }
             unlink(n);
-            if (!n->posted) {
+            if (!(n->pending.load() & POSTED)) { // input_cb is gone: nothing sets it any more
                 js_free_rt(rt, n);
             }
         }
@@ -708,10 +704,11 @@ namespace lvgl_qjs::priv
         }
         // A finalizer may run in these two allocations; it never deletes an
         // object, so obj stays valid.
-        n = static_cast<node *>(js_mallocz(ctx, sizeof(node)));
-        if (!n) {
+        void *mem = js_malloc(ctx, sizeof(node));
+        if (!mem) {
             return JS_EXCEPTION;
         }
+        n = new (mem) node{}; // trivially destructible: js_free() ends it
         JSValue v = JS_NewObjectClass(ctx, g.class_id);
         if (JS_IsException(v)) {
             js_free(ctx, n);

@@ -88,9 +88,10 @@ namespace ui_screens
         return make(ui_model::tone::neutral, "PROGRAMMING", "Testing", detail, progress);
     }
 
-    ui_model passed()
+    ui_model passed(bool watching)
     {
-        return make(ui_model::tone::pass, "PASSED", "Pass", "Done. Connect the next board.");
+        return make(ui_model::tone::pass, "PASSED", "Pass",
+                    watching ? "Done. Watching the board for errors." : "Done. Connect the next board.");
     }
 
     ui_model failed(const char *title, const char *detail)

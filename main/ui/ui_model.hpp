@@ -37,7 +37,7 @@ namespace ui_screens
     ui_model checking();
     ui_model finishing();
     ui_model testing(size_t done, size_t total, const char *what);
-    ui_model passed();
+    ui_model passed(bool watching = false);
     ui_model failed(const char *title, const char *detail);
     ui_model notice(const char *title, const char *detail);
     ui_model setup();

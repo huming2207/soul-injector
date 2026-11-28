@@ -40,14 +40,17 @@ public:
     static constexpr uint32_t POLL_MS = 100;
 
 private:
-    esp_err_t post(const ui_model &model, bool ready = false);
+    // Screens a watching trap may add to: nothing is being done to the board
+    enum class idle : uint8_t { no, ready, passed };
+
+    esp_err_t post(const ui_model &model, idle kind = idle::no);
     static void poll_cb(lv_timer_t *timer);
     void poll();
 
     // Written by any task, under lock
     portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
     ui_model pending = {};
-    bool pending_ready = false;
+    idle pending_idle = idle::no;
     std::atomic<uint32_t> pending_seq = 0;
     // Overrides the posted screen's progress: pending_seq << 8 | percent, so
     // progress counts only for the screen it was reported on. 0xff: none.
@@ -58,7 +61,7 @@ private:
     lv_timer_t *timer = nullptr;
     uint32_t taken_seq = 0;
     ui_model base = {};
-    bool base_ready = false;
+    idle base_idle = idle::no;
 
     static constexpr char TAG[] = "ui_composer";
 };

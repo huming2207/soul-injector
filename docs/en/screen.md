@@ -23,11 +23,11 @@ job or the log is full. The screen never animates.
 | Screen | When |
 | --- | --- |
 | ![Ready](images/ui/01-ready.png) | Waiting for a board. With a trap armed (see [Agent sessions](agent-sessions.md)), the detail says the board is being watched. |
-| ![Writing](images/ui/07-writing.png) | A run, step by step: *Starting*, *Connecting*, *Erasing*, *Writing*, *Checking*, *Testing*. Writing shows progress as blocks are written. |
-| ![Pass](images/ui/11-pass.png) | The run passed. |
+| ![Writing](images/ui/07-writing.png) | A run, step by step: *Starting*, *Connecting*, *Erasing*, *Writing*, *Checking*, *Testing*, *Finishing* (the job's last steps, when it has any). Writing shows progress as blocks are written, across all of an ESP32 job's images. |
+| ![Pass](images/ui/11-pass.png) | The run passed. With a trap watching the board, the detail says so (*Watching the board for errors*). |
 | ![Write failed](images/ui/12-fail-write.png) | The run failed. The title names the step; the detail says what to do. A script error shows the script's message. |
 | ![No job](images/ui/15-notice-no-job.png) | The device needs attention: no job, a job out of date, a full log, a storage error, or a cancelled run. |
-| ![Debugging](images/ui/18-debug-running.png) | A debugger (GDB through `sidp-agent`) is attached: *Board running*, *Board paused* or *Board not answering*. Shown until it detaches; the previous screen then returns. |
+| ![Debugging](images/ui/18-debug-running.png) | A debugger (GDB through `sidp-agent`) is attached: *Board running*, *Board paused* or *Board not answering*. An interactive agent session shows *Debugging*. Shown until it detaches or closes; the previous screen then returns. |
 
 `docs/en/images/ui` has every screen.
 

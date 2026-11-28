@@ -97,6 +97,9 @@ int main(int argc, char **argv)
         {"20-debug-lost", ui_screens::debugging(ui_screens::debug_state::lost), link::network},
         {"21-setup", ui_screens::setup(), link::none},
         {"22-current", ui_screens::current(4.2, 1510.0, 612.5, "OK"), link::none},
+        {"23-finishing", ui_screens::finishing(), link::none},
+        {"24-pass-watching", ui_screens::passed(true), link::network},
+        {"25-agent-session", ui_screens::debugging(ui_screens::debug_state::none), link::usb},
     };
 
     int failures = 0;

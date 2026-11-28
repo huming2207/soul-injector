@@ -29,12 +29,12 @@ esp_err_t ui_composer_279::init()
     return ESP_OK;
 }
 
-esp_err_t ui_composer_279::post(const ui_model &model, bool ready)
+esp_err_t ui_composer_279::post(const ui_model &model, idle kind)
 {
     // A new sequence number also retires the previous screen's step_progress
     taskENTER_CRITICAL(&lock);
     pending = model;
-    pending_ready = ready;
+    pending_idle = kind;
     pending_seq.fetch_add(1, std::memory_order_release);
     taskEXIT_CRITICAL(&lock);
     return ESP_OK;
@@ -58,7 +58,7 @@ void ui_composer_279::poll()
     if (seq != taken_seq) {
         taskENTER_CRITICAL(&lock);
         base = pending;
-        base_ready = pending_ready;
+        base_idle = pending_idle;
         taken_seq = pending_seq.load(std::memory_order_relaxed);
         taskEXIT_CRITICAL(&lock);
     }
@@ -69,12 +69,18 @@ void ui_composer_279::poll()
         shown.progress = static_cast<int8_t>(progress & 0xff);
     }
 
-    // A script watching the target from agent_service is worth saying only while idle.
-    if (base_ready && agent_service::instance()->trap_has_target()) {
-        shown = ui_screens::ready(true);
+    // A script watching the target from agent_service is worth saying only
+    // while nothing is being done to the board, and after a pass. A failure or
+    // a notice keeps its instructions.
+    if (base_idle != idle::no && agent_service::instance()->trap_has_target()) {
+        shown = base_idle == idle::ready ? ui_screens::ready(true) : ui_screens::passed(true);
     }
 
-    // A debugger owns the target exclusively: no run can be on screen meanwhile.
+    // An agent session or a debugger owns the target exclusively: no run can
+    // be on screen meanwhile.
+    if (agent_service::instance()->session_open()) {
+        shown = ui_screens::debugging(ui_screens::debug_state::none);
+    }
     switch (sidp_service::debug_state()) {
     case sidp::TARGET_HALTED:
         shown = ui_screens::debugging(ui_screens::debug_state::stopped);
@@ -107,7 +113,7 @@ void ui_composer_279::poll()
 
 esp_err_t ui_composer_279::display_init()
 {
-    return post(ui_screens::ready(false), true);
+    return post(ui_screens::ready(false), idle::ready);
 }
 
 esp_err_t ui_composer_279::display_starting()
@@ -147,7 +153,7 @@ esp_err_t ui_composer_279::display_test(size_t done, size_t total, const char *t
 
 esp_err_t ui_composer_279::display_done()
 {
-    return post(ui_screens::passed());
+    return post(ui_screens::passed(), idle::passed);
 }
 
 esp_err_t ui_composer_279::display_error(const char *header, const char *err_msg)

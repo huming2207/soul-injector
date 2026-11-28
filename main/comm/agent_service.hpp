@@ -53,6 +53,8 @@ public:
 
     bool trap_has_target() const { return trap_holds.load(); }
 
+    bool session_open() const { return open.load(); } // any task: an interactive session owns the target
+
     bool yield_for_run(uint32_t wait_ms); // programming task
 
     static const constexpr uint32_t POLL_MS = 5;
@@ -138,7 +140,7 @@ private:
     size_t upload_len = 0;
     size_t upload_total = 0;
 
-    bool open = false;
+    std::atomic<bool> open = false; // the SIDP task writes it; the screen reads it
     uint8_t session_end = 0;    // si_agent_SessionEnd
     bool perm_write = false;
     bool perm_flash = false;

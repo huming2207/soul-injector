@@ -512,8 +512,15 @@ namespace qjs_binder
             int64_t until = now_us() + r.a * 1000LL;
             esp_err_t over;
             while ((over = expired(until, cancelled)) == ESP_OK) {
+                // Read again after expired(): it may be past by now, and a
+                // negative count would become a 49-day uint32_t delay
                 int64_t left_ms = (until - now_us()) / 1000;
-                vTaskDelay(ms_ticks(left_ms < CANCEL_POLL_MS ? left_ms : CANCEL_POLL_MS));
+                if (left_ms > 0) {
+                    vTaskDelay(ms_ticks(left_ms < CANCEL_POLL_MS ? left_ms : CANCEL_POLL_MS));
+                }
+            }
+            if (over == ESP_ERR_NOT_FINISHED) {
+                return over; // cancelled, even right at the end
             }
             return now_us() >= until && now_us() < g.hook_end_us ? ESP_OK : over;
         }

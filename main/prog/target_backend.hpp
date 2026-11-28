@@ -83,9 +83,12 @@ public:
 
     virtual esp_err_t read_mem(uint32_t addr, uint8_t *buf, size_t len)
     {
+        if (len != 0 && ((addr | len) & 3)) {
+            return ESP_ERR_INVALID_ARG;
+        }
         for (size_t i = 0; i < len; i += 4) {
             uint32_t w = 0;
-            esp_err_t ret = ((addr | len) & 3) ? ESP_ERR_INVALID_ARG : read_mem32(addr + i, &w);
+            esp_err_t ret = read_mem32(addr + i, &w);
             if (ret != ESP_OK) {
                 return ret;
             }
@@ -96,10 +99,13 @@ public:
 
     virtual esp_err_t write_mem(uint32_t addr, const uint8_t *buf, size_t len)
     {
+        if (len != 0 && ((addr | len) & 3)) { // before any copy: an odd length would read past buf
+            return ESP_ERR_INVALID_ARG;
+        }
         for (size_t i = 0; i < len; i += 4) {
             uint32_t w = 0;
             memcpy(&w, buf + i, 4);
-            esp_err_t ret = ((addr | len) & 3) ? ESP_ERR_INVALID_ARG : write_mem32(addr + i, w);
+            esp_err_t ret = write_mem32(addr + i, w);
             if (ret != ESP_OK) {
                 return ret;
             }

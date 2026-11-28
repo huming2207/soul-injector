@@ -555,7 +555,9 @@ namespace qjs_binder::priv
         JSValue data = JS_NewArrayBufferCopy(ctx, reinterpret_cast<const uint8_t *>(&m), sizeof(m));
         JSValue ok = JS_NewCFunctionData(ctx, on_handler_settled, 1, 0, 1, &data);
         JSValue bad = JS_NewCFunctionData(ctx, on_handler_settled, 1, 1, 1, &data);
-        JSValue p = JS_PromiseThen(ctx, r, ok, bad);
+        // Handlers that failed to allocate would be taken as none: no verdict, ever
+        JSValue p = JS_IsException(data) || JS_IsException(ok) || JS_IsException(bad) ? JS_EXCEPTION
+                                                                                      : JS_PromiseThen(ctx, r, ok, bad);
         if (JS_IsException(p)) {
             JS_FreeValue(ctx, JS_GetException(ctx));
             send_verdict(m, V_HOLD, H_THREW);

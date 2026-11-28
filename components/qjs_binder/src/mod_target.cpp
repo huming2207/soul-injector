@@ -310,7 +310,11 @@ namespace qjs_binder::priv
             v = JS_NewUint32(ctx, s.val);
         }
         xfer_seen(s.seq); // buffer free from here
-        bool ok = s.ret == ESP_OK && !s.why[0] && !JS_IsException(v);
+        const bool no_value = JS_IsException(v); // out of memory making the value or the error
+        if (no_value) {
+            v = JS_GetException(ctx); // reject with that, not with the JS_EXCEPTION marker
+        }
+        bool ok = s.ret == ESP_OK && !s.why[0] && !no_value;
         JSValue r = JS_Call(ctx, ok ? s.resolve : s.reject, JS_UNDEFINED, 1, &v);
         JS_FreeValue(ctx, r);
         JS_FreeValue(ctx, v);

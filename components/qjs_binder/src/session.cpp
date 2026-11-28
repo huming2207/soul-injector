@@ -368,7 +368,8 @@ namespace qjs_binder
         JSValue data[2] = {JS_NewUint32(ctx, token), JS_NewInt32(ctx, is_eval)};
         JSValue ok = JS_NewCFunctionData(ctx, on_job_settled, 1, 0, 2, data);
         JSValue bad = JS_NewCFunctionData(ctx, on_job_settled, 1, 1, 2, data);
-        JSValue p = JS_PromiseThen(ctx, r, ok, bad);
+        // Handlers that failed to allocate would be taken as none: no result, ever
+        JSValue p = JS_IsException(ok) || JS_IsException(bad) ? JS_EXCEPTION : JS_PromiseThen(ctx, r, ok, bad);
         if (JS_IsException(p)) {
             JS_FreeValue(ctx, JS_GetException(ctx));
             result_text(token, script_outcome::error, "out of memory");

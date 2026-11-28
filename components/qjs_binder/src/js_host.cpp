@@ -200,8 +200,12 @@ namespace qjs_binder
         }
         JSValue ok = JS_NewCFunctionData(ctx, on_settled, 1, 0, 0, nullptr);
         JSValue bad = JS_NewCFunctionData(ctx, on_settled, 1, 1, 0, nullptr);
-        JSValue p = JS_PromiseThen(ctx, r, ok, bad);
+        // Handlers that failed to allocate would be taken as none: the hook
+        // would never be seen to settle
+        JSValue p = JS_IsException(ok) || JS_IsException(bad) ? JS_EXCEPTION : JS_PromiseThen(ctx, r, ok, bad);
         if (JS_IsException(p)) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+            set_err("out of memory");
             finish(ctx, ESP_ERR_NO_MEM);
         }
         JS_FreeValue(ctx, p);

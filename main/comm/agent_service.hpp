@@ -51,6 +51,13 @@ public:
 
     bool make_way_for_run(); // false: an exclusive trap keeps the target
 
+    // An exclusive trap is armed: runs, SWD polling and debuggers stay off the
+    // target until it's disarmed, whether it holds the target now or not. Any task.
+    bool trap_exclusive() const { return exclusive.load(); }
+
+    // A trap is armed (SIDP task): the job can't change under it.
+    bool trap_armed() const { return trap.armed; }
+
     bool trap_has_target() const { return trap_holds.load(); }
 
     bool session_open() const { return open.load(); } // any task: an interactive session owns the target
@@ -119,11 +126,11 @@ private:
     void trap_retry(const char *why, uint32_t first_ms);
     void trap_fail(const char *why);
     void trap_disarm();
-    void yield_to_debugger();
+    bool yield_to_debugger();
 
     static uint32_t on_incident_open(const qjs_binder::incident_open &inc);
     static void on_incident_add(uint32_t id, qjs_binder::incident_part part, const char *json, size_t len);
-    static void on_attach_wanted();
+    static bool on_attach_wanted();
     uint8_t *load_module(size_t *len);
     void drop_trap_hold();
     void fill_status(si_agent_TrapStatus &st);
@@ -155,6 +162,9 @@ private:
     std::atomic<bool> trap_yields = false;
     std::atomic<bool> run_wanted = false;
     std::atomic<bool> probing = false; // trap_probe() has the debug claim for a moment
+    std::atomic<bool> exclusive = false; // trap.armed && TRAP_MODE_EXCLUSIVE, for other tasks
+    std::atomic<bool> trap_claiming = false; // trap_start() is in claim()
+    bool claiming = false;               // claim()'s own attach: not a debugger's
 
     static const constexpr size_t EVENTS_PER_READ = 8;
     static const constexpr uint32_t INCIDENT_EVENTS = 16;

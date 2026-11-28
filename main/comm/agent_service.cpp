@@ -389,7 +389,9 @@ sidp::status_t agent_service::claim(const si_agent_Permissions &perms, bool conn
 
     sidp::attach_params_t params{connect_under_reset, connect_under_reset};
     sidp::attach_info_t info{};
+    claiming = true;
     esp_err_t ret = backend()->attach(params, info);
+    claiming = false;
     if (ret == ESP_ERR_INVALID_STATE || ret == job_controller::ERR_RUNNING) {
         return sidp::STATUS_BUSY; // GDB or a job run has it; refused before any SWD traffic
     }
@@ -706,6 +708,7 @@ void agent_service::load_trap()
     trap = {};
     trap.armed = true;
     trap.cfg = cfg;
+    exclusive = cfg.mode == si_agent_TrapMode_TRAP_MODE_EXCLUSIVE;
     memcpy(trap.sha256, buf + 8 + pb_len, 32);
     trap_retry("starting", BOOT_DELAY_MS);
     ESP_LOGI(TAG, "trap '%s' armed, starting", trap.cfg.name);
@@ -808,6 +811,7 @@ void agent_service::trap_disarm()
         ESP_LOGI(TAG, "trap '%s' disarmed", trap.cfg.name);
     }
     trap = {};
+    exclusive = false;
 }
 
 void agent_service::trap_start()
@@ -830,7 +834,16 @@ void agent_service::trap_start()
         return;
     }
     const si_agent_Permissions perms = trap.cfg.has_permissions ? trap.cfg.permissions : si_agent_Permissions{};
+    // claim() holds the debug claim before trap_holds says so (an attach can
+    // take a while): a run arriving meanwhile waits (yield_for_run) instead of
+    // being refused.
+    trap_claiming = true;
     const auto status = claim(perms, trap.cfg.connect_under_reset, true);
+    if (status == sidp::STATUS_OK) {
+        trap_holds = true;
+        trap_yields = trap.cfg.mode == si_agent_TrapMode_TRAP_MODE_YIELD;
+    }
+    trap_claiming = false;
     if (status != sidp::STATUS_SWD_ERROR) {
         trap.absent = false;
     }
@@ -857,8 +870,6 @@ void agent_service::trap_start()
             return;
         }
     }
-    trap_holds = true;
-    trap_yields = trap.cfg.mode == si_agent_TrapMode_TRAP_MODE_YIELD;
 
     // Don't wait here for the top level: this is the SIDP service task, and a
     // trap's top level usually never ends, so every start would leave GDB and
@@ -1006,20 +1017,30 @@ void agent_service::trap_probe(int64_t now)
     }
 }
 
-void agent_service::on_attach_wanted()
+bool agent_service::on_attach_wanted()
 {
-    instance()->yield_to_debugger();
+    return instance()->yield_to_debugger();
 }
 
-void agent_service::yield_to_debugger()
+bool agent_service::yield_to_debugger()
 {
+    if (claiming) {
+        return true; // our own attach
+    }
+    if (exclusive) {
+        return false;
+    }
     if (trap_yields) {
         trap_pause("a debugger attached");
     }
+    return true;
 }
 
 bool agent_service::make_way_for_run()
 {
+    if (exclusive) {
+        return false; // refused while armed, held or not (docs/en/agent-sessions.md)
+    }
     if (!trap_holds) {
         return true;
     }
@@ -1033,14 +1054,20 @@ bool agent_service::make_way_for_run()
 bool agent_service::yield_for_run(uint32_t wait_ms)
 {
     const int64_t end = now_us() + wait_ms * 1000LL;
-    if (probing) {
+    if (probing || trap_claiming) {
         // The debug claim is a waiting trap's presence probe (trap_probe), a
-        // few milliseconds: the run goes once it's over, whatever the mode.
-        // probing is set before the claim and cleared after it.
-        while (probing && now_us() < end) {
+        // few milliseconds, or a trap's start claiming the target. Both flags
+        // are set before the claim. After a probe the run goes (unless the
+        // trap is exclusive); after a start it asks the trap to yield below.
+        while ((probing || trap_claiming) && now_us() < end) {
             vTaskDelay(1);
         }
-        return !probing;
+        if (probing || trap_claiming || exclusive) {
+            return false;
+        }
+        if (!trap_holds) {
+            return true;
+        }
     }
     if (!trap_yields) {
         return false;
@@ -1108,6 +1135,7 @@ sidp::status_t agent_service::op_trap_arm(std::span<const uint8_t> payload, pb_o
     trap_holds = true;
     trap_yields = cfg.mode == si_agent_TrapMode_TRAP_MODE_YIELD;
     trap.armed = true;
+    exclusive = cfg.mode == si_agent_TrapMode_TRAP_MODE_EXCLUSIVE;
 
     auto *js = qjs_binder::js_host::instance();
     const esp_err_t ret = js->session_run(module, len, timeout_ms, target);

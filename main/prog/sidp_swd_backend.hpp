@@ -36,7 +36,9 @@ public:
     /** Gives up on a target that no longer answers: ends the SWD session and frees the target. */
     void abandon();
 
-    using yield_fn = void (*)(); // asks whoever holds the target to let go, if it may
+    // Before every attach: asks whoever holds the target to let go, if it may.
+    // false: the attach is refused (BUSY), e.g. an exclusive trap is armed.
+    using yield_fn = bool (*)();
     void set_yield_hook(yield_fn fn) { yield_hook = fn; }
 
     bool is_connected() const { return connected; }

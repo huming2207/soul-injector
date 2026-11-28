@@ -274,7 +274,12 @@ void bootstrap_fsm::run_fsm_task()
     }
 
     // job_controller has already claimed a requested run; a detected
-    // target only runs when the trigger asks for automatic runs.
+    // target only runs when the trigger asks for automatic runs, and not
+    // while an exclusive trap is armed.
+    if ((bits & BIT_RUN_REQUEST) == 0 && agent_service::instance()->trap_exclusive()) {
+        ESP_LOGI(TAG, "Target detected, an exclusive trap is armed: no automatic run");
+        return;
+    }
     if ((bits & BIT_RUN_REQUEST) == 0 && !jobs->begin_auto_run() &&
         !(jobs->auto_run_waits_for_debug() && agent_service::instance()->yield_for_run(TRAP_YIELD_WAIT_MS) && jobs->begin_auto_run())) {
         show_auto_run_refused();
@@ -291,7 +296,7 @@ void bootstrap_fsm::run_fsm_task()
 
 bool bootstrap_fsm::swd_target_arrived()
 {
-    if (!job_controller::instance()->swd_poll_wanted() || swd_reset_held()) {
+    if (!job_controller::instance()->swd_poll_wanted() || swd_reset_held() || agent_service::instance()->trap_exclusive()) {
         return false; // no job, a run, or GDB, a session or a trap has the target (or will): leave the lines alone
     }
     // Claimed, so a session can't start between connect() and isolate() and

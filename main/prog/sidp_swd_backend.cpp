@@ -124,8 +124,8 @@ esp_err_t sidp_swd_backend::load_target()
 
 esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::attach_info_t &info)
 {
-    if (connected && yield_hook != nullptr) {
-        yield_hook();
+    if (yield_hook != nullptr && !yield_hook()) {
+        return ESP_ERR_INVALID_STATE; // an exclusive trap keeps the target
     }
     if (connected) {
         ESP_LOGE(TAG, "attach: already connected");

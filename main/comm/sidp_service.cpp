@@ -740,6 +740,9 @@ sidp::status_t sidp_service::job_change_status(esp_err_t ret)
 
 sidp::status_t sidp_service::op_asset_commit()
 {
+    if (agent_service::instance()->trap_armed()) {
+        return sidp::STATUS_TRAP_ARMED; // Q10: held or not, a push needs a disarm first
+    }
     return job_change_status(job_controller::instance()->commit_asset());
 }
 
@@ -748,6 +751,9 @@ sidp::status_t sidp_service::op_job_set(std::span<const uint8_t> payload)
     si_manage_JobSetRequest request = si_manage_JobSetRequest_init_zero;
     if (!decode(payload, si_manage_JobSetRequest_fields, &request)) {
         return sidp::STATUS_INVALID_ARGUMENT;
+    }
+    if (agent_service::instance()->trap_armed()) {
+        return sidp::STATUS_TRAP_ARMED; // Q10: held or not, a push needs a disarm first
     }
     return job_change_status(job_controller::instance()->set_job(request.sha256, request.trigger));
 }

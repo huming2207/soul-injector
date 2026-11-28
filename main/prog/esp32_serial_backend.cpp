@@ -156,8 +156,27 @@ esp_err_t esp32_serial_backend::begin_session()
 {
     // Pre-program procedures run before detect(), so prepare only the control
     // pins here. Opening the UART or entering download mode remains detect()'s
-    // responsibility.
+    // responsibility. Connected (POST_PROGRAM after a run): the pins are set
+    // and the target sits in the stub, which touching them could reset.
+    if (connected) {
+        return ESP_OK;
+    }
     return prepare_control_pins();
+}
+
+// Output at its idle level without a glitch: the level is latched before the
+// output turns on, and the pull agrees with it (gpio_reset_pin() would pull
+// the pin up for a moment, which asserts an active-high reset or boot line).
+static esp_err_t setup_control_pin(gpio_num_t pin, int idle_level)
+{
+    gpio_config_t io_cfg = {};
+    io_cfg.pin_bit_mask = BIT64(pin);
+    io_cfg.mode = GPIO_MODE_OUTPUT;
+    io_cfg.pull_up_en = idle_level ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
+    io_cfg.pull_down_en = idle_level ? GPIO_PULLDOWN_DISABLE : GPIO_PULLDOWN_ENABLE;
+    io_cfg.intr_type = GPIO_INTR_DISABLE;
+    esp_err_t ret = gpio_set_level(pin, idle_level);
+    return ret ?: gpio_config(&io_cfg);
 }
 
 esp_err_t esp32_serial_backend::prepare_control_pins()
@@ -176,10 +195,7 @@ esp_err_t esp32_serial_backend::prepare_control_pins()
     }
 #endif
 
-    esp_err_t ret = gpio_reset_pin(reset_pin);
-    ret = ret ?: gpio_set_pull_mode(reset_pin, GPIO_PULLUP_ONLY);
-    ret = ret ?: gpio_set_level(reset_pin, reset_deasserted);
-    ret = ret ?: gpio_set_direction(reset_pin, GPIO_MODE_OUTPUT);
+    esp_err_t ret = setup_control_pin(reset_pin, reset_deasserted);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "session: cannot configure target reset GPIO %d: %s", (int)reset_pin, esp_err_to_name(ret));
         return ret;
@@ -188,10 +204,7 @@ esp_err_t esp32_serial_backend::prepare_control_pins()
 #if CONFIG_ESP_SWD_BOOT_PIN >= 0
     const gpio_num_t boot_pin = (gpio_num_t)CONFIG_ESP_SWD_BOOT_PIN;
     const int boot_deasserted = cfg.boot_assert_level == si::config::assert_level::high ? 0 : 1;
-    ret = gpio_reset_pin(boot_pin);
-    ret = ret ?: gpio_set_pull_mode(boot_pin, GPIO_PULLUP_ONLY);
-    ret = ret ?: gpio_set_level(boot_pin, boot_deasserted);
-    ret = ret ?: gpio_set_direction(boot_pin, GPIO_MODE_OUTPUT);
+    ret = setup_control_pin(boot_pin, boot_deasserted);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "session: cannot configure target boot GPIO %d: %s", (int)boot_pin, esp_err_to_name(ret));
         return ret;

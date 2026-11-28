@@ -609,6 +609,7 @@ namespace qjs_binder
             strlcpy(s.why, why ? why : "", sizeof(s.why));
             s.repost = qjs_esp_loop_post(g.loop, async_done, &s, pdMS_TO_TICKS(10)) != ESP_OK;
             if (s.repost) { // kept: dropping it would leave the promise and the slot taken for good
+                g.async_repost = true;
                 ESP_LOGW(TAG, "JS queue full, async result posted later");
             }
         }
@@ -617,13 +618,22 @@ namespace qjs_binder
 
     void priv::retry_async_posts()
     {
+        // Every owner tick: lock-free unless a post is actually waiting
+        if (!g.async_repost.exchange(false)) {
+            return;
+        }
+        bool left = false;
         xSemaphoreTake(g.loop_lock, portMAX_DELAY);
         for (auto &s : g.slots) {
             if (g.loop && s.used && s.repost) {
                 s.repost = qjs_esp_loop_post(g.loop, async_done, &s, 0) != ESP_OK;
+                left = left || s.repost;
             }
         }
         xSemaphoreGive(g.loop_lock);
+        if (left) {
+            g.async_repost = true;
+        }
     }
 
     esp_err_t priv::execute(const req &r, js_target *t, cancel_fn cancelled)

@@ -189,6 +189,7 @@ namespace qjs_binder::priv
         bool hook_active;            // a hook is in flight
         uint32_t seq;
         async_slot slots[MAX_ASYNC];
+        std::atomic<bool> async_repost; // some slot's result waits for a repost: retry_async_posts() has work
 
         const uint8_t *script;
         size_t script_len;

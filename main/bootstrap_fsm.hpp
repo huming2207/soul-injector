@@ -54,7 +54,7 @@ private:
 
 private:
     void run_fsm_task();
-    void run_job();
+    bool run_job();
     void show_auto_run_refused();
     void update_target_detect();
     bool swd_target_arrived();

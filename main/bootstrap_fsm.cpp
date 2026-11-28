@@ -286,11 +286,9 @@ void bootstrap_fsm::run_fsm_task()
         return;
     }
 
-    run_job();
-    // An edge during the run is dropped, not queued; and the target was there
-    // for the run, so SWD polling waits for it to go away before the next one.
-    xEventGroupClearBits(evt_group, BIT_DETECTED);
-    swd_present = true;
+    // The target was there for the run (unless it found none), so SWD
+    // polling waits for it to go away before the next one
+    swd_present = run_job();
     swd_absent_since_us = 0;
 }
 
@@ -347,7 +345,8 @@ void bootstrap_fsm::show_auto_run_refused()
     }
 }
 
-void bootstrap_fsm::run_job()
+// true: a target was there (the run didn't fail for want of one)
+bool bootstrap_fsm::run_job()
 {
     auto *flasher = offline_flasher::instance();
     int64_t start_us = esp_timer_get_time();
@@ -372,7 +371,14 @@ void bootstrap_fsm::run_job()
     target_lines::isolate();
     esp_pm_lock_release(run_pm_lock);
     uint32_t duration_ms = (esp_timer_get_time() - start_us) / 1000;
+    // An edge during the run is dropped, not queued: cleared while the run
+    // still counts as running, so an edge after it (logged ": run") stays
+    xEventGroupClearBits(evt_group, BIT_DETECTED);
+    // "No board found", not a cancel during the search: the target wasn't there
+    const bool no_target = ret != ESP_OK && flasher->get_failed_state() == flasher::DETECT &&
+                           !job_controller::instance()->cancel_requested();
     job_controller::instance()->finish_run(ret, flasher->get_failed_state(), duration_ms);
+    return !no_target;
 }
 
 void bootstrap_fsm::io_isr_handler(void *_ctx)

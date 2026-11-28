@@ -229,12 +229,17 @@ namespace qjs_binder
         size_t len = 0;
         if (JS_IsException(s)) {
             JSValue e = JS_GetException(ctx);
+            ends_runtime(e); // out of memory: the loop stops, as it must
             const char *msg = JS_ToCString(ctx, e);
-            len = snprintf(out, cap, "\"(not JSON: %s)\"", msg ? msg : "?");
+            if (!msg) {
+                drop_exception(ctx);
+            }
+            char text[128];
+            snprintf(text, sizeof(text), "(not JSON: %s)", msg ? msg : "?");
             JS_FreeCString(ctx, msg);
             JS_FreeValue(ctx, e);
             *truncated = false;
-            return std::min(len, cap - 1);
+            return json_str(out, cap, text); // escaped, and closed even when cut
         }
         if (JS_IsUndefined(s)) {
             str = "undefined";
@@ -483,8 +488,11 @@ namespace qjs_binder
         xSemaphoreGive(g.loop_lock);
         bool wanted = g.stop_wanted.load();
         if (!wanted) {
-            char json[96];
-            snprintf(json, sizeof(json), "{\"reason\":\"%s\"}", stop_text(why));
+            // The loop's error text can be long and hold quotes: escaped, and cut short of the closing }
+            char json[160];
+            size_t n = snprintf(json, sizeof(json), "{\"reason\":");
+            n += json_str(json + n, sizeof(json) - n - 1, stop_text(why));
+            strlcpy(json + n, "}", sizeof(json) - n);
             emit("runtime", json, 0, false);
             ESP_LOGW(TAG, "runtime ended: %s", stop_text(why));
         }
@@ -526,6 +534,9 @@ namespace qjs_binder
             n += snprintf(json + n, sizeof(json) - n, ",\"data\":");
             bool cut = false;
             size_t m = to_json(ctx, argv[1], json + n, sizeof(json) - n - 1, &cut);
+            if (m == 9 && memcmp(json + n, "undefined", 9) == 0) { // a function or a Symbol: no JSON value
+                m = strlcpy(json + n, "null", sizeof(json) - n);
+            }
             if (cut || n + m + 1 > EVENT_JSON_MAX) {
                 return JS_ThrowRangeError(ctx, "emit: data too big, the event has room for about %u bytes of JSON",
                                           (unsigned)(EVENT_JSON_MAX - n - 1));

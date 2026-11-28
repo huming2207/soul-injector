@@ -144,8 +144,9 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
 
     // Attach must not reset the target unless asked (sidp_backend.hpp); swd_init_debug()
     // pulses nRST between retries, which wiped a sleeping target's state.
-    ret = params.connect_under_reset ? connect_under_reset(params.halt_after_attach)
-                                     : swd_attach_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
+    // Under reset it stays halted until the attach has read what it needs: a
+    // target that turns SWD off as soon as it runs would refuse those reads.
+    ret = params.connect_under_reset ? connect_under_reset(true) : swd_attach_debug(pdMS_TO_TICKS(SWD_LOCK_TIMEOUT_MS));
     if (params.connect_under_reset) {
         // The reset it went through ended any hold from boot (or the attach
         // failed): what's left of the hold is its no-light-sleep lock
@@ -159,6 +160,12 @@ esp_err_t sidp_swd_backend::attach(const sidp::attach_params_t &params, sidp::at
     }
 
     ret = read_target_info(info);
+    if (ret == ESP_OK && params.connect_under_reset && !params.halt_after_attach) {
+        // The reset catch left VCATCH in DFSR: not a stop of the session's
+        ret = swd_write_word(DFSR_ADDR, DFSR_CLEAR_ALL);
+        ret = ret ?: write_control(0);
+        ret = ret == ESP_OK ? ESP_OK : link_error(ret);
+    }
     if (ret != ESP_OK) {
         swd_off();
         release_target();

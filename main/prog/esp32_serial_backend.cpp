@@ -532,8 +532,13 @@ esp_err_t esp32_serial_backend::program_one_image(const char *path, uint32_t off
             return loader_err_to_esp(err);
         }
         file_remaining -= want;
-        if (on_progress != nullptr) {
-            on_progress(real_len - file_remaining, real_len);
+        if (on_progress != nullptr) { // across all the job's images when their sizes are known
+            const uint32_t done = real_len - file_remaining;
+            if (progress_total != 0) {
+                on_progress(progress_base + done, progress_total);
+            } else {
+                on_progress(done, real_len);
+            }
         }
     }
     fclose(file);
@@ -652,15 +657,31 @@ esp_err_t esp32_serial_backend::program(uint32_t *written_len)
     }
 
     const si::config::target_config &cfg = fw_asset_manager::instance()->config();
+    // One progress bar for all the images: their sizes up front. A size we
+    // can't get falls back to each image's own 0..100 %.
+    progress_base = 0;
+    progress_total = 0;
+    for (size_t i = 0; i < cfg.image_count; i++) {
+        struct stat st = {};
+        if (stat(cfg.images[i].path, &st) != 0 || st.st_size <= 0 ||
+            static_cast<uint64_t>(st.st_size) > UINT32_MAX - progress_total) {
+            progress_total = 0;
+            break;
+        }
+        progress_total += static_cast<uint32_t>(st.st_size);
+    }
     uint32_t total = 0;
     for (size_t i = 0; i < cfg.image_count; i++) {
         uint32_t one = 0;
         ret = program_one_image(cfg.images[i].path, cfg.images[i].offset, &one);
         if (ret != ESP_OK) {
+            progress_total = 0;
             return ret;
         }
         total += one;
+        progress_base += one;
     }
+    progress_total = 0;
 
     if (written_len != nullptr) {
         *written_len = total;

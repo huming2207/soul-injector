@@ -77,6 +77,8 @@ private:
     esp_loader_t loader = {};
     bool connected = false;
     uint32_t flash_limit = 0;
+    uint32_t progress_base = 0;  // program(): bytes of the images before this one
+    uint32_t progress_total = 0; // program(): all images' bytes, 0 if unknown
 
     /** Static staging blocks (no heap in the hot path; singleton lives in .bss). */
     uint8_t block[4096] = {};

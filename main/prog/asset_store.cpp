@@ -183,6 +183,7 @@ esp_err_t asset_store::begin(const char *new_name, uint32_t new_size, const uint
     }
     if (fp == nullptr) {
         ESP_LOGE(TAG, "begin: cannot create %s", part_path);
+        unlink(part_path); // the contiguous file may exist without its handle
         psa_hash_abort(&hash);
         return ESP_FAIL;
     }

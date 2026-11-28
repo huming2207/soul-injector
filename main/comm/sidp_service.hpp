@@ -146,6 +146,7 @@ private:
     static const constexpr int KEEP_ALIVE_COUNT = 3;
     static const constexpr uint32_t LOGIN_SESSION_ID = 1;
     // Each wrong password costs this long, which makes guessing slow.
-    static const constexpr uint32_t LOGIN_FAIL_DELAY_MS = 1000;
+    static const constexpr uint32_t LOGIN_FAIL_DELAY_MS = 1000; // logins refused this long after a failed one
+    int64_t login_retry_us = 0;
     static const constexpr char *TAG = "sidp_svc";
 };

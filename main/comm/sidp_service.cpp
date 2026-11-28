@@ -325,6 +325,12 @@ sidp::status_t sidp_service::op_login(std::span<const uint8_t> payload, pb_ostre
     if (login == nullptr) {
         return sidp::STATUS_UNSUPPORTED; // USB needs no login
     }
+    // One try a second after a failure, without stopping this task (trap
+    // watches and the USB link run on it): refused, not delayed
+    if (esp_timer_get_time() < login_retry_us) {
+        logged_in = false;
+        return sidp::STATUS_UNAUTHORIZED;
+    }
 
     const protocomm_security2_params_t params = {
         .salt = reinterpret_cast<const char *>(net_cfg.password_salt.bytes),
@@ -344,7 +350,7 @@ sidp::status_t sidp_service::op_login(std::span<const uint8_t> payload, pb_ostre
         ESP_LOGW(TAG, "op_login: login failed");
         protocomm_security2.close_transport_session(login, LOGIN_SESSION_ID);
         protocomm_security2.new_transport_session(login, LOGIN_SESSION_ID);
-        vTaskDelay(pdMS_TO_TICKS(LOGIN_FAIL_DELAY_MS));
+        login_retry_us = esp_timer_get_time() + LOGIN_FAIL_DELAY_MS * 1000LL;
         return sidp::STATUS_UNAUTHORIZED;
     }
 

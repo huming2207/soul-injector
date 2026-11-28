@@ -180,12 +180,10 @@ bool job_controller::begin_auto_run()
     return start;
 }
 
+// No mutex: the detect-input timer calls this, and must not wait on a job push.
 bool job_controller::is_running()
 {
-    lock();
-    bool ret = running;
-    unlock();
-    return ret;
+    return running.load();
 }
 
 esp_err_t job_controller::begin_debug()

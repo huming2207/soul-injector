@@ -46,7 +46,14 @@ esp_err_t bootstrap_fsm::init()
     }
 
     io_debounce_timer = xTimerCreate("io_debounce", pdMS_TO_TICKS(50), pdFALSE, this, io_debounce_handler);
-    if (io_debounce_timer == nullptr) {
+    const esp_timer_create_args_t retry_args = {
+        .callback = io_debounce_retry,
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "io_retry",
+        .skip_unhandled_events = true,
+    };
+    if (io_debounce_timer == nullptr || esp_timer_create(&retry_args, &io_debounce_retry_timer) != ESP_OK) {
         ESP_LOGE(TAG, "Can't create debounce timer");
         return ESP_FAIL;
     }
@@ -81,6 +88,9 @@ esp_err_t bootstrap_fsm::init()
         ESP_LOGE(TAG, "Job scripts unavailable: 0x%x %s", js_ret, esp_err_to_name(js_ret));
     }
     ret = job_controller::instance()->init(evt_group, BIT_RUN_REQUEST, BIT_TRIGGER_CHANGED);
+    if (ret == ESP_OK) {
+        arm_target_detect(); // only now: an edge needs the job controller and the saved trigger
+    }
     ret = ret ?: setup_usb();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set up USB/SIDP: 0x%x %s", ret, esp_err_to_name(ret));
@@ -146,12 +156,20 @@ esp_err_t bootstrap_fsm::setup_io_pins()
         return ret;
     }
 
+    // The detect input is armed by arm_target_detect(), once job_controller is up
     last_det_state = gpio_get_level(DET_IO_PIN);
-    arm_io_pin(DET_IO_PIN, last_det_state);
     if (PLUG_DET_PIN != GPIO_NUM_NC) {
         update_usb_power();
     }
     return ESP_OK;
+}
+
+void bootstrap_fsm::arm_target_detect()
+{
+    gpio_intr_disable(DET_IO_PIN); // the debounce handler may run meanwhile (USB plug)
+    last_det_state = gpio_get_level(DET_IO_PIN);
+    det_ready = true;
+    arm_io_pin(DET_IO_PIN, last_det_state);
 }
 
 esp_err_t bootstrap_fsm::setup_storage()
@@ -358,9 +376,20 @@ void bootstrap_fsm::io_isr_handler(void *_ctx)
     }
 
     BaseType_t higher_priority_waken = pdFALSE;
-    xTimerStartFromISR(ctx->io_debounce_timer, &higher_priority_waken);
+    if (xTimerStartFromISR(ctx->io_debounce_timer, &higher_priority_waken) != pdPASS) {
+        // Timer queue full: without the debounce the pins would stay masked for good
+        esp_timer_start_once(ctx->io_debounce_retry_timer, RETRY_US);
+    }
     if (higher_priority_waken == pdTRUE) {
         portYIELD_FROM_ISR();
+    }
+}
+
+void bootstrap_fsm::io_debounce_retry(void *_ctx)
+{
+    auto *ctx = static_cast<bootstrap_fsm *>(_ctx);
+    if (xTimerStart(ctx->io_debounce_timer, 0) != pdPASS) {
+        esp_timer_start_once(ctx->io_debounce_retry_timer, RETRY_US);
     }
 }
 
@@ -383,6 +412,9 @@ void bootstrap_fsm::arm_io_pin(gpio_num_t pin, int level)
 
 void bootstrap_fsm::update_target_detect()
 {
+    if (!det_ready) {
+        return; // a USB plug edge before the detect input is armed
+    }
     bool state = gpio_get_level(DET_IO_PIN);
     if (state != last_det_state) {
         last_det_state = state;

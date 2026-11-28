@@ -113,7 +113,7 @@ private:
     bool debugging = false;
     // Written under the mutex; read without it too (the detect-input timer mustn't wait on a job push).
     std::atomic<si_manage_Trigger> trigger = si_manage_Trigger_TRIGGER_DETECT_FALLING; // until NVS says otherwise
-    bool running = false;
+    std::atomic<bool> running = false; // as trigger: is_running() reads it without the mutex
     si_manage_Trigger current_trigger = si_manage_Trigger_TRIGGER_MANUAL; // What started the current run
     uint32_t last_run_id = 0;
     std::atomic<bool> cancel_flag = false;

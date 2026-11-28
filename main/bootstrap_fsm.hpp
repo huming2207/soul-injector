@@ -7,8 +7,9 @@
 #include <esp_err.h>
 #include <esp_pm.h>
 #include <soc/gpio_num.h>
+#include <atomic>
+#include <esp_timer.h>
 #include "wear_levelling.h"
-#include "mqtt_client.hpp"
 #include "display_manager.hpp"
 #include <tinyusb.h>
 #include <tinyusb_default_config.h>
@@ -47,6 +48,8 @@ private:
     static void fsm_task_handler(void *_ctx);
     static void io_isr_handler(void *_ctx);
     static void io_debounce_handler(TimerHandle_t timer_handle);
+    static void io_debounce_retry(void *_ctx);
+    void arm_target_detect();
     static void arm_io_pin(gpio_num_t pin, int level);
 
 private:
@@ -67,6 +70,10 @@ private:
     wl_handle_t wl_handle = WL_INVALID_HANDLE;
     TaskHandle_t fsm_task = nullptr;
     TimerHandle_t io_debounce_timer = nullptr;
+    // The ISR masks both detect pins until the debounce timer runs. If the
+    // timer queue is full the ISR can't start it: this starts it a little later.
+    esp_timer_handle_t io_debounce_retry_timer = nullptr;
+    std::atomic<bool> det_ready = false; // job_controller is up: detect edges may start runs
     EventGroupHandle_t evt_group = nullptr;
     display_manager *display = nullptr;
     si_ui *composer = nullptr;
@@ -80,5 +87,6 @@ private:
     static const constexpr uint32_t TRAP_YIELD_WAIT_MS = 2000;
     static const constexpr uint32_t SWD_POLL_MS = 500;  // TRIGGER_DETECT_SWD probe period
     static const constexpr uint32_t SWD_GONE_MS = 1000; // no answer this long: the target went away
+    static const constexpr uint64_t RETRY_US = 10000;   // io_debounce_retry_timer
     static const constexpr char DATA_PARTITION_LABEL[] = "data";
 };

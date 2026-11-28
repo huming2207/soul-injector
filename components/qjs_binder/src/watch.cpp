@@ -961,6 +961,7 @@ namespace qjs_binder::priv
         const char *note = nullptr;
         const char *action = apply(v, t, &note);
         e.waiting = false;
+        e.wait_orphaned = false;
         emit_watch(e.w, action, handler, false, note);
     }
 
@@ -1023,7 +1024,7 @@ namespace qjs_binder::priv
             }
         }
         if (e.waiting) {
-            if (!g.alive) {
+            if (!g.alive || e.wait_orphaned) {
                 finish_wait(V_HOLD, "runtime ended", t);
             } else if (now >= e.w_until_us) {
                 finish_wait(V_HOLD, "timeout", t);

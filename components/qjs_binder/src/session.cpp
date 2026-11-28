@@ -689,6 +689,9 @@ namespace qjs_binder
             ESP_LOGE(TAG, "JS task didn't stop the session runtime, scripts off until reboot");
             return ESP_ERR_TIMEOUT;
         }
+        // A watch holding the target for this runtime's handler gets no
+        // verdict now; the next poll settles it even if a new runtime is up
+        g.eng.wait_orphaned = g.eng.waiting;
         return ESP_OK;
     }
 

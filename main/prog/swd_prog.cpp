@@ -987,7 +987,9 @@ esp_err_t swd_prog::check_flash_args(flash_access op, uint32_t addr, uint32_t le
                      (unsigned long)s, (unsigned long)size);
         } else {
             uint32_t a = addr, n = 0;
-            while (n < len && fa.sector_at(a, &s, &size)) {
+            // Without a sector map the page grid may leave a last partial
+            // page: never erase past flash_end
+            while (n < len && fa.sector_at(a, &s, &size) && size <= end - s) {
                 a = s + size;
                 n++;
             }

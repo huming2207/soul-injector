@@ -132,6 +132,12 @@ namespace
     {
         const pb_size_t n = algo.sectors_count;
         if (n == 0) {
+            // The page grid then: only a range that isn't one is refused
+            if (algo.has_flash_start && algo.has_flash_end && algo.flash_end <= algo.flash_start) {
+                ESP_LOGE(TAG, "algorithm '%s': flash_end 0x%lx isn't past flash_start 0x%lx", algo.name,
+                         (unsigned long)algo.flash_end, (unsigned long)algo.flash_start);
+                return ESP_ERR_INVALID_ARG;
+            }
             return ESP_OK;
         }
         if (!algo.has_flash_start || !algo.has_flash_end || algo.flash_end <= algo.flash_start) {

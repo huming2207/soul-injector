@@ -17,6 +17,7 @@ public:
     esp_err_t display_starting() override { return ESP_OK; }
     esp_err_t display_connecting() override { return ESP_OK; }
     esp_err_t display_verify() override { return ESP_OK; }
+    esp_err_t display_finishing() override { return ESP_OK; }
     esp_err_t display_notice(const char *, const char *) override { return ESP_OK; }
     void set_progress(uint32_t, uint32_t) override {}
 };

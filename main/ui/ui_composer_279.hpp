@@ -33,6 +33,7 @@ public:
     esp_err_t display_starting() override;
     esp_err_t display_connecting() override;
     esp_err_t display_verify() override;
+    esp_err_t display_finishing() override;
     esp_err_t display_notice(const char *title, const char *detail) override;
     void set_progress(uint32_t done, uint32_t total) override;
 

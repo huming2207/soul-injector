@@ -135,6 +135,11 @@ esp_err_t ui_composer_279::display_verify()
     return post(ui_screens::checking());
 }
 
+esp_err_t ui_composer_279::display_finishing()
+{
+    return post(ui_screens::finishing());
+}
+
 esp_err_t ui_composer_279::display_test(size_t done, size_t total, const char *test_msg)
 {
     return post(ui_screens::testing(done, total, test_msg));

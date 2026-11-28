@@ -14,6 +14,8 @@ public:
     virtual esp_err_t display_connecting() = 0;
     // The written firmware is being read back.
     virtual esp_err_t display_verify() = 0;
+    // The job's last steps (post-program procedure or script hook) are running.
+    virtual esp_err_t display_finishing() = 0;
     // The device, not the board, needs attention: no job, log full, ...
     virtual esp_err_t display_notice(const char *title, const char *detail) = 0;
     // Progress of the step on screen; cheap enough to call for every block written.

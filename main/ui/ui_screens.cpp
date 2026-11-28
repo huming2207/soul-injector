@@ -70,6 +70,11 @@ namespace ui_screens
         return make(ui_model::tone::neutral, "PROGRAMMING", "Checking", "Reading the firmware back");
     }
 
+    ui_model finishing()
+    {
+        return make(ui_model::tone::neutral, "PROGRAMMING", "Finishing", "Running the job's last steps");
+    }
+
     ui_model testing(size_t done, size_t total, const char *what)
     {
         char detail[64] = {};

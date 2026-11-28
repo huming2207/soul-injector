@@ -35,6 +35,7 @@ namespace ui_screens
     ui_model erasing(int progress);
     ui_model writing(int progress);
     ui_model checking();
+    ui_model finishing();
     ui_model testing(size_t done, size_t total, const char *what);
     ui_model passed();
     ui_model failed(const char *title, const char *detail);
